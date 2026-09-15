@@ -11,6 +11,7 @@ import io
 import json
 import os
 import re
+import subprocess
 import tarfile
 from pathlib import Path
 
@@ -43,6 +44,10 @@ def build(args):
         raise ValueError("Bootstrap requires a pinned RSA public key of at least 3072 bits")
     if not re.fullmatch(r"[a-f0-9]{40}", args.source_sha) or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", args.repository):
         raise ValueError("An exact source revision and GitHub repository are required")
+    actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    dirty = subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"], cwd=ROOT, text=True)
+    if actual != args.source_sha or dirty:
+        raise ValueError("Release assembly requires the exact clean source commit")
     version = json.loads((ROOT/"bridge/manifest.json").read_text())["version"]
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise ValueError("Invalid release version")

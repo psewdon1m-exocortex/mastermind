@@ -24,7 +24,9 @@ server {
     add_header X-Content-Type-Options nosniff always;
     add_header Strict-Transport-Security "max-age=31536000" always;
 
-    location = /healthz { return 404; }
+    location = /healthz {
+        include /opt/exocortex/mastermind/packaging/nginx/mastermind-proxy.conf;
+    }
     location = /readyz { return 404; }
     location ^~ /internal/ { return 404; }
     location ^~ /api/internal/ { return 404; }

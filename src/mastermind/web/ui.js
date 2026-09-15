@@ -9,7 +9,7 @@ export function notice(message,error=false){const node=document.createElement('d
 export async function api(route,{method='GET',body,headers={},signal=state.viewController?.signal,allow401=false}={}){
   const response=await fetch(route,{method,credentials:'same-origin',signal,headers:{...(body!==undefined?{'Content-Type':'application/json'}:{}),
     ...(state.session&&method!=='GET'?{'X-CSRF-Token':state.session.csrf}:{}),...headers},...(body!==undefined?{body:JSON.stringify(body)}:{})});
-  const data=await response.json();if(!response.ok){const error=new Error(data.error?.message||'Request could not be completed.');error.code=data.error?.code;error.status=response.status;
+  const data=await response.json().catch(()=>null);if(!response.ok||data===null){const error=new Error(data?.error?.message||(response.status>=500?'Service is temporarily unavailable. Retry when it reconnects.':'Request could not be completed.'));error.code=data?.error?.code;error.status=response.status;
     if(response.status===401&&state.session&&!allow401){state.session=null;document.dispatchEvent(new Event('session-expired'));}throw error;}return data;
 }
 export function bind(root,event,selector,handler){const listener=async e=>{const target=e.target.closest(selector);if(!target||!root.contains(target))return;

@@ -1,0 +1,13 @@
+title = "Mastermind source and release scanning"
+[extend]
+useDefault = true
+
+# Reviewed documentation prose, not a credential. Keep this exemption limited
+# to the exact extracted phrase, rule and requirements filenames.
+[[allowlists]]
+description = "Requirements table describes revoke/repair/idempotency"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''(?:^|/)(?:mastermind_service_requirements_final|requirements)\.md$''']
+regexTarget = "secret"
+regexes = ['''^revoke/repair/idempotency$''']

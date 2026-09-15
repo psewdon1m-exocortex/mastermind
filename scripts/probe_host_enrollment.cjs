@@ -1,7 +1,7 @@
 // Actual Settings -> host Updater -> signed Neptune installation -> Saturn.
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const {execFileSync}=require('node:child_process');
-const {chromium}=require('C:/Users/pc/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const {chromium}=require('./lib/browser.cjs');
 const root=path.resolve(__dirname,'..'),origin='https://mastermind.qualification.test';
 (async()=>{
   const key=execFileSync('docker',['exec','mastermind-qualification-host','cat','/opt/exocortex/mastermind/secrets/core/bootstrap_access_key'],{encoding:'utf8'});

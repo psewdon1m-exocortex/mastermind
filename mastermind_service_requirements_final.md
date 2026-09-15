@@ -4,7 +4,7 @@
 **Версия документа:** 2.0 (не версия релиза сервиса).  
 **Дата:** 2026-09-14.  
 **Основа:** [адаптированная концепция](mastermind_service_requirements_adapted.md) и ответы владельца по MM-Q01–MM-Q20.  
-**Общие требования:** [.docs / Part 00](../.docs/PART_00_SYSTEM_UNIFICATION_SPECIFICATION.md).
+**Общие требования:** [.docs / Part 00](docs/policy/PART_00_SYSTEM_UNIFICATION_SPECIFICATION.md).
 
 Навигация: [область и правила](#section-0), [архитектура](#section-5), [UI/Vault](#section-13), [Shares](#section-47), [Crusher](#section-58), [placement](#section-71), [writes](#section-80), [recovery](#section-86), [Neptune](#section-139), [Updater](#section-140), [limits](#section-141), [принятые решения](#section-146), [точные версии](#section-147), [изменения соседних систем](#section-148).
 
@@ -24,20 +24,20 @@
 
 | Part | Применимость |
 | --- | --- |
-| [00 — Authority](../.docs/PART_00_SYSTEM_UNIFICATION_SPECIFICATION.md) | Области ответственности, applicability, evidence и изменение контрактов |
-| [01 — Interface](../.docs/PART_01_INTERFACE_AND_INTERACTION_UNIFICATION.md) | Весь собственный UI; содержимое вкладки Vault является утверждённым исключением и наследует Obsidian UI/UX |
+| [00 — Authority](docs/policy/PART_00_SYSTEM_UNIFICATION_SPECIFICATION.md) | Области ответственности, applicability, evidence и изменение контрактов |
+| [01 — Interface](docs/policy/PART_01_INTERFACE_AND_INTERACTION_UNIFICATION.md) | Весь собственный UI; содержимое вкладки Vault является утверждённым исключением и наследует Obsidian UI/UX |
 | 01 — Node canvas / correlation graph | Node project/revision model не применяется к Markdown; общие требования взаимодействия применяются к собственному графу, его формула остаётся из §37 |
-| [02 — Observability](../.docs/PART_02_OBSERVABILITY_AUDIT_AND_LOG_EXPORT.md) | Logs/audit/export; Activity хранится отдельно как пользовательские данные |
-| [03 — Recovery](../.docs/PART_03_BACKUP_AND_RECOVERY.md) | Полный согласованный logical ZIP; пользовательский Vault сохраняется как непрозрачный зашифрованный payload, включая .obsidian (§§14, 86, 137) |
-| [04 — Deployment](../.docs/PART_04_BOOTSTRAP_AND_DEPLOYMENT.md) | Самостоятельный bootstrap, environment, mounts и host ingress |
-| [05 — Releases/Updater](../.docs/PART_05_CI_RELEASES_AND_LOCAL_UPDATES.md) | Подписанный комплект компонентов; typed Mastermind profile и большой streaming backup (§140) |
-| [06 — Acceptance](../.docs/PART_06_UNIFIED_ACCEPTANCE_CHECKLIST.md) | Семь областей pre-push и полный DoD |
-| [07 — Security](../.docs/PART_07_SECURITY_AND_EXPOSURE_CONTROL.md) | Все собственные principals, routes, credentials и untrusted inputs; существующие secrets/plugins внутри Vault не мигрируются и не переписываются |
-| [08 — SEO/GEO](../.docs/PART_08_SEO_AND_GEO.md) | Индексируемых страниц нет; правила обнаружения/продвижения N/A, запрет индексации и exposure checks обязательны |
-| [09 — Agents lifecycle](../.docs/PART_09_SERVICE_AGENTS_DEPLOYMENT_AND_LIFECYCLE.md) | Один host Neptune, Updater, typed enrollment с двумя pipelines |
-| [10 — Agents UI](../.docs/PART_10_SERVICE_AGENTS_UI_AND_OPERATOR_WORKFLOWS.md) | Settings Backup/Updates; расписания принадлежат Saturn |
-| [11 — Initial profile](../.docs/PART_11_INITIAL_MULTI_SERVICE_DEPLOYMENT.md) | Общие совместимые механизмы; продуктовые версии и recovery другого сервиса не копируются |
-| [12 — Known problems](../.docs/PART_12_KNOWN_DEPLOYMENT_AND_OPERATIONS_PROBLEMS.md) | Каждый active ID получает evidence на точной ревизии кандидата |
+| [02 — Observability](docs/policy/PART_02_OBSERVABILITY_AUDIT_AND_LOG_EXPORT.md) | Logs/audit/export; Activity хранится отдельно как пользовательские данные |
+| [03 — Recovery](docs/policy/PART_03_BACKUP_AND_RECOVERY.md) | Полный согласованный logical ZIP; пользовательский Vault сохраняется как непрозрачный зашифрованный payload, включая .obsidian (§§14, 86, 137) |
+| [04 — Deployment](docs/policy/PART_04_BOOTSTRAP_AND_DEPLOYMENT.md) | Самостоятельный bootstrap, environment, mounts и host ingress |
+| [05 — Releases/Updater](docs/policy/PART_05_CI_RELEASES_AND_LOCAL_UPDATES.md) | Подписанный комплект компонентов; typed Mastermind profile и большой streaming backup (§140) |
+| [06 — Acceptance](docs/policy/PART_06_UNIFIED_ACCEPTANCE_CHECKLIST.md) | Семь областей pre-push и полный DoD |
+| [07 — Security](docs/policy/PART_07_SECURITY_AND_EXPOSURE_CONTROL.md) | Все собственные principals, routes, credentials и untrusted inputs; существующие secrets/plugins внутри Vault не мигрируются и не переписываются |
+| [08 — SEO/GEO](docs/policy/PART_08_SEO_AND_GEO.md) | Индексируемых страниц нет; правила обнаружения/продвижения N/A, запрет индексации и exposure checks обязательны |
+| [09 — Agents lifecycle](docs/policy/PART_09_SERVICE_AGENTS_DEPLOYMENT_AND_LIFECYCLE.md) | Один host Neptune, Updater, typed enrollment с двумя pipelines |
+| [10 — Agents UI](docs/policy/PART_10_SERVICE_AGENTS_UI_AND_OPERATOR_WORKFLOWS.md) | Settings Backup/Updates; расписания принадлежат Saturn |
+| [11 — Initial profile](docs/policy/PART_11_INITIAL_MULTI_SERVICE_DEPLOYMENT.md) | Общие совместимые механизмы; продуктовые версии и recovery другого сервиса не копируются |
+| [12 — Known problems](docs/policy/PART_12_KNOWN_DEPLOYMENT_AND_OPERATIONS_PROBLEMS.md) | Каждый active ID получает evidence на точной ревизии кандидата |
 
 Исключения для Vault UI и сохранения пользовательского .obsidian приняты владельцем. Их необходимо отразить в applicability/decision records общей документации при реализации; повторное продуктовое согласование этих решений не требуется. Изменения API соседних сервисов выполняются и выпускаются в соответствующих репозиториях до зависимого релиза Mastermind.
 
@@ -3749,19 +3749,19 @@ Neptune/Updater local HEAD совпали с соответствующими re
 
 | Part | SHA-256 |
 | --- | --- |
-| [PART_00](../.docs/PART_00_SYSTEM_UNIFICATION_SPECIFICATION.md) | de5c3e3a30efb5c96efd129b6e80fae796c0b51f38230a499237dd3f2aa8a8fe |
-| [PART_01](../.docs/PART_01_INTERFACE_AND_INTERACTION_UNIFICATION.md) | e312ba36d63a55389b9c2172f06207b2da2b65d0f7f2f66e2591598ffd8a125e |
-| [PART_02](../.docs/PART_02_OBSERVABILITY_AUDIT_AND_LOG_EXPORT.md) | 29aca751349f7f0c5e632c1f943f183c716ee6e969bd7eaa7ff6f50f8570d32a |
-| [PART_03](../.docs/PART_03_BACKUP_AND_RECOVERY.md) | 17ffe419f75a227ec827951d6f3d39eb281f0d0060ae8d0ae5a3647b1a537f36 |
-| [PART_04](../.docs/PART_04_BOOTSTRAP_AND_DEPLOYMENT.md) | 768f5f4ff3473f5906fea90ef0fe6db74d4d6b3b017dc00ea5556d0c9e310696 |
-| [PART_05](../.docs/PART_05_CI_RELEASES_AND_LOCAL_UPDATES.md) | 294301cf61b44788f10f7025756861e66d81f6c0d0b3d6747804c1f0c016d0d0 |
-| [PART_06](../.docs/PART_06_UNIFIED_ACCEPTANCE_CHECKLIST.md) | 76ca402d572a47d6bf74685e4da0129c790005895ed6b2e558658bd7730946f3 |
-| [PART_07](../.docs/PART_07_SECURITY_AND_EXPOSURE_CONTROL.md) | 0eeb1b476ad45ea2d0ef48f0d0881e51006db66560684406c58f0d1dec495d5c |
-| [PART_08](../.docs/PART_08_SEO_AND_GEO.md) | f89429750d951d3f8d7d2052c5d267b58ff9fe4f60f65bd374101f6083ee6416 |
-| [PART_09](../.docs/PART_09_SERVICE_AGENTS_DEPLOYMENT_AND_LIFECYCLE.md) | 92a1e91cfd72eb86e70e0c4e81739be52edb98367ac43423da01275eacd90def |
-| [PART_10](../.docs/PART_10_SERVICE_AGENTS_UI_AND_OPERATOR_WORKFLOWS.md) | 02bca5ce723e9504f27351f931ab45f4f32c28a3bd80757d687310233694fdd5 |
-| [PART_11](../.docs/PART_11_INITIAL_MULTI_SERVICE_DEPLOYMENT.md) | 240998e8bb2c4655aaa42e393f7052d9d21e53a1e4bfab53f30ab0840dc9fdb9 |
-| [PART_12](../.docs/PART_12_KNOWN_DEPLOYMENT_AND_OPERATIONS_PROBLEMS.md) | 50c76318747867575935e77fff0520c9517fe513912fef4c8c08944de9562ac5 |
+| [PART_00](docs/policy/PART_00_SYSTEM_UNIFICATION_SPECIFICATION.md) | de5c3e3a30efb5c96efd129b6e80fae796c0b51f38230a499237dd3f2aa8a8fe |
+| [PART_01](docs/policy/PART_01_INTERFACE_AND_INTERACTION_UNIFICATION.md) | e312ba36d63a55389b9c2172f06207b2da2b65d0f7f2f66e2591598ffd8a125e |
+| [PART_02](docs/policy/PART_02_OBSERVABILITY_AUDIT_AND_LOG_EXPORT.md) | 29aca751349f7f0c5e632c1f943f183c716ee6e969bd7eaa7ff6f50f8570d32a |
+| [PART_03](docs/policy/PART_03_BACKUP_AND_RECOVERY.md) | 17ffe419f75a227ec827951d6f3d39eb281f0d0060ae8d0ae5a3647b1a537f36 |
+| [PART_04](docs/policy/PART_04_BOOTSTRAP_AND_DEPLOYMENT.md) | 768f5f4ff3473f5906fea90ef0fe6db74d4d6b3b017dc00ea5556d0c9e310696 |
+| [PART_05](docs/policy/PART_05_CI_RELEASES_AND_LOCAL_UPDATES.md) | 294301cf61b44788f10f7025756861e66d81f6c0d0b3d6747804c1f0c016d0d0 |
+| [PART_06](docs/policy/PART_06_UNIFIED_ACCEPTANCE_CHECKLIST.md) | 76ca402d572a47d6bf74685e4da0129c790005895ed6b2e558658bd7730946f3 |
+| [PART_07](docs/policy/PART_07_SECURITY_AND_EXPOSURE_CONTROL.md) | 0eeb1b476ad45ea2d0ef48f0d0881e51006db66560684406c58f0d1dec495d5c |
+| [PART_08](docs/policy/PART_08_SEO_AND_GEO.md) | f89429750d951d3f8d7d2052c5d267b58ff9fe4f60f65bd374101f6083ee6416 |
+| [PART_09](docs/policy/PART_09_SERVICE_AGENTS_DEPLOYMENT_AND_LIFECYCLE.md) | 92a1e91cfd72eb86e70e0c4e81739be52edb98367ac43423da01275eacd90def |
+| [PART_10](docs/policy/PART_10_SERVICE_AGENTS_UI_AND_OPERATOR_WORKFLOWS.md) | 02bca5ce723e9504f27351f931ab45f4f32c28a3bd80757d687310233694fdd5 |
+| [PART_11](docs/policy/PART_11_INITIAL_MULTI_SERVICE_DEPLOYMENT.md) | 240998e8bb2c4655aaa42e393f7052d9d21e53a1e4bfab53f30ab0840dc9fdb9 |
+| [PART_12](docs/policy/PART_12_KNOWN_DEPLOYMENT_AND_OPERATIONS_PROBLEMS.md) | 50c76318747867575935e77fff0520c9517fe513912fef4c8c08944de9562ac5 |
 
 Основа адаптации: mastermind_service_requirements_adapted.md SHA-256 bd9402636ae6674662cce0e815eb4fc697e67319577217ccb40a6ed451d3a209. Исходное ТЗ: f7b16e08594e4554eb027a741fe8f66dfc28fb384edb422e33f2677aaf14bee4. Эти файлы не изменяются данной редакцией.
 

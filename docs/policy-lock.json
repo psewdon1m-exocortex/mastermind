@@ -16,5 +16,29 @@
     "PART_10_SERVICE_AGENTS_UI_AND_OPERATOR_WORKFLOWS.md": "02bca5ce723e9504f27351f931ab45f4f32c28a3bd80757d687310233694fdd5",
     "PART_11_INITIAL_MULTI_SERVICE_DEPLOYMENT.md": "240998e8bb2c4655aaa42e393f7052d9d21e53a1e4bfab53f30ab0840dc9fdb9",
     "PART_12_KNOWN_DEPLOYMENT_AND_OPERATIONS_PROBLEMS.md": "50c76318747867575935e77fff0520c9517fe513912fef4c8c08944de9562ac5"
+  },
+  "assets": {
+    "src/backup.png": "eaf3941e22acedea6e6f6d7b314a18dd7928854e4f3039bfc6e830e1085cdd85",
+    "src/bot connection.png": "0afd9e9802d73b4d298a1133c69749beac5bbd0fcfdc062ce23bbbddfbfd28c5",
+    "src/documentation_example.png": "f16366b801e0222923ce427c1e9ebb3b1b8dbd8b8f76ede4961bc9e1891c1954",
+    "src/example - hover - hover 1.png": "8ac83db521cf4d67a54bebbde036e1aa234195abc5f1a40ac29da55bc69970b3",
+    "src/example - hover - hover 2.png": "6cfbb6a6070fc88e6dd4e9f77bb264e34a6365b66775bf63f971d0a4cdd727fb",
+    "src/example - hover - no hover.png": "b1d9d4e680d3d02a2324d052462b44fe25330065b35de940673c4359189954fc",
+    "src/example context menu.png": "1099f0f9df595fcad5b233570c652c949a4bc598ba820f6d6df37837e8fd094e",
+    "src/example dashboard.png": "0a908610bb1c9f29d89848ab0c77618f2ef45761b53718f1da895471e569e437",
+    "src/example Left Menu.png": "4774acbebfe243d9d2a9c5e525f947133b1e76ede04989502cf8f0c2bc5e69f0",
+    "src/example Log in page.png": "c1c579543a28cd0d687926a117a8abb30308455c31ad2c41d2e46948564862aa",
+    "src/Example of left menu and main page side by side, base layer of main page, name of main page.png": "2042d8f4af2f825e67c743ecfb5fbb52478f744e44a2406cbaf6803240a18468",
+    "src/example settings backup.png": "ed7e351d8e80f1e632ac1ed0f8cc113bfd0e14a30d59fcc718647cb3a3ee343a",
+    "src/example settings logs.png": "3b6161a2ca064fcdbe7ff8db71fc777783b7809178c377f8ba0c7803d61e13e3",
+    "src/example settings main.png": "28ee8ae5c2fc9dbb3678471d393eb57dad16e15643a4715d6379a57b08429bd4",
+    "src/example settings updates.png": "45248f663c60f5e92d5105cdf0929caa4d2c507f42ed85f36c996cdc96831ac0",
+    "src/universal card - 1x - title.png": "08e7197ceb774f1887925d1aa4a1eb6ffbfa7155cfceb63dc1af835381d33704",
+    "src/universal card - 1x.png": "b1d9d4e680d3d02a2324d052462b44fe25330065b35de940673c4359189954fc",
+    "src/Universal card - 2x - title.png": "708012efbc94bc62abb6626fab611238de7b0a2e33f69969ccd86f5a85b69ea1",
+    "src/Universal card - 2x.png": "8f763b59ca6c706f0fdfadd760fb01b8cd4b327dfeb376b96491913b998f3451",
+    "src/universal card - 4x - title.png": "1072e1862a938d9adc000d2d2e4e05620d76f8dafbe0fe3644757421c40e4b93",
+    "src/universal card - 4x.png": "cceee195d18600291a7457d23f5380e92a956c3bd53e1a82eb8c040f7105ec3a",
+    "src/updates.png": "b5df26c27c87bbb78947a16587fbf1e7ed9885727aec56240e9a1f85b712439b"
   }
 }

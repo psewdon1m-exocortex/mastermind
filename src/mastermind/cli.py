@@ -141,6 +141,14 @@ def parser():
         if name == "apply":
             command.add_argument("--yes", action="store_true", help="Explicitly confirm replacing current Vault and state")
     commands.add_parser("operation").add_argument("id", help="Inspect a persisted owner or CLI maintenance operation")
+    update = commands.add_parser("update").add_subparsers(dest="action", required=True)
+    for action in ("status", "check", "previous"):
+        update.add_parser(action)
+    apply_update = update.add_parser("apply")
+    apply_update.add_argument("version")
+    version_rollback = update.add_parser("rollback", help="Return to a verified previous version with a fresh backup, preserving compatible current data")
+    version_rollback.add_argument("--job", required=True)
+    version_rollback.add_argument("--yes", action="store_true")
     migration = commands.add_parser("update-migrate", help="Offline typed Updater entry point")
     migration.add_argument("--request", required=True)
     migration.add_argument("--version", required=True)
@@ -152,6 +160,18 @@ def parser():
 
 
 def execute(args, config, client):
+    if args.command == "update":
+        if args.action == "status":
+            return client.call("GET", "/updates"), 0
+        if args.action == "check":
+            return client.call("POST", "/updates/check", data={}), 0
+        if args.action == "previous":
+            return client.call("GET", "/updates/rollback"), 0
+        if args.action == "apply":
+            return client.call("POST", "/updates", data={"version": args.version}), 0
+        if not args.yes:
+            raise DomainError("CONFIRMATION_REQUIRED", "Use --yes to confirm the version rollback and brief service interruption.", 409)
+        return client.call("POST", "/updates/rollback", data={"job_id": args.job}), 0
     if args.command == "doctor":
         report = client.call("GET", "/doctor")
         return report, 0 if report["status"] == "READY" else 1

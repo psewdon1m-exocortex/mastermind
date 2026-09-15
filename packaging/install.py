@@ -168,29 +168,36 @@ def validate_profile(rendered, images, directory):
         if service.get("image") != images[name] or service.get("user") != "10001:10001" \
                 or service.get("read_only") is not True or service.get("privileged") or service.get("network_mode") \
                 or service.get("cap_add") or service.get("devices") or service.get("cap_drop") != ["ALL"] \
+                or service.get("security_opt") != ["no-new-privileges:true"] \
                 or service.get("entrypoint") or service.get("command") or service.get("build"):
             raise ValueError("Component violates the fixed privilege profile: "+name)
         ports = service.get("ports", [])
         if name != "core" and ports or name == "core" and (len(ports) != 1 or ports[0].get("host_ip") != "127.0.0.1"
                 or ports[0].get("target") != 18390 or str(ports[0].get("published")) != "18390"):
             raise ValueError("Component exposes an unsupported port")
-        mounted = {}
+        mounted, targets, binds = {}, set(), set()
+        allowed = {str(directory/"secrets"/name): "/run/mastermind"}
+        if name == "core":
+            allowed.update({"/run/exocortex": "/run/exocortex", "/run/neptune": "/run/neptune"})
         for volume in service.get("volumes", []):
+            if volume.get("target") in targets:
+                raise ValueError("Duplicate component mount target")
+            targets.add(volume.get("target"))
             if volume.get("type") == "volume":
-                if data[name].get(volume["source"]) != volume["target"] or volume["source"] in mounted:
+                if data[name].get(volume["source"]) != volume["target"] or volume["source"] in mounted or volume.get("read_only"):
                     raise ValueError("Component crosses a data boundary")
                 mounted[volume["source"]] = volume["target"]
             elif volume.get("type") == "bind":
                 source = volume["source"]
-                allowed = {str(directory/"secrets"/name): "/run/mastermind"}
-                if name == "core":
-                    allowed.update({"/run/exocortex": "/run/exocortex", "/run/neptune": "/run/neptune"})
                 if not volume.get("read_only") or allowed.get(source) != volume["target"]:
                     raise ValueError("Component requests an unowned host path")
+                binds.add(source)
             else:
                 raise ValueError("Unsupported component mount")
         if mounted != data[name]:
             raise ValueError("A required component data volume is missing")
+        if binds != set(allowed):
+            raise ValueError("A required credential or agent directory is missing")
 
 
 def install(directory):
@@ -238,6 +245,9 @@ def install(directory):
     updater = directory/"vendor/updater"
     if not (updater/"install.sh").is_file() or not (updater/"updater-linux-amd64").is_file():
         raise ValueError("The signed bundle does not contain its qualified host Updater installer")
+    # Application updates may retain these verified bootstrap copies as private
+    # data. Only this explicit host-install action makes the bundled tool executable.
+    os.chmod(updater/"updater-linux-amd64", 0o755)
     run(["sh", str(updater/"install.sh"), "mastermind", str(directory/".env"), str(updater/"updater-linux-amd64")], timeout=180)
     update_env(directory/".env", {"UPDATER_SOCKET_GID": str(grp.getgrnam("updater").gr_gid),
                                  "NEPTUNE_SOCKET_GID": str(grp.getgrnam("neptune-clients").gr_gid)})

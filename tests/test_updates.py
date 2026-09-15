@@ -114,3 +114,52 @@ def test_update_restart_does_not_release_an_uncertain_handoff(recovery):
     assert "preimage_vault_sha256" not in json.dumps(restarted.public())
     restarted.close()
     updates.close()
+
+
+def test_version_rollback_only_selects_verified_current_own_head_update(service):
+    config, _, _, _ = service
+    context = SimpleNamespace(config=config, stop_event=threading.Event())
+    updates = Updates(context)
+    job = {"id": "spool-owned", "service": "mastermind", "head_id": config.updater_head_id,
+           "state": "COMPLETED", "version": __version__, "previous_version": "0.0.0", "rollback_available": True,
+           "previous_manifest_sha256": "b" * 64, "created_at": "2026-09-15T09:00:00Z"}
+    calls = []
+    def call(method, route):
+        calls.append((method, route))
+        return {"jobs": [job, {**job, "id": "foreign", "head_id": "foreign", "created_at": "2099"}]} if "?" in route else job
+    updates.updater.call = call
+    submitted = []
+    updates.submit = lambda version, **kwargs: submitted.append((version, kwargs))
+    try:
+        assert updates.rollback_options() == {"available": True, "job_id": "spool-owned", "version": "0.0.0", "preserves_current_data": True}
+        updates.submit_rollback("spool-owned")
+        assert submitted == [("0.0.0", {"rollback_of": "spool-owned"})]
+        for key, invalid in (("head_id", "foreign"), ("state", "FAILED"), ("version", "99.0.0"), ("previous_manifest_sha256", ""), ("rollback_available", False)):
+            old, job[key] = job[key], invalid
+            with pytest.raises(DomainError):
+                updates.submit_rollback("spool-owned")
+            job[key] = old
+        with pytest.raises(DomainError):
+            updates.submit_rollback("../foreign")
+        assert len(submitted) == 1 and all("../" not in route for _, route in calls)
+    finally:
+        updates.close()
+
+
+def test_update_retention_removes_only_expired_terminal_preimages(service):
+    config, _, _, _ = service
+    updates = Updates(SimpleNamespace(config=config, stop_event=threading.Event()))
+    now = 1000000
+    try:
+        for index, (phase, age) in enumerate((("COMPLETED", 90000), ("ROLLED_BACK", 90000), ("FAILED", 90000),
+                                             ("COMPLETED", 10), ("APPLY_REQUESTED", 90000), ("ROLLBACK_FAILED", 90000))):
+            identifier = f"{index:032x}"
+            folder = updates.directory / identifier
+            folder.mkdir()
+            (folder / "retained-bytes").write_bytes(b"synthetic recovery preimage")
+            atomic_json(folder / "update.json", {"request_id": identifier, "phase": phase, "updated_at": now - age})
+        (updates.directory / "operator-unmanaged.txt").write_text("preserve")
+        updates.cleanup(now=now)
+        assert {path.name for path in updates.directory.iterdir()} == {f"{index:032x}" for index in (3, 4, 5)} | {"operator-unmanaged.txt"}
+    finally:
+        updates.close()

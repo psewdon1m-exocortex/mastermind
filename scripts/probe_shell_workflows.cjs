@@ -1,6 +1,6 @@
 // Real browser interactions against the local service group. Synthetic source data only.
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),crypto=require('node:crypto');
-const {chromium}=require('C:/Users/pc/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const {chromium}=require('./lib/browser.cjs');
 const root=path.resolve(__dirname,'..'),origin='http://localhost:18390',out=path.join(root,'artifacts/shell-workflows');fs.mkdirSync(out,{recursive:true});
 const scratch=path.join(root,'.local/shell-workflows');fs.mkdirSync(scratch,{recursive:true});
 const key=fs.readFileSync(path.join(root,'.local/secrets/core/bootstrap_access_key'),'utf8');

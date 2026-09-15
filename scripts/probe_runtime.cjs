@@ -1,4 +1,4 @@
-const {chromium} = require('C:/Users/pc/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const {chromium} = require('./lib/browser.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 (async () => {

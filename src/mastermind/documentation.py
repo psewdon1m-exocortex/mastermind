@@ -15,6 +15,9 @@ Drag a card or navigation handle to reorder it. With the handle focused, Alt+Arr
 """),
     ("vault", "Vault and references", """Vault opens the genuine Obsidian application through the authenticated Runtime gateway. Its themes, typography, dialogs and keyboard shortcuts follow Obsidian. Shell appearance does not rewrite Obsidian settings.
 
+### First launch
+A new Obsidian profile shows its native Vault trust prompt. Review the expected Vault and complete that prompt in the viewport. Mastermind preserves Obsidian's control of community plugins; it does not silently enable imported plugins. Runtime readiness stays pending until the verified Bridge loads. If the prompt was already completed and the Bridge is unavailable, use Reconnect and inspect the diagnostic status.
+
 ### Editing and navigation
 Use the native editor, quick switcher and file manager. Mastermind Bridge adds internal `@note` references, autocomplete, reading and hover views, outgoing links, backlinks and a graph alongside native wikilinks. Markdown code, frontmatter and excluded HTML are not interpreted as references.
 Use **Create note through Mastermind** and **Delete current note through Mastermind** in the native command palette for coordinated creation and deletion. Note basenames are unique across folders after Unicode normalization and case folding.

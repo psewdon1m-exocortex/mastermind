@@ -9,7 +9,7 @@ import httpx
 
 from . import __version__
 from .errors import DomainError
-from .fs import atomic_json, durable_tree, sha_file
+from .fs import atomic_json, durable_tree, remove_private_tree, sha_file
 from .restore import tree_digest
 from .secret_store import read_credential_file
 
@@ -88,7 +88,7 @@ class Updates:
     def public(self):
         if self.record is None:
             return {"state": "idle"}
-        return {key: self.record[key] for key in ("request_id", "phase", "version", "updated_at", "error", "job_id")
+        return {key: self.record[key] for key in ("request_id", "phase", "version", "updated_at", "error", "job_id", "operation")
                 if key in self.record}
 
     def discover(self):
@@ -104,13 +104,43 @@ class Updates:
                 "update_available": result["update_available"], "compatible": compatible,
                 "checked_at": time.time()}
 
-    def submit(self, version):
+    def rollback_target(self, job_id):
+        if not isinstance(job_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", job_id):
+            raise DomainError("UPDATE_INVALID", "Select an own-head completed update.", 422)
+        job = self.updater.call("GET", "/v1/jobs/" + job_id)
+        if job.get("head_id") != self.config.updater_head_id or job.get("service") != "mastermind" \
+                or job.get("state") != "COMPLETED" or job.get("version") != __version__ \
+                or job.get("rollback_available") is not True or not job.get("previous_manifest_sha256") \
+                or not isinstance(job.get("previous_version"), str) \
+                or not re.fullmatch(r"\d+\.\d+\.\d+", job["previous_version"]):
+            raise DomainError("ROLLBACK_UNAVAILABLE", "This update has no verified previous version for the installed service.", 409)
+        return job
+
+    def rollback_options(self):
+        listing = self.updater.call("GET", "/v1/jobs?head_id=" + self.config.updater_head_id)
+        jobs = [job for job in listing.get("jobs", []) if job.get("service") == "mastermind" and
+                job.get("head_id") == self.config.updater_head_id and job.get("state") == "COMPLETED" and
+                job.get("version") == __version__ and job.get("rollback_available") is True and job.get("previous_manifest_sha256")]
+        if not jobs:
+            return {"available": False}
+        job = max(jobs, key=lambda item: item.get("created_at", ""))
+        target = self.rollback_target(job["id"])
+        return {"available": True, "job_id": job["id"], "version": target["previous_version"], "preserves_current_data": True}
+
+    def submit_rollback(self, job_id):
+        target = self.rollback_target(job_id)
+        return self.submit(target["previous_version"], rollback_of=job_id)
+
+    def submit(self, version, *, rollback_of=None):
         if not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", version):
             raise DomainError("VERSION_INVALID", "Select an exact stable release version.", 422)
         with self.lock:
             if self.record and self.record["phase"] not in TERMINAL or self.thread and self.thread.is_alive():
                 raise DomainError("UPDATE_BUSY", "An update is already pending.", 409)
-            self.record = {"request_id": secrets.token_hex(16), "version": version, "phase": "PREPARING", "created_at": time.time()}
+            self.record = {"request_id": secrets.token_hex(16), "version": version, "phase": "PREPARING", "created_at": time.time(),
+                           "operation": "rollback" if rollback_of else "update"}
+            if rollback_of:
+                self.record["rollback_of"] = rollback_of
             self.save()
             self.thread = threading.Thread(target=self.run, name="mastermind-update", daemon=True)
             self.thread.start()
@@ -133,7 +163,10 @@ class Updates:
         request_id, version = self.record["request_id"], self.record["version"]
         root = f"/v1/heads/{self.config.updater_head_id}"
         try:
-            prepared = self.updater.call("POST", root + "/preparations", data={"request_id": request_id, "version": version}, timeout=3600)
+            preparation = {"request_id": request_id, "version": version}
+            if self.record.get("rollback_of"):
+                preparation["rollback_of"] = self.record["rollback_of"]
+            prepared = self.updater.call("POST", root + "/preparations", data=preparation, timeout=3600)
             if prepared.get("state") != "COMPLETED" or prepared.get("version") != version:
                 raise DomainError("UPDATE_INCOMPATIBLE", "Release preparation was not completed.", 409)
             self.save(preparation_id=prepared["id"])
@@ -235,6 +268,23 @@ class Updates:
     def release_runtime(self):
         self.service.runtime.request("POST", "/internal/resume", {"operation_id": self.record["request_id"]})
         self.service.runtime.request("POST", "/internal/allow-start", {})
+
+    def cleanup(self, *, now=None):
+        now = time.time() if now is None else now
+        with self.lock:
+            for folder in self.directory.iterdir():
+                if not re.fullmatch(r"[a-f0-9]{32}", folder.name):
+                    continue
+                if folder.is_symlink() or not folder.is_dir():
+                    raise DomainError("RECOVERY_REQUIRED", "Update retention found an unexpected private path.", 503)
+                journal = folder / "update.json"
+                if journal.is_symlink() or not journal.is_file() or journal.stat().st_size > 65536:
+                    raise DomainError("RECOVERY_REQUIRED", "Update retention requires a complete journal.", 503)
+                record = json.loads(journal.read_text("utf-8"))
+                if record.get("request_id") != folder.name:
+                    raise DomainError("RECOVERY_REQUIRED", "Update retention journal identity changed.", 503)
+                if record.get("phase") in TERMINAL and record.get("updated_at", now) < now - 24 * 3600:
+                    remove_private_tree(folder, self.directory)
 
     def confirm(self, data):
         record = self.record

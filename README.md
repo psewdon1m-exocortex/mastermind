@@ -31,3 +31,17 @@ with a [content lock](docs/policy-lock.json). They remain usable after this serv
 is checked out independently. `scripts/export_integration_patches.py` exports the
 necessary neighboring changes from disposable local clones; release and runtime
 code do not read sibling checkouts.
+
+Technical documentation: [architecture](docs/architecture.md),
+[installation](docs/deployment.md), [operations and CLI](docs/operations.md),
+[backup and restore](docs/backup-restore.md), [Bridge](docs/mastermind-bridge.md),
+[Crusher](docs/crusher.md), [Shared](docs/sharing.md), [security](docs/security.md),
+[API](docs/api.md), [compatibility](docs/compatibility.md), and
+[releases](docs/releases.md).
+
+Verification uses `python -m pytest`, `npm --prefix bridge test`,
+`python scripts/validate_repository.py`, and the actual-host/browser probes in
+`scripts`. Run `npm ci` at the repository root to install the pinned browser test
+dependency. Linux-only checks run in the non-root, read-only Worker image;
+Windows skips do not substitute for that run. `scripts/verify_producer_patches.py`
+reconstructs all four producer candidates on their clean source baselines.

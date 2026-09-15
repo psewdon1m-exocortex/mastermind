@@ -1,5 +1,7 @@
 * text=auto eol=lf
 docs/policy/** -text
-integrations/patches/** -text
+# Unified diff context deliberately has a space before Go's tab indentation.
+# Preserve bytes; validate these files by applying them to their locked bases.
+integrations/patches/** -text -whitespace
 *.woff2 binary
 *.doc binary

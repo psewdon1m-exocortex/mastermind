@@ -146,6 +146,20 @@ class Service:
         self.downloads = []
         self.download_lock = threading.Lock()
 
+    def start_with_retry(self):
+        delay = 1
+        while not self.stop_event.is_set():
+            try:
+                self.start()
+            except Exception:  # noqa: BLE001 — never leave an unobserved failed startup task with an empty diagnosis
+                self.failure = self.failure or "STARTUP_FAILED"
+                return
+            if self.ready or self.failure not in {"RUNTIME_UNAVAILABLE", "KERNEL_UNAVAILABLE", "DEPENDENCY_UNAVAILABLE"}:
+                return
+            if self.stop_event.wait(delay):
+                return
+            delay = min(delay * 2, 30)
+
     def start(self):
         try:
             if self.config.runtime_mode != "offline":
@@ -204,6 +218,7 @@ class Service:
                     self.activity.expire()
                     self.owner_operations.cleanup()
                     self.restore.cleanup()
+                    self.updates.cleanup()
                     self.maintenance_failure = None
                     cleaned = now
             except Exception:  # noqa: BLE001 - retention failure must not kill the canonical watcher
@@ -278,7 +293,7 @@ def create_app(config=None, service=None):
     @asynccontextmanager
     async def lifespan(app):
         context.loop = asyncio.get_running_loop()
-        task = asyncio.create_task(asyncio.to_thread(context.start))
+        task = asyncio.create_task(asyncio.to_thread(context.start_with_retry))
         admin = None
         try:
             if os.name == "posix" and not context.config.test_mode:
@@ -286,6 +301,7 @@ def create_app(config=None, service=None):
                 admin = await start_admin(context)
             yield
         finally:
+            context.stop_event.set()
             if admin:
                 from .admin import stop_admin
                 await stop_admin(context, admin)
@@ -653,6 +669,15 @@ def create_app(config=None, service=None):
     @app.post("/api/internal/updater/confirm", dependencies=[Depends(updater_agent)])
     async def update_confirm(request: Request):
         return await asyncio.to_thread(context.updates.confirm, await bounded_json(request))
+
+    @app.get("/api/owner/updates/rollback", dependencies=[owner_dependency])
+    async def rollback_options():
+        return await asyncio.to_thread(context.updates.rollback_options)
+
+    @app.post("/api/owner/updates/rollback", dependencies=[owner_dependency])
+    async def rollback_apply(request: Request):
+        data = await bounded_json(request, 4096)
+        return await asyncio.to_thread(context.updates.submit_rollback, require_text(data, "job_id"))
 
     @app.post("/api/internal/updater/functional", dependencies=[Depends(updater_agent)])
     async def update_functional(request: Request):

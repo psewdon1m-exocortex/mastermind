@@ -4,6 +4,39 @@ from types import SimpleNamespace
 from mastermind.runtime_monitor import RuntimeMonitor
 
 
+def test_startup_retries_only_unavailable_dependencies_and_observes_unexpected_failures():
+    from mastermind.api import Service
+    class Stop:
+        def __init__(self):
+            self.delays = []
+        def is_set(self):
+            return False
+        def wait(self, delay):
+            self.delays.append(delay)
+            return False
+    stop = Stop()
+    context = SimpleNamespace(stop_event=stop, ready=False, failure=None)
+    attempts = []
+    def start():
+        attempts.append(1)
+        context.failure = "RUNTIME_UNAVAILABLE"
+        if len(attempts) == 3:
+            context.ready, context.failure = True, None
+    context.start = start
+    Service.start_with_retry(context)
+    assert len(attempts) == 3 and stop.delays == [1, 2] and context.ready
+    context.ready, context.failure = False, "RECOVERY_REQUIRED"
+    context.start = lambda: None
+    Service.start_with_retry(context)
+    assert stop.delays == [1, 2] and context.failure == "RECOVERY_REQUIRED"
+    context.failure = None
+    def failed_start():
+        raise ValueError("private startup detail")
+    context.start = failed_start
+    Service.start_with_retry(context)
+    assert context.failure == "STARTUP_FAILED" and stop.delays == [1, 2]
+
+
 def monitor(service):
     _, state, coordinator, vault = service
     calls = []

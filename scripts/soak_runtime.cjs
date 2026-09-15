@@ -1,9 +1,11 @@
 // Isolated real Runtime qualification. A shortened run is explicitly a smoke test.
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),crypto=require('node:crypto');
 const {execFileSync}=require('node:child_process');
-const {chromium}=require('C:/Users/pc/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const {chromium}=require('./lib/browser.cjs');
 const root=path.resolve(__dirname,'..'),origin='http://localhost:18394';
-const output=path.join(root,'artifacts/runtime-soak');fs.mkdirSync(output,{recursive:true});
+const output=path.resolve(root,process.env.SOAK_OUTPUT||'artifacts/runtime-soak');
+if(!output.startsWith(path.join(root,'artifacts')+path.sep))throw Error('Soak output must stay in the artifacts directory');
+fs.mkdirSync(output,{recursive:true});
 const minutes=Number(process.env.SOAK_MINUTES||480),duration=minutes*60*1000;
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const log=data=>{const line=JSON.stringify({utc:new Date().toISOString(),...data});fs.appendFileSync(path.join(output,'events.jsonl'),line+'\n');console.log(line);};
@@ -64,4 +66,5 @@ function inspect(){return ['core','runtime'].map(name=>{const state=JSON.parse(e
     const result={status:duration>=28800000?'PASS':'SMOKE_PASS',elapsed_ms:Date.now()-started,checkpoints,connections,frames,containers:inspect()};
     fs.writeFileSync(path.join(output,'result.json'),JSON.stringify(result,null,2));log(result);
   }finally{if(browser)await browser.close();fs.closeSync(handle);fs.unlinkSync(lock);}
-})().catch(error=>{log({status:'FAIL',message:error.message});process.exitCode=1;});
+})().catch(error=>{const result={status:'FAIL',failed_at:new Date().toISOString(),message:String(error.message).split('\n')[0]};
+  fs.writeFileSync(path.join(output,'result.json'),JSON.stringify(result,null,2));log(result);process.exitCode=1;});

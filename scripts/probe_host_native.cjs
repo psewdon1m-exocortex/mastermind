@@ -1,5 +1,5 @@
 // Browser screenshot of the real clean-host native session; no Obsidian DOM access.
-const {chromium}=require('C:/Users/pc/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const {chromium}=require('./lib/browser.cjs');
 const {execFileSync}=require('node:child_process');
 const path=require('node:path');
 (async()=>{

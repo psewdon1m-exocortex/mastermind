@@ -1,5 +1,5 @@
 diff --git a/cmd/updater/main.go b/cmd/updater/main.go
-index a304020..e29cd68 100644
+index a304020..cfaf350 100644
 --- a/cmd/updater/main.go
 +++ b/cmd/updater/main.go
 @@ -43,11 +43,12 @@ func main() {
@@ -16,14 +16,18 @@ index a304020..e29cd68 100644
  			OnReady: func() {
  				go func() {
  					// Reconcile after the socket is available and allow manual jobs
-@@ -55,6 +56,7 @@ func main() {
+@@ -55,7 +56,11 @@ func main() {
  					// helper socket mounts are retried.
  					time.Sleep(5 * time.Second)
  					for {
 +						updateEngine.ResumeMastermindRecovery()
  						component.ReconcileHostHelpers(runtime, store)
++						if err := store.PruneSpools(time.Now()); err != nil {
++							fmt.Fprintln(os.Stderr, "backup spool retention could not complete; retained files require inspection")
++						}
  						if release, lockErr := store.BeginOperation(""); lockErr == nil {
  							ctx, cancel := context.WithTimeout(
+ 								context.Background(),
 diff --git a/internal/api/server.go b/internal/api/server.go
 index e57326c..77fb9d7 100644
 --- a/internal/api/server.go
@@ -438,10 +442,21 @@ index 2275051..347964c 100644
 +	return result, nil
  }
 diff --git a/internal/engine/deployment.go b/internal/engine/deployment.go
-index fc7a397..ca12b02 100644
+index fc7a397..6b7a992 100644
 --- a/internal/engine/deployment.go
 +++ b/internal/engine/deployment.go
-@@ -30,6 +30,29 @@ func deploymentNames(service string) map[string]bool {
+@@ -20,8 +20,8 @@ type deploymentFile struct {
+ 	Data    []byte `json:"data,omitempty"`
+ }
+ 
+-// Only versioned deployment files are applied. Environment, trust, state and
+-// bundled installers are never executed or overwritten by an application update.
++// Only versioned files under the registered application directory are applied.
++// Installed host agents/trust, operator environment and data are not replaced.
+ func deploymentNames(service string) map[string]bool {
+ 	names := map[string]bool{"compose.production.yaml": true}
+ 	if service == "saturn" {
+@@ -30,6 +30,38 @@ func deploymentNames(service string) map[string]bool {
  	return names
  }
  
@@ -462,16 +477,25 @@ index fc7a397..ca12b02 100644
 +	switch name {
 +	case "README.md", "requirements.md", "pyproject.toml", "requirements.lock", "requirements.worker.lock", "embedding-model.lock.json",
 +		"mastermind-release.json", "mastermind-release.json.sig.json", "packaging/install.py", "packaging/release_verify.py",
++		"vendor/updater/install.sh", "vendor/updater/updater-linux-amd64", "vendor/updater/systemd/updater.service",
++		"vendor/updater/release-trust/updater.pem", "vendor/updater/release-trust/neptune.pem", "vendor/updater/release-trust/gryphon.pem",
 +		"packaging/nginx/mastermind-http.conf", "packaging/nginx/mastermind-proxy.conf", "packaging/nginx/mastermind-server.conf.template":
 +		return true
 +	}
 +	return false
 +}
 +
++func deploymentFileLimit(name string) int64 {
++	if name == "vendor/updater/updater-linux-amd64" {
++		return 32 * 1024 * 1024
++	}
++	return 1024 * 1024
++}
++
  func readDeployment(bundle, service string) (map[string][]byte, error) {
  	if bundle == "" {
  		return nil, errors.New("verified deployment bundle is missing")
-@@ -55,7 +78,7 @@ func readDeployment(bundle, service string) (map[string][]byte, error) {
+@@ -55,13 +87,13 @@ func readDeployment(bundle, service string) (map[string][]byte, error) {
  			}
  			return errors.New("deployment bundle links and special files are forbidden")
  		}
@@ -479,8 +503,16 @@ index fc7a397..ca12b02 100644
 +		if !allowedDeploymentName(service, name) && !((service == "chronos" || service == "laboratory") && name == ".env.example") {
  			return nil
  		}
- 		if size > 1024*1024 {
-@@ -126,7 +149,7 @@ func readDeployment(bundle, service string) (map[string][]byte, error) {
+-		if size > 1024*1024 {
++		if size > deploymentFileLimit(name) {
+ 			return errors.New("deployment configuration exceeds limit")
+ 		}
+-		data, err := io.ReadAll(io.LimitReader(r, 1024*1024+1))
++		data, err := io.ReadAll(io.LimitReader(r, deploymentFileLimit(name)+1))
+ 		if err != nil {
+ 			return err
+ 		}
+@@ -126,7 +158,7 @@ func readDeployment(bundle, service string) (map[string][]byte, error) {
  
  func deploymentTarget(head config.HeadConfig, name string) (string, error) {
  	managedEnvironment := (head.Service == "chronos" || head.Service == "laboratory") && name == ".env"
@@ -489,16 +521,25 @@ index fc7a397..ca12b02 100644
  		return "", errors.New("invalid deployment target")
  	}
  	target := filepath.Join(head.ProjectDir, filepath.FromSlash(name))
-@@ -236,7 +259,7 @@ func restoreDeployment(head config.HeadConfig, snapshot string) error {
+@@ -199,7 +231,7 @@ func snapshotDeployment(head config.HeadConfig, files map[string][]byte, snapsho
+ 		if err != nil {
+ 			return err
+ 		}
+-		if !info.Mode().IsRegular() || info.Size() > 1024*1024 {
++		if !info.Mode().IsRegular() || info.Size() > deploymentFileLimit(name) {
+ 			return errors.New("existing deployment file is invalid")
+ 		}
+ 		data, err := os.ReadFile(target)
+@@ -236,7 +268,7 @@ func restoreDeployment(head config.HeadConfig, snapshot string) error {
  	if err != nil {
  		return err
  	}
 -	if info.Size() > 4*1024*1024 {
-+	if info.Size() > 16*1024*1024 {
++	if info.Size() > 64*1024*1024 {
  		return errors.New("deployment snapshot exceeds limit")
  	}
  	body, err := os.ReadFile(snapshot)
-@@ -248,7 +271,8 @@ func restoreDeployment(head config.HeadConfig, snapshot string) error {
+@@ -248,10 +280,12 @@ func restoreDeployment(head config.HeadConfig, snapshot string) error {
  		return err
  	}
  	additionalEnvironment := (head.Service == "chronos" || head.Service == "laboratory") && len(files) == len(deploymentNames(head.Service))+1
@@ -508,8 +549,82 @@ index fc7a397..ca12b02 100644
  		return errors.New("deployment snapshot is incomplete")
  	}
  	seen := map[string]bool{}
++	targets := map[string]string{}
+ 	for _, file := range files {
+ 		target, err := deploymentTarget(head, file.Name)
+ 		if err != nil {
+@@ -261,6 +295,19 @@ func restoreDeployment(head config.HeadConfig, snapshot string) error {
+ 			return errors.New("duplicate deployment snapshot member")
+ 		}
+ 		seen[file.Name] = true
++		if int64(len(file.Data)) > deploymentFileLimit(file.Name) || !file.Existed && len(file.Data) != 0 {
++			return errors.New("invalid deployment snapshot file contents")
++		}
++		targets[file.Name] = target
++	}
++	for required := range deploymentNames(head.Service) {
++		if !seen[required] {
++			return errors.New("deployment snapshot omits required configuration")
++		}
++	}
++	// Validate the whole snapshot before changing the first deployment file.
++	for _, file := range files {
++		target := targets[file.Name]
+ 		if file.Existed {
+ 			err = atomicDeploymentWrite(target, file.Data)
+ 		} else {
+diff --git a/internal/engine/deployment_test.go b/internal/engine/deployment_test.go
+index fb9cbd1..b4d7c87 100644
+--- a/internal/engine/deployment_test.go
++++ b/internal/engine/deployment_test.go
+@@ -4,6 +4,7 @@ import (
+ 	"archive/tar"
+ 	"archive/zip"
+ 	"compress/gzip"
++	"encoding/json"
+ 	"os"
+ 	"path/filepath"
+ 	"testing"
+@@ -113,3 +114,37 @@ func TestDeploymentRejectsUnsafeAndIncompleteBundles(t *testing.T) {
+ 		})
+ 	}
+ }
++
++func TestMastermindRollbackValidatesEntireMetadataBeforeMutation(t *testing.T) {
++	for _, fault := range []string{"missing-compose", "duplicate", "escape", "oversized"} {
++		t.Run(fault, func(t *testing.T) {
++			head := config.HeadConfig{Service: "mastermind", ProjectDir: t.TempDir(), ComposeFile: "compose.production.yaml"}
++			compose := filepath.Join(head.ProjectDir, head.ComposeFile)
++			if err := os.WriteFile(compose, []byte("current-safe-deployment"), 0600); err != nil {
++				t.Fatal(err)
++			}
++			files := []deploymentFile{{Name: "compose.production.yaml", Existed: true, Data: []byte("old-deployment")}, {Name: "README.md", Existed: false}}
++			switch fault {
++			case "missing-compose":
++				files = files[1:]
++			case "duplicate":
++				files[1] = files[0]
++			case "escape":
++				files[1].Name = "../foreign-file"
++			case "oversized":
++				files[1].Existed, files[1].Data = true, make([]byte, 1024*1024+1)
++			}
++			body, _ := json.Marshal(files)
++			snapshot := filepath.Join(t.TempDir(), "deployment.json")
++			if err := os.WriteFile(snapshot, body, 0600); err != nil {
++				t.Fatal(err)
++			}
++			if err := restoreDeployment(head, snapshot); err == nil {
++				t.Fatal("unsafe metadata snapshot accepted")
++			}
++			if current, _ := os.ReadFile(compose); string(current) != "current-safe-deployment" {
++				t.Fatal("partial rollback changed deployment before validation completed")
++			}
++		})
++	}
++}
 diff --git a/internal/engine/engine.go b/internal/engine/engine.go
-index 600ff9f..945d10c 100644
+index 600ff9f..6486e95 100644
 --- a/internal/engine/engine.go
 +++ b/internal/engine/engine.go
 @@ -32,11 +32,38 @@ type Runner interface {
@@ -697,7 +812,7 @@ index 600ff9f..945d10c 100644
  	if err := restoreDeployment(head, job.DeploymentSnapshot); err != nil {
  		return err
  	}
-@@ -412,6 +499,9 @@ func (e *Engine) Rollback(jobID string) (model.Job, error) {
+@@ -412,11 +499,14 @@ func (e *Engine) Rollback(jobID string) (model.Job, error) {
  	if job.PreviousImage == "" || !job.RollbackAvailable {
  		return model.Job{}, errors.New("rollback is unavailable for this job")
  	}
@@ -707,6 +822,12 @@ index 600ff9f..945d10c 100644
  	head, err := config.LoadHead(e.runtime, job.HeadID)
  	if err != nil {
  		return model.Job{}, err
+ 	}
+-	releaseOperation, err := e.store.BeginOperation("")
++	releaseOperation, err := e.store.BeginOperation(job.ID)
+ 	if err != nil {
+ 		return model.Job{}, err
+ 	}
 @@ -430,12 +520,13 @@ func (e *Engine) Rollback(jobID string) (model.Job, error) {
  	e.operationRelease = releaseOperation
  	e.mu.Unlock()
@@ -722,8 +843,57 @@ index 600ff9f..945d10c 100644
  		defer cancel()
  		if err := e.rollback(ctx, &job, head); err != nil {
  			job.State, job.Message = "ROLLBACK_FAILED", err.Error()
+diff --git a/internal/kernel/register.go b/internal/kernel/register.go
+index 568f0a9..5d20604 100644
+--- a/internal/kernel/register.go
++++ b/internal/kernel/register.go
+@@ -166,7 +166,7 @@ func updaterMetadataKey(key string) bool {
+ 	if key == "services.saturn.sni" || key == "services.saturn.port" {
+ 		return true
+ 	}
+-	for _, service := range []string{"kernel", "volt", "saturn", "chronos", "laboratory", "neptune", "gryphon", "updater"} {
++	for _, service := range []string{"kernel", "volt", "saturn", "chronos", "laboratory", "neptune", "gryphon", "updater", "mastermind"} {
+ 		if key == "repositories."+service+".url" {
+ 			return true
+ 		}
+diff --git a/internal/kernel/register_test.go b/internal/kernel/register_test.go
+index a2c9fda..6a34fe2 100644
+--- a/internal/kernel/register_test.go
++++ b/internal/kernel/register_test.go
+@@ -20,7 +20,7 @@ func TestLoadResolvesOnlyUpdaterMetadataWithLargeRegister(t *testing.T) {
+ 	for i := 0; i < 100; i++ {
+ 		private[fmt.Sprintf("secret%d", i)] = ref
+ 	}
+-	values := map[string]interface{}{"credentials": private, "repositories": map[string]interface{}{"laboratory": map[string]interface{}{"url": ref}}}
++	values := map[string]interface{}{"credentials": private, "repositories": map[string]interface{}{"laboratory": map[string]interface{}{"url": ref}, "mastermind": map[string]interface{}{"url": ref}}}
+ 	raw, _ := json.Marshal(map[string]interface{}{"values": values})
+ 	sum := sha256.Sum256(raw)
+ 	calls := 0
+@@ -36,10 +36,10 @@ func TestLoadResolvesOnlyUpdaterMetadataWithLargeRegister(t *testing.T) {
+ 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+ 			t.Error(err)
+ 		}
+-		if len(payload.Keys) != 1 || payload.Keys[0] != "repositories.laboratory.url" {
++		if len(payload.Keys) != 2 || payload.Keys[0] != "repositories.laboratory.url" || payload.Keys[1] != "repositories.mastermind.url" {
+ 			t.Errorf("unexpected secret resolution: %v", payload.Keys)
+ 		}
+-		json.NewEncoder(w).Encode(map[string]interface{}{"schema": "exocortex.register.resolution.v1", "values": map[string]interface{}{"repositories.laboratory.url": map[string]string{"value": "https://github.com/synthetic/laboratory"}}})
++		json.NewEncoder(w).Encode(map[string]interface{}{"schema": "exocortex.register.resolution.v1", "values": map[string]interface{}{"repositories.laboratory.url": map[string]string{"value": "https://github.com/synthetic/laboratory"}, "repositories.mastermind.url": map[string]string{"value": "https://github.com/synthetic/mastermind"}}})
+ 	}))
+ 	defer server.Close()
+ 	cache := filepath.Join(t.TempDir(), "register.json")
+@@ -54,6 +54,9 @@ func TestLoadResolvesOnlyUpdaterMetadataWithLargeRegister(t *testing.T) {
+ 		if _, err := String(snapshot, "repositories.laboratory.url"); err != nil {
+ 			t.Fatal(err)
+ 		}
++		if value, err := String(snapshot, "repositories.mastermind.url"); err != nil || value != "https://github.com/synthetic/mastermind" {
++			t.Fatal("Mastermind own-head release location was not resolved")
++		}
+ 	}
+ 	if calls != 2 {
+ 		t.Fatalf("wanted one resolve per load, got %d", calls)
 diff --git a/internal/model/model.go b/internal/model/model.go
-index a85a4ef..37cbe4f 100644
+index a85a4ef..e9dd34b 100644
 --- a/internal/model/model.go
 +++ b/internal/model/model.go
 @@ -12,6 +12,7 @@ type Registry struct {
@@ -752,7 +922,7 @@ index a85a4ef..37cbe4f 100644
  }
  
  type NeptuneInitializationRequest struct {
-@@ -35,25 +37,33 @@ type NeptuneInitializationRequest struct {
+@@ -35,25 +37,34 @@ type NeptuneInitializationRequest struct {
  }
  
  type Job struct {
@@ -793,6 +963,7 @@ index a85a4ef..37cbe4f 100644
 +	InstalledImage         string            `json:"installed_image,omitempty"`
 +	InstalledVersion       string            `json:"installed_version,omitempty"`
 +	PreparationID          string            `json:"preparation_id,omitempty"`
++	RollbackOf             string            `json:"rollback_of,omitempty"`
 +	ManifestSHA256         string            `json:"manifest_sha256,omitempty"`
 +	PreviousManifestSHA256 string            `json:"previous_manifest_sha256,omitempty"`
 +	ComponentImages        map[string]string `json:"component_images,omitempty"`
@@ -805,7 +976,7 @@ index a85a4ef..37cbe4f 100644
  }
  
  type ReleaseManifest struct {
-@@ -68,7 +78,22 @@ type ReleaseManifest struct {
+@@ -68,7 +79,22 @@ type ReleaseManifest struct {
  		URL    string `json:"url"`
  		SHA256 string `json:"sha256"`
  	} `json:"compose_bundle"`
@@ -874,9 +1045,18 @@ index 61d5981..db12495 100644
 +	return nil
  }
 diff --git a/internal/state/operation.go b/internal/state/operation.go
-index 7a5437f..8d7e602 100644
+index 7a5437f..59a7e70 100644
 --- a/internal/state/operation.go
 +++ b/internal/state/operation.go
+@@ -26,7 +26,7 @@ func (s *Store) BeginOperation(ownJobID string) (func(), error) {
+ 	release := func() { once.Do(func() { _ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN); _ = file.Close() }) }
+ 	for _, listed := range s.List() {
+ 		job, ok := s.Get(listed.ID)
+-		if ok && job.ID != ownJobID && job.FinishedAt == nil {
++		if ok && job.ID != ownJobID && (job.FinishedAt == nil || job.RecoveryPending) {
+ 			release()
+ 			return nil, errors.New("another host operation is already running")
+ 		}
 @@ -44,6 +44,10 @@ func (s *Store) ReconcileInterrupted(supervisorActive func(model.Job) bool) erro
  		}
  		now := time.Now().UTC()
@@ -888,6 +1068,50 @@ index 7a5437f..8d7e602 100644
  		job.UpdatedAt, job.FinishedAt = now, &now
  		if err := s.Save(job); err != nil {
  			return err
+@@ -57,7 +61,7 @@ func (s *Store) ReconcileInterrupted(supervisorActive func(model.Job) bool) erro
+ 
+ func (s *Store) HasActiveOperation() bool {
+ 	for _, listed := range s.List() {
+-		if job, ok := s.Get(listed.ID); ok && job.FinishedAt == nil {
++		if job, ok := s.Get(listed.ID); ok && (job.FinishedAt == nil || job.RecoveryPending) {
+ 			return true
+ 		}
+ 	}
+diff --git a/internal/state/operation_test.go b/internal/state/operation_test.go
+index fee9f8f..fa2f206 100644
+--- a/internal/state/operation_test.go
++++ b/internal/state/operation_test.go
+@@ -8,6 +8,30 @@ import (
+ 	"updater/internal/model"
+ )
+ 
++func TestPendingMastermindRecoveryReservesHostForItsOwnRollback(t *testing.T) {
++	store, err := New(t.TempDir())
++	if err != nil {
++		t.Fatal(err)
++	}
++	now := time.Now().UTC()
++	job := model.Job{ID: "spool-recovery-fixture", Service: "mastermind", State: "ROLLBACK_FAILED", RecoveryPending: true, FinishedAt: &now, CreatedAt: now, UpdatedAt: now}
++	if err := store.Save(job); err != nil {
++		t.Fatal(err)
++	}
++	if release, err := store.BeginOperation(""); err == nil {
++		release()
++		t.Fatal("new operation bypassed pending data recovery")
++	}
++	if !store.HasActiveOperation() {
++		t.Fatal("pending recovery disappeared from host readiness")
++	}
++	release, err := store.BeginOperation(job.ID)
++	if err != nil {
++		t.Fatal(err)
++	}
++	release()
++}
++
+ func TestHostOperationsRemainExclusiveAcrossStoresAndHandoff(t *testing.T) {
+ 	dir := t.TempDir()
+ 	a, _ := New(dir)
 diff --git a/internal/state/store.go b/internal/state/store.go
 index 4525737..2fcef33 100644
 --- a/internal/state/store.go
@@ -938,10 +1162,10 @@ index 0000000..d109be1
 +internal/releaseauth/testdata/* -text
 diff --git a/internal/api/mastermind.go b/internal/api/mastermind.go
 new file mode 100644
-index 0000000..12c687b
+index 0000000..85a96d1
 --- /dev/null
 +++ b/internal/api/mastermind.go
-@@ -0,0 +1,38 @@
+@@ -0,0 +1,39 @@
 +package api
 +
 +import (
@@ -959,8 +1183,9 @@ index 0000000..12c687b
 +		}
 +		r.Body = http.MaxBytesReader(w, r.Body, 4096)
 +		var input struct {
-+			RequestID string `json:"request_id"`
-+			Version   string `json:"version"`
++			RequestID  string `json:"request_id"`
++			Version    string `json:"version"`
++			RollbackOf string `json:"rollback_of"`
 +		}
 +		decoder := json.NewDecoder(r.Body)
 +		decoder.DisallowUnknownFields()
@@ -972,7 +1197,7 @@ index 0000000..12c687b
 +			writeError(w, 400, errors.New("trailing preparation input"))
 +			return
 +		}
-+		result, err := s.Engine.PrepareMastermind(r.Context(), r.PathValue("head"), input.RequestID, input.Version)
++		result, err := s.Engine.PrepareMastermind(r.Context(), r.PathValue("head"), input.RequestID, input.Version, input.RollbackOf)
 +		if err != nil {
 +			writeError(w, 409, err)
 +			return
@@ -1207,10 +1432,10 @@ index 0000000..883f319
 +}
 diff --git a/internal/engine/mastermind_group.go b/internal/engine/mastermind_group.go
 new file mode 100644
-index 0000000..c370c72
+index 0000000..de714f8
 --- /dev/null
 +++ b/internal/engine/mastermind_group.go
-@@ -0,0 +1,357 @@
+@@ -0,0 +1,378 @@
 +package engine
 +
 +import (
@@ -1263,6 +1488,13 @@ index 0000000..c370c72
 +		return errors.New("Mastermind component operation failed: " + args[0])
 +	}
 +	return nil
++}
++
++func (e *Engine) startMastermindGroup(ctx context.Context, head config.HeadConfig) error {
++	if err := e.groupCommand(ctx, head, "up", "-d", "--no-deps", "--wait", "--wait-timeout", "120", "runtime", "worker"); err != nil {
++		return err
++	}
++	return e.groupCommand(ctx, head, "up", "-d", "--no-deps", "core")
 +}
 +
 +func mastermindControl(ctx context.Context, head config.HeadConfig, operation string, input any) (map[string]any, error) {
@@ -1477,6 +1709,7 @@ index 0000000..c370c72
 +	job.PreviousVersion = head.CurrentVersion
 +	job.ComponentImages = images
 +	job.ManifestSHA256 = hash
++	job.RollbackOf = preparation.RollbackOf
 +	job.PreviousManifestSHA256 = values["MASTERMIND_RELEASE_SHA256"]
 +	job.DeploymentSnapshot = filepath.Join(filepath.Dir(job.BackupPath), "deployment.json")
 +	if err = snapshotDeployment(head, files, job.DeploymentSnapshot); err != nil {
@@ -1502,7 +1735,7 @@ index 0000000..c370c72
 +		"--request", job.RequestID, "--version", job.Version, "--schema", strconv.Itoa(resolved.Manifest.DatabaseSchema)); err != nil {
 +		return err
 +	}
-+	if err = e.groupCommand(ctx, head, "up", "-d", "--no-deps", "runtime", "worker", "core"); err != nil {
++	if err = e.startMastermindGroup(ctx, head); err != nil {
 +		return err
 +	}
 +	update("HEALTH_CHECK", "verifying Core schema, Vault open, official Runtime/Bridge and Worker")
@@ -1553,7 +1786,7 @@ index 0000000..c370c72
 +		"-m", "mastermind.cli", "update-rollback", "--request", job.RequestID, "--archive", "/recovery/rollback.zip"); err != nil {
 +		return err
 +	}
-+	if err := e.groupCommand(ctx, head, "up", "-d", "--no-deps", "runtime", "worker", "core"); err != nil {
++	if err := e.startMastermindGroup(ctx, head); err != nil {
 +		return err
 +	}
 +	if err := e.checkHealthFn(ctx, head.LocalHealthURL); err != nil {
@@ -1566,14 +1799,27 @@ index 0000000..c370c72
 +	if result["verified"] != true || result["version"] != job.PreviousVersion || result["schema"] != float64(job.PreviousSchema) || result["worker"] != true || result["vault"] != true {
 +		return errors.New("Mastermind rollback did not recover the previous functional data/components")
 +	}
++	manifestPath := filepath.Join(head.ProjectDir, "mastermind-release.json")
++	digest, err := manifestHash(manifestPath)
++	if err != nil || digest != job.PreviousManifestSHA256 {
++		return errors.New("rollback release metadata identity changed")
++	}
++	body, err := os.ReadFile(manifestPath)
++	var previous model.ReleaseManifest
++	if err != nil || json.Unmarshal(body, &previous) != nil || release.ValidateMastermind(previous) != nil || previous.Version != job.PreviousVersion {
++		return errors.New("rollback release profile is invalid")
++	}
++	if result["bridge_version"] != previous.Mastermind.BridgeVersion || result["obsidian_version"] != previous.Mastermind.ObsidianVersion || result["model_sha256"] != previous.Mastermind.ModelSHA256 {
++		return errors.New("rollback did not recover the exact previous Bridge, Obsidian and model")
++	}
 +	return nil
 +}
 diff --git a/internal/engine/mastermind_prepare.go b/internal/engine/mastermind_prepare.go
 new file mode 100644
-index 0000000..7a4df6c
+index 0000000..0609c71
 --- /dev/null
 +++ b/internal/engine/mastermind_prepare.go
-@@ -0,0 +1,151 @@
+@@ -0,0 +1,182 @@
 +package engine
 +
 +import (
@@ -1617,7 +1863,7 @@ index 0000000..7a4df6c
 +
 +// Prepare downloads and independently verifies the exact release and pre-pulls
 +// all components before Core acquires the long-lived snapshot/write barrier.
-+func (e *Engine) PrepareMastermind(ctx context.Context, headID, requestID, version string) (model.Job, error) {
++func (e *Engine) PrepareMastermind(ctx context.Context, headID, requestID, version string, rollbackID ...string) (model.Job, error) {
 +	if e.runtime.DryRun {
 +		return model.Job{}, errors.New("Mastermind Apply preparation is disabled in dry-run mode")
 +	}
@@ -1631,11 +1877,28 @@ index 0000000..7a4df6c
 +	if err = validateMastermindHead(head); err != nil {
 +		return model.Job{}, err
 +	}
-+	if version == head.CurrentVersion || !release.SupportsMinimum(version, head.CurrentVersion) {
++	rollbackOf := ""
++	if len(rollbackID) > 1 {
++		return model.Job{}, errors.New("only one rollback target is allowed")
++	}
++	if len(rollbackID) == 1 {
++		rollbackOf = rollbackID[0]
++	}
++	var rollbackTarget model.Job
++	if rollbackOf != "" {
++		var ok bool
++		rollbackTarget, ok = e.store.Get(rollbackOf)
++		if !ok || rollbackTarget.Service != "mastermind" || rollbackTarget.HeadID != headID || rollbackTarget.State != "COMPLETED" ||
++			rollbackTarget.Version != head.CurrentVersion || rollbackTarget.PreviousVersion != version ||
++			!rollbackTarget.RollbackAvailable || rollbackTarget.PreviousManifestSHA256 == "" || len(rollbackTarget.PreviousComponents) != 3 {
++			return model.Job{}, errors.New("version rollback must name a completed own-head update of the installed version")
++		}
++	}
++	if version == head.CurrentVersion || rollbackOf == "" && !release.SupportsMinimum(version, head.CurrentVersion) {
 +		return model.Job{}, errors.New("Mastermind preparation requires a newer release")
 +	}
 +	if previous, ok := e.store.ByRequestID(requestID + ":prepare"); ok {
-+		if previous.HeadID != headID || previous.Version != version {
++		if previous.HeadID != headID || previous.Version != version || previous.RollbackOf != rollbackOf || previous.PreviousVersion != head.CurrentVersion {
 +			return model.Job{}, errors.New("preparation request is already bound to another release")
 +		}
 +		if previous.State != "COMPLETED" || time.Since(previous.UpdatedAt) > time.Hour {
@@ -1651,7 +1914,7 @@ index 0000000..7a4df6c
 +	sum := sha256.Sum256([]byte(headID + ":" + requestID))
 +	now := time.Now().UTC()
 +	job := model.Job{ID: "prepare-" + hex.EncodeToString(sum[:])[:40], RequestID: requestID + ":prepare", HeadID: headID,
-+		Service: "mastermind-preparation", Version: version, State: "PREPARING", CreatedAt: now, UpdatedAt: now}
++		Service: "mastermind-preparation", Version: version, PreviousVersion: head.CurrentVersion, RollbackOf: rollbackOf, State: "PREPARING", CreatedAt: now, UpdatedAt: now}
 +	if err = e.store.Save(job); err != nil {
 +		return model.Job{}, err
 +	}
@@ -1696,6 +1959,16 @@ index 0000000..7a4df6c
 +		return model.Job{}, err
 +	}
 +	job.ComponentImages = resolved.Manifest.Mastermind.Components
++	if rollbackOf != "" {
++		if job.ManifestSHA256 != rollbackTarget.PreviousManifestSHA256 {
++			return model.Job{}, errors.New("previous immutable release metadata changed")
++		}
++		for _, name := range componentNames {
++			if job.ComponentImages[name] != rollbackTarget.PreviousComponents[name] {
++				return model.Job{}, errors.New("previous component identity changed")
++			}
++		}
++	}
 +	for _, name := range []string{"core", "runtime", "worker"} {
 +		if _, err = e.runner.Run(ctx, "docker", []string{"pull", job.ComponentImages[name]}, nil, head.ProjectDir); err != nil {
 +			return model.Job{}, errors.New("Mastermind component pre-pull failed: " + name)
@@ -1723,14 +1996,18 @@ index 0000000..7a4df6c
 +		job.State != "COMPLETED" || job.Version != version || time.Since(job.UpdatedAt) > time.Hour {
 +		return model.Job{}, errors.New("Mastermind needs a fresh verified preparation for this head, request and version")
 +	}
++	head, err := config.LoadHead(e.runtime, headID)
++	if err != nil || job.PreviousVersion != "" && job.PreviousVersion != head.CurrentVersion {
++		return model.Job{}, errors.New("installed version changed after preparation")
++	}
 +	return job, nil
 +}
 diff --git a/internal/engine/mastermind_test.go b/internal/engine/mastermind_test.go
 new file mode 100644
-index 0000000..8fcccb5
+index 0000000..85bd8ae
 --- /dev/null
 +++ b/internal/engine/mastermind_test.go
-@@ -0,0 +1,250 @@
+@@ -0,0 +1,286 @@
 +package engine
 +
 +import (
@@ -1898,6 +2175,19 @@ index 0000000..8fcccb5
 +				BridgeVersion: "0.0.2", ObsidianVersion: "1.13.7", ModelSHA256: strings.Repeat("a", 64), MinimumSourceSchema: 1, MaximumSourceSchema: 1, HealthProfile: "mastermind.functional.v1",
 +				Dependencies: map[string]string{"kernel": "0.2.10", "volt": "0.1.5", "saturn": "0.1.15", "chronos": "0.1.1", "neptune": "0.1.7", "updater": "0.4.7"}}
 +			manifestBytes, _ := json.Marshal(resolved.Manifest)
++			var oldManifest model.ReleaseManifest
++			_ = json.Unmarshal(manifestBytes, &oldManifest)
++			oldManifest.Version, oldManifest.Mastermind.BridgeVersion = "0.0.1", "0.0.1"
++			oldManifest.Mastermind.Components = old
++			oldManifest.Image.Digest = "sha256:" + strings.Repeat("a", 64)
++			oldManifestBytes, _ := json.Marshal(oldManifest)
++			if err := os.WriteFile(filepath.Join(directory, "mastermind-release.json"), oldManifestBytes, 0600); err != nil {
++				t.Fatal(err)
++			}
++			oldDigest := sha256.Sum256(oldManifestBytes)
++			if err := setEnvValues(envPath, map[string]string{"MASTERMIND_RELEASE_SHA256": hex.EncodeToString(oldDigest[:])}); err != nil {
++				t.Fatal(err)
++			}
 +			if err = os.WriteFile(resolved.ManifestPath, manifestBytes, 0600); err != nil {
 +				t.Fatal(err)
 +			}
@@ -1963,7 +2253,7 @@ index 0000000..8fcccb5
 +			}
 +			if expected == "ROLLED_BACK" {
 +				restore := strings.Index(calls, "update-rollback")
-+				start := strings.LastIndex(calls, "up -d --no-deps runtime worker core")
++				start := strings.LastIndex(calls, "up -d --no-deps core")
 +				if restore < 0 || start < restore {
 +					t.Fatal("old Core started before data rollback")
 +				}
@@ -1977,6 +2267,29 @@ index 0000000..8fcccb5
 +			repeated, err := instance.Start(input)
 +			if err != nil || repeated.ID != job.ID {
 +				t.Fatal("Apply retry lost durable identity")
++			}
++			if failure == "none" {
++				rollbackRequest := strings.Repeat("b", 32)
++				if _, err := instance.PrepareMastermind(context.Background(), "mastermind", rollbackRequest, "0.0.1"); err == nil {
++					t.Fatal("unapproved downgrade accepted")
++				}
++				if _, err := instance.PrepareMastermind(context.Background(), "mastermind", rollbackRequest, "0.0.1", "foreign-job"); err == nil {
++					t.Fatal("foreign rollback target accepted")
++				}
++				resolved.Manifest = oldManifest
++				if err := os.WriteFile(resolved.ManifestPath, oldManifestBytes, 0600); err != nil {
++					t.Fatal(err)
++				}
++				preparedRollback, err := instance.PrepareMastermind(context.Background(), "mastermind", rollbackRequest, "0.0.1", job.ID)
++				if err != nil || preparedRollback.RollbackOf != job.ID || preparedRollback.PreviousVersion != "0.0.2" {
++					t.Fatalf("verified previous group was not prepared: %v", err)
++				}
++				if err := os.WriteFile(resolved.ManifestPath, append(oldManifestBytes, ' '), 0600); err != nil {
++					t.Fatal(err)
++				}
++				if _, err := instance.PrepareMastermind(context.Background(), "mastermind", strings.Repeat("c", 32), "0.0.1", job.ID); err == nil {
++					t.Fatal("changed previous signed manifest accepted for rollback")
++				}
 +			}
 +		})
 +	}

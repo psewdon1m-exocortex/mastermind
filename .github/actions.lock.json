@@ -1,0 +1,42 @@
+{
+  "actions/checkout": {
+    "tag": "v7.0.1",
+    "sha": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+    "source": "https://github.com/actions/checkout/releases/tag/v7.0.1"
+  },
+  "actions/setup-python": {
+    "tag": "v7.0.0",
+    "sha": "5fda3b95a4ea91299a34e894583c3862153e4b97",
+    "source": "https://github.com/actions/setup-python/releases/tag/v7.0.0"
+  },
+  "actions/setup-node": {
+    "tag": "v7.0.0",
+    "sha": "820762786026740c76f36085b0efc47a31fe5020",
+    "source": "https://github.com/actions/setup-node/releases/tag/v7.0.0"
+  },
+  "actions/upload-artifact": {
+    "tag": "v7.0.1",
+    "sha": "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+    "source": "https://github.com/actions/upload-artifact/releases/tag/v7.0.1"
+  },
+  "actions/download-artifact": {
+    "tag": "v8.0.1",
+    "sha": "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+    "source": "https://github.com/actions/download-artifact/releases/tag/v8.0.1"
+  },
+  "docker/setup-buildx-action": {
+    "tag": "v4.4.0",
+    "sha": "594f3bf4285d9ea8dc53c9a0c9c4092420091003",
+    "source": "https://github.com/docker/setup-buildx-action/releases/tag/v4.4.0"
+  },
+  "docker/login-action": {
+    "tag": "v4.6.0",
+    "sha": "dbcb813823bdd20940b903addbd779551569679f",
+    "source": "https://github.com/docker/login-action/releases/tag/v4.6.0"
+  },
+  "actions/attest-build-provenance": {
+    "tag": "v4.2.2",
+    "sha": "4d101475d8b20a2381f78447822ac1eab6504dd8",
+    "source": "https://github.com/actions/attest-build-provenance/releases/tag/v4.2.2"
+  }
+}

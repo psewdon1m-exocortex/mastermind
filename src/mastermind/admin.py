@@ -202,6 +202,30 @@ def create_admin_app(service):
                 service.vault._read(relative)
             return {"valid": True, "notes": len(inventory)}
 
+    @app.get("/v1/updates")
+    def update_status():
+        return service.updates.public()
+
+    @app.post("/v1/updates/check")
+    def update_check():
+        return service.updates.discover()
+
+    @app.get("/v1/updates/rollback")
+    def update_rollback_options():
+        return service.updates.rollback_options()
+
+    @app.post("/v1/updates")
+    async def update_apply(request: Request):
+        from .api import bounded_json, require_text
+        data = await bounded_json(request, 4096)
+        return await asyncio.to_thread(service.updates.submit, require_text(data, "version"))
+
+    @app.post("/v1/updates/rollback")
+    async def update_rollback(request: Request):
+        from .api import bounded_json, require_text
+        data = await bounded_json(request, 4096)
+        return await asyncio.to_thread(service.updates.submit_rollback, require_text(data, "job_id"))
+
     @app.post("/v1/reindex")
     def reindex():
         service.data_ready()

@@ -131,6 +131,9 @@ def test_production_compose_enforces_principals_and_loopback(tmp_path, release_t
         lambda v: v["services"]["worker"]["volumes"][1].update(source=str(tmp_path/"secrets/core")),
         lambda v: v["services"]["core"]["ports"][0].update(host_ip="0.0.0.0"),
         lambda v: v["services"]["core"]["volumes"][0].update(target="/etc"),
+        lambda v: v["services"]["core"].update(security_opt=[]),
+        lambda v: v["services"]["worker"]["volumes"].pop(),
+        lambda v: v["services"]["worker"]["volumes"].append(v["services"]["worker"]["volumes"][1]),
     ):
         candidate = copy.deepcopy(rendered)
         change(candidate)

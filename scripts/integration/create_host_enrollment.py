@@ -14,11 +14,16 @@ probe_integrations.BASE = "https://127.0.0.1:19442"
 owner = client("saturn")
 checked(owner.post("/api/v1/auth/login", json={"accessKey": (FIXTURE/"saturn/dev-owner-bootstrap-token").read_text().strip()}), 200, 201)
 owner.headers["X-Vault-CSRF"] = owner.cookies.get("vault_csrf_dev")
-deployment = "host-"+uuid.uuid4().hex[:12]
-enrollment = checked(owner.post("/api/v1/backup-services/enrollments", json={
-    "namespaceSlug": "mastermind", "deploymentId": deployment, "mirrorRoot": "mastermind",
-    "name": "Mastermind isolated host qualification", "requireEncryption": True}), 201)
 path = ROOT/".local/host-fixture/enrollment.json"
+if path.exists():
+    previous=json.loads(path.read_text())
+    enrollment=checked(owner.post('/api/v1/backup-services/'+previous['service']['id']+'/enrollment'),201)
+    deployment=previous['service']['deploymentId']
+else:
+    deployment = "host-"+uuid.uuid4().hex[:12]
+    enrollment = checked(owner.post("/api/v1/backup-services/enrollments", json={
+        "namespaceSlug": "mastermind", "deploymentId": deployment, "mirrorRoot": "mastermind",
+        "name": "Mastermind isolated host qualification", "requireEncryption": True}), 201)
 path.write_text(json.dumps(enrollment), encoding="utf-8")
 path.chmod(0o600)
 print("Created a private one-time Mastermind code for isolated deployment "+deployment+"; value withheld")

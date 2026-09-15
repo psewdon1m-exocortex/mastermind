@@ -1,0 +1,14 @@
+{
+  "name": "mastermind-qualification",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "test:bridge": "npm --prefix bridge test",
+    "build:bridge": "npm --prefix bridge run build",
+    "test:shell": "node scripts/probe_shell.cjs",
+    "test:soak": "node scripts/soak_runtime.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.0"
+  }
+}

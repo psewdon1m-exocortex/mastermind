@@ -1,4 +1,4 @@
-const {chromium}=require('C:/Users/pc/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const {chromium}=require('./lib/browser.cjs');
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 (async()=>{
   const root=path.resolve(__dirname,'..'),origin='http://localhost:18390',browser=await chromium.launch({headless:true});
