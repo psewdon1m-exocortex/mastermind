@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mastermind"
-version = "0.0.1"
+version = "0.1.0"
 description = "Exocortex canonical Obsidian knowledge service"
 requires-python = ">=3.12"
 dependencies = ["fastapi==0.141.1", "uvicorn==0.53.0", "httpx==0.28.1", "markdown-it-py==4.2.0", "PyYAML==6.0.3", "argon2-cffi==25.1.0", "cryptography==50.0.1", "watchdog==6.0.0", "python-multipart==0.0.32", "pyrage==1.4.0", "ijson==3.5.1", "psutil==7.2.2", "websockets==17.1", "tzdata==2026.4"]

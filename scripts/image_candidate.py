@@ -6,7 +6,7 @@ import subprocess
 import tarfile
 from pathlib import Path
 
-BUILD_INPUTS = ["Dockerfile", "Dockerfile.runtime", "Dockerfile.worker", ".dockerignore", ".gitattributes",
+BUILD_INPUTS = ["Dockerfile", "Dockerfile.runtime", "Dockerfile.worker", ".dockerignore", ".gitattributes", "component-lock.json",
                 "requirements.lock", "requirements.worker.lock", "embedding-model.lock.json", "worker-browser.lock.json",
                 "scripts/install_worker_browser.py", "src", "runtime", "bridge", "bin"]
 

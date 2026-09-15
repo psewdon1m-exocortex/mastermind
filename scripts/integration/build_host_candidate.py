@@ -37,7 +37,7 @@ def main():
                              declaration + ' = "' + args.version + '"', body, count=1, flags=re.MULTILINE)
         assert count == 1, "Exact version declaration is absent"
         path.write_text(body, encoding="utf-8", newline="\n")
-    for name in ("bridge/manifest.json", "bridge/package.json", "bridge/package-lock.json", "package.json", "package-lock.json"):
+    for name in ("bridge/manifest.json", "bridge/package.json", "bridge/package-lock.json", "package.json", "package-lock.json", "component-lock.json"):
         path = source / name
         data = json.loads(path.read_text("utf-8"))
         assert data["version"] == old_version

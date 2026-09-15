@@ -23,7 +23,7 @@ def versions(root):
     python_version = next(ast.literal_eval(node.value) for node in namespace.body if isinstance(node, ast.Assign)
                           and any(isinstance(target, ast.Name) and target.id == "__version__" for target in node.targets))
     observed = [python_version]
-    for name in ("bridge/manifest.json", "bridge/package.json", "bridge/package-lock.json"):
+    for name in ("bridge/manifest.json", "bridge/package.json", "bridge/package-lock.json", "component-lock.json"):
         observed.append(json.loads((root / name).read_text("utf-8"))["version"])
     observed.append(json.loads((root / "bridge/package-lock.json").read_text("utf-8"))["packages"][""]["version"])
     if (root / "package.json").exists():
@@ -70,6 +70,11 @@ def policy(root):
 
 
 def inputs(root):
+    components = json.loads((root / "component-lock.json").read_text("utf-8"))
+    runtime = (root / "Dockerfile.runtime").read_text("utf-8")
+    for artifact in (components["kasmvnc"]["asset"], *components["obsidian"]["assets"]):
+        require(artifact["url"] in runtime and artifact["digest"].removeprefix("sha256:") in runtime,
+                "Native runtime archive differs from its official component lock")
     for name in ("Dockerfile", "Dockerfile.runtime", "Dockerfile.worker"):
         stages = set()
         for line in (root / name).read_text("utf-8").splitlines():

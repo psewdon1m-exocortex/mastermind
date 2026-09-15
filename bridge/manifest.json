@@ -1,7 +1,7 @@
 {
   "id": "mastermind-bridge",
   "name": "Mastermind Bridge",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "minAppVersion": "1.13.0",
   "description": "Coordinates the canonical Vault with the Mastermind service.",
   "author": "Exocortex",
