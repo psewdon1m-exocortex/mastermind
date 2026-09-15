@@ -95,10 +95,12 @@ def prepare(directory):
               "worker": {"worker_token": internal["worker_token"]}}
     secret_root = directory/"secrets"
     secret_root.mkdir(mode=0o750)
+    secret_root.chmod(0o750)
     for scope, values in scopes.items():
         folder = secret_root/scope
         folder.mkdir(mode=0o750)
         os.chown(folder, 0, 10001)
+        folder.chmod(0o750)  # bootstrap runs under umask 077; enforce group traversal
         for name, value in values.items():
             write(folder/name, value, mode=0o640, gid=10001, exclusive=True)
     constants = {"MASTERMIND_VERSION": manifest["version"],

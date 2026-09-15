@@ -134,3 +134,26 @@ def test_production_compose_enforces_principals_and_loopback(tmp_path, release_t
         change(candidate)
         with pytest.raises(ValueError):
             installer.validate_profile(candidate, images, tmp_path)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="POSIX umask qualification")
+def test_preparation_enforces_directory_and_file_modes_under_restrictive_umask(tmp_path, release_tools, monkeypatch):
+    import os
+    _, installer, _ = release_tools
+    # The non-root test container exercises real umask/stat; only host UID/GID
+    # ownership assignment is left to the separate real Linux installation.
+    monkeypatch.setattr(installer.os, "chown", lambda *_: None)
+    (tmp_path/"mastermind-release.json").write_text(json.dumps({"version": "0.0.1", "mastermind": {
+        "components": {name: name+"@sha256:"+"a"*64 for name in ("core", "runtime", "worker")}}}))
+    previous = os.umask(0o077)
+    try:
+        installer.prepare(tmp_path)
+    finally:
+        os.umask(previous)
+    assert (tmp_path/".env").stat().st_mode & 0o777 == 0o600
+    for name in ("core", "runtime", "worker"):
+        folder = tmp_path/"secrets"/name
+        assert folder.stat().st_mode & 0o777 == 0o750
+        assert all(path.stat().st_mode & 0o777 == 0o640 for path in folder.iterdir())
+    assert (tmp_path/"secrets/core/worker_token").read_bytes() == (tmp_path/"secrets/worker/worker_token").read_bytes()
+    assert not (tmp_path/"secrets/worker/bootstrap_access_key").exists()
