@@ -23,11 +23,17 @@ const root=path.resolve(__dirname,'..'),origin='https://mastermind.qualification
     for(let tick=0;tick<600;tick++){
       await page.waitForTimeout(1000);
       result=await page.evaluate(async()=>{const r=await fetch('/api/owner/agents/neptune/initialization');return r.ok?await r.json():{state:'RECONNECTING',http:r.status};}).catch(e=>({state:'RECONNECTING',error:String(e.message).split('\n')[0]}));
+      if(result.http===401){
+        const login=await page.evaluate(async access_key=>(await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_key})})).status,key);
+        assert.equal(login,200,'Owner session reconnection failed');
+      }
       if(result.state!==previous){console.log(JSON.stringify({utc:new Date().toISOString(),state:result.state,error:result.error}));previous=result.state;}
       if(['COMPLETED','FAILED'].includes(result.state))break;
     }
-    fs.writeFileSync(path.join(root,'artifacts/host-enrollment.json'),JSON.stringify(result,null,2));
-    await page.screenshot({path:path.join(root,'artifacts/host-enrollment.png')});
+    const suffix=process.argv.includes('--review')?'.review':'';
+    fs.writeFileSync(path.join(root,'artifacts/host-enrollment'+suffix+'.json'),JSON.stringify(result,null,2));
+    await page.goto(origin+'/settings');
+    await page.screenshot({path:path.join(root,'artifacts/host-enrollment'+suffix+'.png')});
     assert.equal(result.state,'COMPLETED',result.error||'Initialization deadline');
     assert.deepEqual(result.capabilities,['archive','mirror','reader']);
     console.log('PASS actual browser initialization, signed host Neptune install, independent pipelines and authenticated reader');

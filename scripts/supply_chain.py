@@ -8,6 +8,8 @@ import time
 import uuid
 from pathlib import Path
 
+from docker_paths import bind_path
+
 ROOT = Path(__file__).resolve().parents[1]
 TOOL = "mastermind-security-tools:qualification"
 
@@ -15,12 +17,13 @@ TOOL = "mastermind-security-tools:qualification"
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--images", type=Path, required=True, help="JSON mapping core/runtime/worker to immutable image identities")
+    parser.add_argument("--scratch", type=Path, default=ROOT / ".local/security-audit", help="Disposable image archive storage; must have sufficient free disk")
     args = parser.parse_args()
     images = json.loads(args.images.read_text("utf-8"))
     if set(images) != {"core", "runtime", "worker"}:
         raise SystemExit("Supply the complete three-image candidate")
     run_id = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + uuid.uuid4().hex[:8]
-    output, inputs = ROOT / "artifacts/supply-chain" / run_id, ROOT / ".local/security-audit" / run_id
+    output, inputs = ROOT / "artifacts/supply-chain" / run_id, args.scratch.resolve() / run_id
     output.mkdir(parents=True)
     inputs.mkdir(parents=True)
     records = []
@@ -47,8 +50,8 @@ def main():
         # No source tree, image archive or service credential is mounted during refresh.
         run("database-refresh", [*base, TOOL, "grype", "db", "update"], timeout=600)
         isolated = [*base, "--network", "none", "-e", "GRYPE_DB_AUTO_UPDATE=false", "--mount",
-                    "type=bind,source=" + str(inputs) + ",target=/input,readonly", "--mount",
-                    "type=bind,source=" + str(output) + ",target=/output", TOOL]
+                    "type=bind,source=" + bind_path(inputs) + ",target=/input,readonly", "--mount",
+                    "type=bind,source=" + bind_path(output) + ",target=/output", TOOL]
         for name, reference in images.items():
             identity = subprocess.check_output(["docker", "image", "inspect", "--format", "{{.Id}}", reference], text=True).strip()
             archive = inputs / (name + ".tar")

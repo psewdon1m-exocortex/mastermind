@@ -21,6 +21,7 @@ function request(route,headers={},servername='mastermind.qualification.test',bod
   results.push('concealed endpoints, inventories and configuration return 404');
   for(const headers of [{},{'User-Agent':'Googlebot','X-Verified-Bot':'true','X-Forwarded-For':'127.0.0.1','Forwarded':'for=127.0.0.1;proto=https'}]){
     assert.equal((await request('/api/notes',headers)).http,401);
+    assert.equal((await request('/api/graph',headers)).http,401,'anonymous graph route');
     assert.equal((await request('/runtime/index.html',headers)).http,401);
   }
   results.push('anonymous and forged trusted clients cannot reach owner content');
@@ -37,6 +38,7 @@ function request(route,headers={},servername='mastermind.qualification.test',bod
     const key=execFileSync('docker',['exec','mastermind-qualification-host','cat','/opt/exocortex/mastermind/secrets/core/bootstrap_access_key'],{encoding:'utf8'});
     const session=await page.evaluate(async access_key=>{const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_key})});return {http:r.status,...await r.json()};},key);
     assert.equal(session.http,200);
+    assert.equal(await page.evaluate(async()=>(await fetch('/api/graph')).status),200,'authenticated graph route');
     const cookies=await context.cookies();const owner=cookies.find(cookie=>cookie.httpOnly);assert.ok(owner);
     assert.equal(owner.secure,true);assert.equal(owner.sameSite,'Strict');assert.equal(owner.domain,'mastermind.qualification.test');
     const forbidden=await page.evaluate(async()=>{const r=await fetch('/api/notes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:'Should not exist.md',text:'Rejected'})});return r.status;});assert.equal(forbidden,403);
@@ -49,4 +51,4 @@ function request(route,headers={},servername='mastermind.qualification.test',bod
   results.push('actual edge log omits capability and query values');
   fs.writeFileSync(path.join(root,'artifacts/host-edge.json'),JSON.stringify({status:'PASS',utc:new Date().toISOString(),checks:results},null,2));
   console.log('PASS real Nginx canonical HTTPS: '+results.join('; '));
-})().catch(error=>{console.error(String(error.message).split('\n')[0]);process.exitCode=1;});
+})().catch(error=>{console.error(JSON.stringify({status:'FAIL',message:String(error.message)}));process.exitCode=1;});

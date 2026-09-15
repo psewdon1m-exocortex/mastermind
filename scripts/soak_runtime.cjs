@@ -32,8 +32,9 @@ function inspect(){return ['core','runtime'].map(name=>{const state=JSON.parse(e
     async function connect(){await page.goto(origin+'/runtime/index.html?autoconnect=1&path=runtime/websockify&resize=remote');await sleep(3000);}
     await connect();
     if(process.argv.includes('--inspect')){await page.screenshot({path:path.join(output,'initial.png')});log({status:'INSPECT_ONLY',containers:inspect()});return;}
-    if(process.argv.includes('--trust-generated-fixture')){await page.mouse.click(880,558);await sleep(3000);}
-    if(process.argv.includes('--close-first-settings')){await page.mouse.click(1148,117);await sleep(700);}
+    if(process.argv.includes('--trust-generated-fixture')){await page.mouse.click(880,608);await sleep(3000);}
+    if(process.argv.includes('--close-first-settings')){await page.mouse.click(1418,14);await sleep(700);}
+    if(process.argv.includes('--setup-only')){await page.screenshot({path:path.join(output,'after-setup.png')});log({status:'SETUP_ONLY',containers:inspect()});return;}
     const initial=await ready(),baseline=inspect(),started=Date.now(),run=crypto.randomBytes(6).toString('hex');
     log({status:'STARTED',required_ms:duration,full_qualification:duration>=28800000,run,containers:baseline,bridge:initial.runtime.bridge});
     const initialNote=await api('/api/note?path=Runtime%20soak.md');let expected=initialNote.text,checkpoints=0;

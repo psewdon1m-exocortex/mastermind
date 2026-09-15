@@ -12,6 +12,8 @@ import time
 import uuid
 from pathlib import Path
 
+from docker_paths import bind_path
+from image_candidate import reuse
 from validate_repository import versions
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,7 +34,11 @@ def main():
     parser.add_argument("--ref", default=os.environ.get("GITHUB_REF", ""))
     parser.add_argument("--images", action="store_true")
     parser.add_argument("--secrets", action="store_true")
+    parser.add_argument("--reuse-images", type=Path, help="Verified unchanged OCI candidate; avoid rebuilding after qualification-only edits")
     args = parser.parse_args()
+    storage = Path(os.environ.get("MASTERMIND_DOCKER_STORAGE_PATH", str(ROOT)))
+    if os.name == "nt" and (shutil.disk_usage(storage).free < 12 * 1024**3 or shutil.disk_usage(ROOT).free < 2 * 1024**3):
+        raise SystemExit("CI requires at least 12 GiB of free host disk before large image/backup tests")
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     if subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"], cwd=ROOT):
         raise SystemExit("CI evidence requires a clean committed source revision")
@@ -55,7 +61,7 @@ def main():
         print("RUN " + name, flush=True)
         with path.open("wb") as log:
             try:
-                result = subprocess.run(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, timeout=timeout)
+                result = subprocess.run(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, timeout=timeout, check=False)
                 code = result.returncode
             except subprocess.TimeoutExpired:
                 code = 124
@@ -82,10 +88,13 @@ def main():
         # Portable-export tests consume the freshly built Bridge, which is an
         # ignored build output and therefore deliberately absent from git archive.
         shutil.copytree(ROOT / "bridge/dist", source / "bridge/dist")
-        if args.images:
+        if args.images or args.reuse_images:
             run("offline-model", [sys.executable, "scripts/fetch_embedding_model.py"])
             images = {}
-            for component in ("core", "runtime", "worker"):
+            if args.reuse_images:
+                images, result["image_reuse"] = reuse(ROOT, args.reuse_images, revision)
+                print("PASS unchanged source inputs and original OCI-to-image identity", flush=True)
+            for component in (() if args.reuse_images else ("core", "runtime", "worker")):
                 tag = "mastermind-" + component + ":ci-" + revision[:12]
                 command = ["docker", "build", "-f", "Dockerfile" + ("" if component == "core" else "." + component), "-t", tag]
                 if component == "worker":
@@ -104,7 +113,7 @@ def main():
             result["test_storage_volume"] = volume
             isolated = ["docker", "run", "--rm", "--network", "none", "--read-only", "--user", "10001:10001",
                         "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "--memory", "2g", "--cpus", "2",
-                        "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m,mode=1777", "--mount", "type=bind,source=" + str(source) + ",target=/suite,readonly",
+                        "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m,mode=1777", "--mount", "type=bind,source=" + bind_path(source) + ",target=/suite,readonly",
                         "--mount", "type=volume,source=" + volume + ",target=/verification"]
             run("linux-tests", [*isolated, "--entrypoint", "python", images["worker"], "-m", "pytest", "/suite/tests", "-q",
                                 "-o", "pythonpath=/app/src", "-p", "no:cacheprovider", "--basetemp=/verification/pytest"], timeout=600)
@@ -115,8 +124,8 @@ def main():
             run("component-tests", [sys.executable, "-m", "pytest", "-q", "--junitxml=" + str(output / "tests.xml")], timeout=600)
         if args.secrets:
             scan = ["docker", "run", "--rm", "--network", "none", "--read-only", "--cap-drop", "ALL",
-                    "--mount", "type=bind,source=" + str(ROOT) + ",target=/repo,readonly",
-                    "--mount", "type=bind,source=" + str(source) + ",target=/source,readonly", "--entrypoint", "/usr/bin/gitleaks", GITLEAKS]
+                    "--mount", "type=bind,source=" + bind_path(ROOT) + ",target=/repo,readonly",
+                    "--mount", "type=bind,source=" + bind_path(source) + ",target=/source,readonly", "--entrypoint", "/usr/bin/gitleaks", GITLEAKS]
             run("secret-history", [*scan, "git", "/repo", "--config", "/repo/.gitleaks.toml", "--redact", "--no-banner", "--log-opts=--all"])
             run("secret-source", [*scan, "dir", "/source", "--config", "/repo/.gitleaks.toml", "--redact", "--no-banner"])
         result["status"] = "PASS"
