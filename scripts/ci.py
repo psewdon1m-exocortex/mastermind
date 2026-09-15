@@ -120,6 +120,9 @@ def main():
             run("real-worker-sandbox", [*isolated, "--mount", "type=volume,source=" + volume + ",target=/work,volume-subpath=worker",
                 "--tmpfs", "/run/mastermind:rw,nosuid,nodev,size=1m,mode=1777", "--entrypoint", "python", images["worker"],
                 "/suite/scripts/integration/probe_worker.py"], timeout=180)
+            run("real-worker-browser", [*isolated, "--mount", "type=volume,source=" + volume + ",target=/work,volume-subpath=worker",
+                "--tmpfs", "/run/mastermind:rw,nosuid,nodev,size=1m,mode=1777", "--entrypoint", "python", images["worker"],
+                "/suite/scripts/integration/probe_worker_browser.py"], timeout=180)
         else:
             run("component-tests", [sys.executable, "-m", "pytest", "-q", "--junitxml=" + str(output / "tests.xml")], timeout=600)
         if args.secrets:

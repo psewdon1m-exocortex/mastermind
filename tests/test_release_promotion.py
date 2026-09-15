@@ -34,7 +34,7 @@ def qualified(tmp_path, promotion):
         return {"path": name, "sha256": gate.digest(path)}
     steps = []
     for name in ("repository", "exposure", "catalog", "python-lint", "bridge-check", "bridge-tests", "bridge-build",
-                 "linux-tests", "real-worker-sandbox", "secret-history", "secret-source"):
+                 "linux-tests", "real-worker-sandbox", "real-worker-browser", "secret-history", "secret-source"):
         path = tmp_path / (name + ".log")
         path.write_text("Synthetic adversarial-test evidence; never release qualification.\n")
         steps.append({"name": name, "exit_code": 0, "command": ["synthetic-unit-fixture"], "log_sha256": gate.digest(path)})

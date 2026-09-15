@@ -1,0 +1,13 @@
+{
+  "schema": "mastermind.worker-browser.v1",
+  "vendor": "Google Chrome for Testing",
+  "channel": "Stable",
+  "version": "153.0.8010.36",
+  "platform": "linux64",
+  "url": "https://storage.googleapis.com/chrome-for-testing-public/153.0.8010.36/linux64/chrome-linux64.zip",
+  "sha256": "167a098c4fdec156b58a9f678c90a84f9072d789f9c6e7b35496a6987b8b7ef8",
+  "bytes": 195711476,
+  "executable": "chrome-linux64/chrome",
+  "source": "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json",
+  "checked_at": "2026-09-15"
+}

@@ -8,6 +8,8 @@ Supported sources include text, bounded uploads, public web pages, YouTube/video
 
 Worker receives only the current source and bounded chunks. It has no Vault mount, database, provider/agent credentials belonging to other principals or commit API. Extractors run through the Linux sandbox and allowlisted binaries; browser requests and redirects undergo public-address checks. The offline multilingual E5 model is pinned by digest, uses at most 512 tokens/chunk and never downloads model artifacts at runtime.
 
+The Worker browser is the separately pinned official stable Chrome for Testing **153.0.8010.36**, recorded with download URL and SHA-256 in `worker-browser.lock.json`. The build verifies and installs those bytes and uses Playwright only as the controller. It does not install the older browser bundled with Playwright. The executable still enters the same Landlock/seccomp wrapper; all network requests pass through the bounded parent broker. Full image CI checks the actual browser version, executes a JavaScript-generated article and rejects its attempted request to loopback. The initial switch addresses the vulnerable Chromium 151 baseline; only a fresh scan of the resulting exact image can establish its new vulnerability status.
+
 ## Context and placement
 
 The provider does not receive the whole Vault. Placement follows root → `#main` → `#key`, including nested key branches, with selected bounded candidate text. Maximum hierarchy depth is 8; limits are 12,000 unique / 24,000 transmitted context tokens per job, with the source/model budgets in the final requirements. Ambiguous placement falls back to Inbox. Source text is untrusted data, not authority to read secrets or execute instructions.

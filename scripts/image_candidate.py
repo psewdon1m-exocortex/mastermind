@@ -7,7 +7,8 @@ import tarfile
 from pathlib import Path
 
 BUILD_INPUTS = ["Dockerfile", "Dockerfile.runtime", "Dockerfile.worker", ".dockerignore", ".gitattributes",
-                "requirements.lock", "requirements.worker.lock", "embedding-model.lock.json", "src", "runtime", "bridge", "bin"]
+                "requirements.lock", "requirements.worker.lock", "embedding-model.lock.json", "worker-browser.lock.json",
+                "scripts/install_worker_browser.py", "src", "runtime", "bridge", "bin"]
 
 
 def config_identity(archive, digest):

@@ -66,7 +66,7 @@ def build(args):
     output.mkdir(parents=True, exist_ok=True)
     base = f"https://github.com/{args.repository}/releases/download/mastermind-v{version}"
     files = {}
-    for name in ("compose.production.yaml", "pyproject.toml", "requirements.lock", "requirements.worker.lock", "embedding-model.lock.json"):
+    for name in ("compose.production.yaml", "pyproject.toml", "requirements.lock", "requirements.worker.lock", "embedding-model.lock.json", "worker-browser.lock.json"):
         files[name] = (ROOT/name).read_bytes()
     for directory in ("packaging", "docs", "integrations/patches"):
         for path in (ROOT/directory).rglob("*"):

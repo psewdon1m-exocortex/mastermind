@@ -64,7 +64,7 @@ def validate_results(record, candidate, revision, manifest_digest, components):
     steps = ci.get("steps", [])
     names = {step.get("name") for step in steps}
     require(len(names) == len(steps) and {"repository", "exposure", "catalog", "python-lint", "bridge-check",
-            "bridge-tests", "bridge-build", "linux-tests", "real-worker-sandbox", "secret-history", "secret-source"} <= names,
+            "bridge-tests", "bridge-build", "linux-tests", "real-worker-sandbox", "real-worker-browser", "secret-history", "secret-source"} <= names,
             "Required CI commands are missing or repeated")
     for step in steps:
         require(type(step.get("exit_code")) is int and step["exit_code"] == 0 and step.get("command"), "CI command failed or was not executed")

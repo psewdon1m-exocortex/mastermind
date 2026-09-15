@@ -22,7 +22,7 @@ def render(folder, record, fetcher):
         with sync_playwright() as playwright:
             environment = {"PATH": "/usr/local/bin:/usr/bin:/bin", "PYTHONPATH": "/app/src", "PYTHONDONTWRITEBYTECODE": "1",
                 "LANG": "C.UTF-8", "HOME": str(folder), "TMPDIR": str(folder), "XDG_CACHE_HOME": str(folder / "cache"),
-                "MASTERMIND_BROWSER_JOB": str(folder), "MASTERMIND_CHROMIUM_EXECUTABLE": playwright.chromium.executable_path}
+                "MASTERMIND_BROWSER_JOB": str(folder), "MASTERMIND_CHROMIUM_EXECUTABLE": "/opt/mastermind/browser/chrome-linux64/chrome"}
             context = playwright.chromium.launch_persistent_context(str(folder / "browser-profile"),
                 executable_path="/app/runtime/worker-chromium", headless=True, env=environment,
                 service_workers="block", accept_downloads=False, viewport={"width": 1200, "height": 800},

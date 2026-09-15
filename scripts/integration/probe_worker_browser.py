@@ -1,5 +1,6 @@
 """Real Chromium/JS with controlled public responses and real private-address rejection."""
 import json
+import subprocess
 from pathlib import Path
 
 from mastermind.fs import atomic_json, sha_file
@@ -17,6 +18,12 @@ class FixtureFetch(PublicFetch):
 
 
 def main():
+    identity = json.loads(Path("/app/worker-browser.lock.json").read_text())
+    browser_version = subprocess.check_output(["/opt/mastermind/browser/chrome-linux64/chrome", "--version"], text=True).strip()
+    assert identity["version"] in browser_version, "Actual browser version differs from the immutable lock"
+    credential = Path("/run/mastermind/worker_token")
+    if not credential.exists():
+        credential.write_text("synthetic-browser-qualification-identity")
     worker = Worker(Path("/work"), Path("/opt/mastermind/model"), Path("/app/embedding-model.lock.json"),
                     Path("/run/mastermind/worker_token"))
     worker.start()
@@ -40,7 +47,7 @@ def main():
     assert not output["needs_browser"]
     worker.cleanup(identifier)
     import psutil
-    print(json.dumps({"real_chromium": "PASS", "javascript_article": "PASS", "private_fetch": "DENIED",
+    print(json.dumps({"real_chromium": "PASS", "browser_version": browser_version, "javascript_article": "PASS", "private_fetch": "DENIED",
                       "model_loaded": True, "worker_rss_bytes": psutil.Process().memory_info().rss,
                       "cgroup_peak_bytes": int(Path("/sys/fs/cgroup/memory.peak").read_text()),
                       "diagnostics": output["diagnostics"]}))
