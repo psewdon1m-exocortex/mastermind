@@ -23,7 +23,7 @@ def main():
     subprocess.run(["update-ca-certificates"], check=True)
     dns = "bind-interfaces\nlisten-address=127.0.0.1,10.245.0.1\nno-resolv\nserver=1.1.1.1\n"
     for host in ("kernel", "volt", "saturn", "chronos"):
-        dns += f"address=/{host}.mastermind.test/172.31.0.2\n"
+        dns += f"address=/{host}.mastermind.test/172.31.0.{5 if host == 'saturn' else 2}\n"
     for host in ("github.com", "api.github.com", "mastermind.qualification.test"):
         dns += f"address=/{host}/10.245.0.1\n"
     dns += "address=/registry.mastermind.test/172.31.0.4\n"
@@ -32,7 +32,8 @@ def main():
     hosts = Path("/etc/hosts")
     values = hosts.read_text()
     for line in ("127.0.0.1 github.com api.github.com mastermind.qualification.test",
-                 "172.31.0.2 kernel.mastermind.test volt.mastermind.test saturn.mastermind.test chronos.mastermind.test",
+                 "172.31.0.2 kernel.mastermind.test volt.mastermind.test chronos.mastermind.test",
+                 "172.31.0.5 saturn.mastermind.test",
                  "172.31.0.4 registry.mastermind.test"):
         if line not in values:
             values += "\n"+line+"\n"

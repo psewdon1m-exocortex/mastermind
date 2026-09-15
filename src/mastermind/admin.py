@@ -44,7 +44,7 @@ def local_diagnostics(service):
     def check(name, function):
         try:
             checks[name] = {"status": "PASS", **(function() or {})}
-        except Exception as error:  # diagnostics keep other independent checks available
+        except Exception as error:  # noqa: BLE001 — report each diagnostic independently without hiding a failure
             checks[name] = {"status": "FAIL", "code": error.code if isinstance(error, DomainError) else "CHECK_FAILED"}
     def config():
         if service.config.runtime_mode != "supervised" or service.config.secret_backend != "kernel":
@@ -113,7 +113,7 @@ async def doctor(service):
         try:
             value = await asyncio.to_thread(function)
             dependencies[name] = {"status": "PASS", **(value or {})}
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 — one failed dependency must not suppress other diagnostic results
             dependencies[name] = {"status": "FAIL", "code": error.code if isinstance(error, DomainError) else "DEPENDENCY_UNAVAILABLE"}
     def kernel():
         service.kernel.resolve([SHELL_BINDINGS["share_pepper_v1"]], fresh=True)
@@ -133,10 +133,10 @@ async def doctor(service):
         return {"obsidian": "RUNNING", "bridge": "READY"}
     def vnc():
         import httpx
-        with httpx.Client(timeout=5, trust_env=False, follow_redirects=False) as client:
-            with client.stream("GET", service.vnc()+"/", headers=service.vnc_headers()) as response:
-                if response.status_code != 200:
-                    raise OSError("Native display gateway is not reachable")
+        with httpx.Client(timeout=5, trust_env=False, follow_redirects=False) as client, \
+                client.stream("GET", service.vnc()+"/", headers=service.vnc_headers()) as response:
+            if response.status_code != 200:
+                raise OSError("Native display gateway is not reachable")
     def updater():
         result = service.updates.updater.call("GET", "/v1/health", timeout=5)
         if result.get("service") != "updater" or result.get("status") != "ok" or not {

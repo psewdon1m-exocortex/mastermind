@@ -437,6 +437,77 @@ index 2275051..347964c 100644
 +	}
 +	return result, nil
  }
+diff --git a/internal/engine/deployment.go b/internal/engine/deployment.go
+index fc7a397..ca12b02 100644
+--- a/internal/engine/deployment.go
++++ b/internal/engine/deployment.go
+@@ -30,6 +30,29 @@ func deploymentNames(service string) map[string]bool {
+ 	return names
+ }
+ 
++// A Mastermind group carries its own operator documentation and verification
++// tools. Host helper binaries, trust and operator inputs stay outside Apply.
++func allowedDeploymentName(service, name string) bool {
++	if deploymentNames(service)[name] {
++		return true
++	}
++	if service != "mastermind" || path.Clean(name) != name || strings.ContainsAny(name, "\\\x00:") || strings.HasPrefix(name, "/") || strings.HasPrefix(name, "../") {
++		return false
++	}
++	for _, prefix := range []string{"docs/", "integrations/patches/"} {
++		if strings.HasPrefix(name, prefix) {
++			return true
++		}
++	}
++	switch name {
++	case "README.md", "requirements.md", "pyproject.toml", "requirements.lock", "requirements.worker.lock", "embedding-model.lock.json",
++		"mastermind-release.json", "mastermind-release.json.sig.json", "packaging/install.py", "packaging/release_verify.py",
++		"packaging/nginx/mastermind-http.conf", "packaging/nginx/mastermind-proxy.conf", "packaging/nginx/mastermind-server.conf.template":
++		return true
++	}
++	return false
++}
++
+ func readDeployment(bundle, service string) (map[string][]byte, error) {
+ 	if bundle == "" {
+ 		return nil, errors.New("verified deployment bundle is missing")
+@@ -55,7 +78,7 @@ func readDeployment(bundle, service string) (map[string][]byte, error) {
+ 			}
+ 			return errors.New("deployment bundle links and special files are forbidden")
+ 		}
+-		if !wanted[name] && !((service == "chronos" || service == "laboratory") && name == ".env.example") {
++		if !allowedDeploymentName(service, name) && !((service == "chronos" || service == "laboratory") && name == ".env.example") {
+ 			return nil
+ 		}
+ 		if size > 1024*1024 {
+@@ -126,7 +149,7 @@ func readDeployment(bundle, service string) (map[string][]byte, error) {
+ 
+ func deploymentTarget(head config.HeadConfig, name string) (string, error) {
+ 	managedEnvironment := (head.Service == "chronos" || head.Service == "laboratory") && name == ".env"
+-	if !deploymentNames(head.Service)[name] && !managedEnvironment {
++	if !allowedDeploymentName(head.Service, name) && !managedEnvironment {
+ 		return "", errors.New("invalid deployment target")
+ 	}
+ 	target := filepath.Join(head.ProjectDir, filepath.FromSlash(name))
+@@ -236,7 +259,7 @@ func restoreDeployment(head config.HeadConfig, snapshot string) error {
+ 	if err != nil {
+ 		return err
+ 	}
+-	if info.Size() > 4*1024*1024 {
++	if info.Size() > 16*1024*1024 {
+ 		return errors.New("deployment snapshot exceeds limit")
+ 	}
+ 	body, err := os.ReadFile(snapshot)
+@@ -248,7 +271,8 @@ func restoreDeployment(head config.HeadConfig, snapshot string) error {
+ 		return err
+ 	}
+ 	additionalEnvironment := (head.Service == "chronos" || head.Service == "laboratory") && len(files) == len(deploymentNames(head.Service))+1
+-	if len(files) != len(deploymentNames(head.Service)) && !additionalEnvironment {
++	mastermindMetadata := head.Service == "mastermind" && len(files) >= 1 && len(files) <= 256
++	if len(files) != len(deploymentNames(head.Service)) && !additionalEnvironment && !mastermindMetadata {
+ 		return errors.New("deployment snapshot is incomplete")
+ 	}
+ 	seen := map[string]bool{}
 diff --git a/internal/engine/engine.go b/internal/engine/engine.go
 index 600ff9f..945d10c 100644
 --- a/internal/engine/engine.go
@@ -652,7 +723,7 @@ index 600ff9f..945d10c 100644
  		if err := e.rollback(ctx, &job, head); err != nil {
  			job.State, job.Message = "ROLLBACK_FAILED", err.Error()
 diff --git a/internal/model/model.go b/internal/model/model.go
-index a85a4ef..a83d639 100644
+index a85a4ef..37cbe4f 100644
 --- a/internal/model/model.go
 +++ b/internal/model/model.go
 @@ -12,6 +12,7 @@ type Registry struct {
@@ -681,7 +752,7 @@ index a85a4ef..a83d639 100644
  }
  
  type NeptuneInitializationRequest struct {
-@@ -35,25 +37,32 @@ type NeptuneInitializationRequest struct {
+@@ -35,25 +37,33 @@ type NeptuneInitializationRequest struct {
  }
  
  type Job struct {
@@ -704,36 +775,37 @@ index a85a4ef..a83d639 100644
 -	CreatedAt          time.Time  `json:"created_at"`
 -	UpdatedAt          time.Time  `json:"updated_at"`
 -	FinishedAt         *time.Time `json:"finished_at,omitempty"`
-+	ID                 string            `json:"id"`
-+	RequestID          string            `json:"request_id"`
-+	HeadID             string            `json:"head_id"`
-+	Service            string            `json:"service"`
-+	Version            string            `json:"version,omitempty"`
-+	State              string            `json:"state"`
-+	Message            string            `json:"message,omitempty"`
-+	BackupPath         string            `json:"backup_path,omitempty"`
-+	BackupSpoolID      string            `json:"backup_spool_id,omitempty"`
-+	PreviousImage      string            `json:"previous_image,omitempty"`
-+	PreviousWebImage   string            `json:"previous_web_image,omitempty"`
-+	DeploymentSnapshot string            `json:"deployment_snapshot,omitempty"`
-+	MutationStarted    bool              `json:"mutation_started,omitempty"`
-+	RecoveryPending    bool              `json:"recovery_pending,omitempty"`
-+	PreviousVersion    string            `json:"previous_version,omitempty"`
-+	InstalledImage     string            `json:"installed_image,omitempty"`
-+	InstalledVersion   string            `json:"installed_version,omitempty"`
-+	PreparationID      string            `json:"preparation_id,omitempty"`
-+	ManifestSHA256     string            `json:"manifest_sha256,omitempty"`
-+	ComponentImages    map[string]string `json:"component_images,omitempty"`
-+	PreviousComponents map[string]string `json:"previous_components,omitempty"`
-+	PreviousSchema     int               `json:"previous_schema,omitempty"`
-+	RollbackAvailable  bool              `json:"rollback_available"`
-+	CreatedAt          time.Time         `json:"created_at"`
-+	UpdatedAt          time.Time         `json:"updated_at"`
-+	FinishedAt         *time.Time        `json:"finished_at,omitempty"`
++	ID                     string            `json:"id"`
++	RequestID              string            `json:"request_id"`
++	HeadID                 string            `json:"head_id"`
++	Service                string            `json:"service"`
++	Version                string            `json:"version,omitempty"`
++	State                  string            `json:"state"`
++	Message                string            `json:"message,omitempty"`
++	BackupPath             string            `json:"backup_path,omitempty"`
++	BackupSpoolID          string            `json:"backup_spool_id,omitempty"`
++	PreviousImage          string            `json:"previous_image,omitempty"`
++	PreviousWebImage       string            `json:"previous_web_image,omitempty"`
++	DeploymentSnapshot     string            `json:"deployment_snapshot,omitempty"`
++	MutationStarted        bool              `json:"mutation_started,omitempty"`
++	RecoveryPending        bool              `json:"recovery_pending,omitempty"`
++	PreviousVersion        string            `json:"previous_version,omitempty"`
++	InstalledImage         string            `json:"installed_image,omitempty"`
++	InstalledVersion       string            `json:"installed_version,omitempty"`
++	PreparationID          string            `json:"preparation_id,omitempty"`
++	ManifestSHA256         string            `json:"manifest_sha256,omitempty"`
++	PreviousManifestSHA256 string            `json:"previous_manifest_sha256,omitempty"`
++	ComponentImages        map[string]string `json:"component_images,omitempty"`
++	PreviousComponents     map[string]string `json:"previous_components,omitempty"`
++	PreviousSchema         int               `json:"previous_schema,omitempty"`
++	RollbackAvailable      bool              `json:"rollback_available"`
++	CreatedAt              time.Time         `json:"created_at"`
++	UpdatedAt              time.Time         `json:"updated_at"`
++	FinishedAt             *time.Time        `json:"finished_at,omitempty"`
  }
  
  type ReleaseManifest struct {
-@@ -68,7 +77,22 @@ type ReleaseManifest struct {
+@@ -68,7 +78,22 @@ type ReleaseManifest struct {
  		URL    string `json:"url"`
  		SHA256 string `json:"sha256"`
  	} `json:"compose_bundle"`
@@ -776,228 +848,31 @@ index 1e50cfd..0b07b45 100644
  		return Resolved{}, errors.New("Saturn web image must be pinned to a digest")
  	}
 diff --git a/internal/releaseauth/verify.go b/internal/releaseauth/verify.go
-index 61d5981..5c929d0 100644
+index 61d5981..db12495 100644
 --- a/internal/releaseauth/verify.go
 +++ b/internal/releaseauth/verify.go
-@@ -1,109 +1,109 @@
--package releaseauth
--
--import (
--	"context"
--	"crypto"
--	"crypto/rsa"
--	"crypto/sha256"
--	"crypto/x509"
--	"encoding/base64"
--	"encoding/hex"
--	"encoding/json"
--	"encoding/pem"
--	"errors"
--	"io"
--	"net/http"
--	"os"
--	"path/filepath"
--)
--
--type signature struct {
--	Schema    string `json:"schema"`
--	Algorithm string `json:"algorithm"`
--	KeyID     string `json:"key_id"`
--	Signature string `json:"signature"`
--}
--
--func VerifyBytes(manifest, envelope, publicPEM []byte) error {
--	if len(manifest) > 2*1024*1024 || len(envelope) > 16384 || len(publicPEM) > 16384 {
--		return errors.New("release signature input exceeds limit")
--	}
--	var signed signature
--	if json.Unmarshal(envelope, &signed) != nil || signed.Schema != "exocortex.release-signature.v1" || signed.Algorithm != "RSA-PSS-SHA256" {
--		return errors.New("release signature envelope is invalid")
--	}
--	block, rest := pem.Decode(publicPEM)
--	if block == nil || block.Type != "PUBLIC KEY" || len(rest) != 0 {
--		return errors.New("release trust key must be a single SPKI public key")
--	}
--	parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
--	if err != nil {
--		return errors.New("release trust key is invalid")
--	}
--	key, ok := parsed.(*rsa.PublicKey)
--	if !ok || key.N.BitLen() < 3072 {
--		return errors.New("release trust key must be RSA with at least 3072 bits")
--	}
--	id := sha256.Sum256(block.Bytes)
--	if signed.KeyID != hex.EncodeToString(id[:]) {
--		return errors.New("release signer is not trusted")
--	}
--	value, err := base64.StdEncoding.Strict().DecodeString(signed.Signature)
--	if err != nil {
--		return errors.New("release signature is invalid")
--	}
--	hash := sha256.Sum256(manifest)
--	if rsa.VerifyPSS(key, crypto.SHA256, hash[:], value, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash}) != nil {
--		return errors.New("release signature verification failed")
--	}
--	return nil
--}
--
--func downloadLimited(ctx context.Context, client *http.Client, location string, limit int64, unavailable string) ([]byte, error) {
--	request, err := http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
--	if err != nil {
--		return nil, err
--	}
--	response, err := client.Do(request)
--	if err != nil {
--		return nil, errors.New(unavailable)
--	}
--	defer response.Body.Close()
--	if response.StatusCode != http.StatusOK {
--		return nil, errors.New(unavailable)
--	}
--	value, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
--	if err != nil || int64(len(value)) > limit {
--		return nil, errors.New(unavailable)
--	}
--	return value, nil
--}
--
--// Release trust must already have been pinned by an authenticated bootstrap.
--// Head bootstraps carry the signed Updater installer, which also provisions
--// helper trust. A public key beside a manifest is not an authentication anchor.
--func VerifyDownloaded(ctx context.Context, client *http.Client, manifestPath, signatureURL, service string) error {
--	switch service {
+@@ -84,7 +84,7 @@ func downloadLimited(ctx context.Context, client *http.Client, location string,
+ // helper trust. A public key beside a manifest is not an authentication anchor.
+ func VerifyDownloaded(ctx context.Context, client *http.Client, manifestPath, signatureURL, service string) error {
+ 	switch service {
 -	case "kernel", "volt", "saturn", "updater", "neptune", "gryphon", "chronos", "laboratory":
--	default:
--		return errors.New("unsupported release trust scope")
--	}
--	trustDirectory := os.Getenv("EXOCORTEX_RELEASE_TRUST_DIR")
--	if trustDirectory == "" {
--		trustDirectory = "/etc/exocortex/release-trust"
--	}
--	manifest, err := os.ReadFile(manifestPath)
--	if err != nil {
--		return err
--	}
--	envelope, err := downloadLimited(ctx, client, signatureURL, 16384, "release signature is unavailable")
--	if err != nil {
--		return err
--	}
--	keyPath := filepath.Join(trustDirectory, service+".pem")
--	key, err := os.ReadFile(keyPath)
--	if err != nil {
--		return errors.New("release trust key is unavailable for " + service + "; run an exact-version Updater or head bootstrap first")
--	}
++	case "kernel", "volt", "saturn", "updater", "neptune", "gryphon", "chronos", "laboratory", "mastermind":
+ 	default:
+ 		return errors.New("unsupported release trust scope")
+ 	}
+@@ -105,5 +105,11 @@ func VerifyDownloaded(ctx context.Context, client *http.Client, manifestPath, si
+ 	if err != nil {
+ 		return errors.New("release trust key is unavailable for " + service + "; run an exact-version Updater or head bootstrap first")
+ 	}
 -	return VerifyBytes(manifest, envelope, key)
--}
-+package releaseauth
-+
-+import (
-+	"context"
-+	"crypto"
-+	"crypto/rsa"
-+	"crypto/sha256"
-+	"crypto/x509"
-+	"encoding/base64"
-+	"encoding/hex"
-+	"encoding/json"
-+	"encoding/pem"
-+	"errors"
-+	"io"
-+	"net/http"
-+	"os"
-+	"path/filepath"
-+)
-+
-+type signature struct {
-+	Schema    string `json:"schema"`
-+	Algorithm string `json:"algorithm"`
-+	KeyID     string `json:"key_id"`
-+	Signature string `json:"signature"`
-+}
-+
-+func VerifyBytes(manifest, envelope, publicPEM []byte) error {
-+	if len(manifest) > 2*1024*1024 || len(envelope) > 16384 || len(publicPEM) > 16384 {
-+		return errors.New("release signature input exceeds limit")
++	if err := VerifyBytes(manifest, envelope, key); err != nil {
++		return err
 +	}
-+	var signed signature
-+	if json.Unmarshal(envelope, &signed) != nil || signed.Schema != "exocortex.release-signature.v1" || signed.Algorithm != "RSA-PSS-SHA256" {
-+		return errors.New("release signature envelope is invalid")
-+	}
-+	block, rest := pem.Decode(publicPEM)
-+	if block == nil || block.Type != "PUBLIC KEY" || len(rest) != 0 {
-+		return errors.New("release trust key must be a single SPKI public key")
-+	}
-+	parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
-+	if err != nil {
-+		return errors.New("release trust key is invalid")
-+	}
-+	key, ok := parsed.(*rsa.PublicKey)
-+	if !ok || key.N.BitLen() < 3072 {
-+		return errors.New("release trust key must be RSA with at least 3072 bits")
-+	}
-+	id := sha256.Sum256(block.Bytes)
-+	if signed.KeyID != hex.EncodeToString(id[:]) {
-+		return errors.New("release signer is not trusted")
-+	}
-+	value, err := base64.StdEncoding.Strict().DecodeString(signed.Signature)
-+	if err != nil {
-+		return errors.New("release signature is invalid")
-+	}
-+	hash := sha256.Sum256(manifest)
-+	if rsa.VerifyPSS(key, crypto.SHA256, hash[:], value, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash}) != nil {
-+		return errors.New("release signature verification failed")
++	if service == "mastermind" {
++		return os.WriteFile(manifestPath+".sig.json", envelope, 0600)
 +	}
 +	return nil
-+}
-+
-+func downloadLimited(ctx context.Context, client *http.Client, location string, limit int64, unavailable string) ([]byte, error) {
-+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
-+	if err != nil {
-+		return nil, err
-+	}
-+	response, err := client.Do(request)
-+	if err != nil {
-+		return nil, errors.New(unavailable)
-+	}
-+	defer response.Body.Close()
-+	if response.StatusCode != http.StatusOK {
-+		return nil, errors.New(unavailable)
-+	}
-+	value, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
-+	if err != nil || int64(len(value)) > limit {
-+		return nil, errors.New(unavailable)
-+	}
-+	return value, nil
-+}
-+
-+// Release trust must already have been pinned by an authenticated bootstrap.
-+// Head bootstraps carry the signed Updater installer, which also provisions
-+// helper trust. A public key beside a manifest is not an authentication anchor.
-+func VerifyDownloaded(ctx context.Context, client *http.Client, manifestPath, signatureURL, service string) error {
-+	switch service {
-+	case "kernel", "volt", "saturn", "updater", "neptune", "gryphon", "chronos", "laboratory", "mastermind":
-+	default:
-+		return errors.New("unsupported release trust scope")
-+	}
-+	trustDirectory := os.Getenv("EXOCORTEX_RELEASE_TRUST_DIR")
-+	if trustDirectory == "" {
-+		trustDirectory = "/etc/exocortex/release-trust"
-+	}
-+	manifest, err := os.ReadFile(manifestPath)
-+	if err != nil {
-+		return err
-+	}
-+	envelope, err := downloadLimited(ctx, client, signatureURL, 16384, "release signature is unavailable")
-+	if err != nil {
-+		return err
-+	}
-+	keyPath := filepath.Join(trustDirectory, service+".pem")
-+	key, err := os.ReadFile(keyPath)
-+	if err != nil {
-+		return errors.New("release trust key is unavailable for " + service + "; run an exact-version Updater or head bootstrap first")
-+	}
-+	return VerifyBytes(manifest, envelope, key)
-+}
+ }
 diff --git a/internal/state/operation.go b/internal/state/operation.go
 index 7a5437f..8d7e602 100644
 --- a/internal/state/operation.go
@@ -1332,10 +1207,10 @@ index 0000000..883f319
 +}
 diff --git a/internal/engine/mastermind_group.go b/internal/engine/mastermind_group.go
 new file mode 100644
-index 0000000..b615eec
+index 0000000..c370c72
 --- /dev/null
 +++ b/internal/engine/mastermind_group.go
-@@ -0,0 +1,329 @@
+@@ -0,0 +1,357 @@
 +package engine
 +
 +import (
@@ -1451,12 +1326,14 @@ index 0000000..b615eec
 +			NetworkMode   string   `json:"network_mode"`
 +			CapAdd        []string `json:"cap_add"`
 +			CapDrop       []string `json:"cap_drop"`
++			SecurityOpt   []string `json:"security_opt"`
 +			Devices       []any    `json:"devices"`
 +			Entrypoint    any      `json:"entrypoint"`
 +			Command       any      `json:"command"`
 +			Ports         []struct {
-+				HostIP string `json:"host_ip"`
-+				Target int    `json:"target"`
++				HostIP    string `json:"host_ip"`
++				Target    int    `json:"target"`
++				Published string `json:"published"`
 +			} `json:"ports"`
 +			Volumes []struct {
 +				Type     string `json:"type"`
@@ -1473,35 +1350,49 @@ index 0000000..b615eec
 +		service, ok := rendered.Services[name]
 +		if !ok || service.Image != images[name] || service.Privileged || !service.ReadOnly || service.NetworkMode != "" ||
 +			service.User != "10001:10001" || len(service.CapAdd) != 0 || len(service.Devices) != 0 ||
++			len(service.SecurityOpt) != 1 || service.SecurityOpt[0] != "no-new-privileges:true" ||
 +			len(service.CapDrop) != 1 || !strings.EqualFold(service.CapDrop[0], "ALL") || service.Command != nil || service.Entrypoint != nil ||
 +			service.ContainerName != "" && service.ContainerName != head.ID+"-"+name+"-1" {
 +			return errors.New("Mastermind component violates its fixed runtime profile: " + name)
 +		}
++		if name == "core" && len(service.Ports) != 1 || name != "core" && len(service.Ports) != 0 {
++			return errors.New("Mastermind profile does not have its single owner listener")
++		}
 +		for _, port := range service.Ports {
-+			if name != "core" || port.HostIP != "127.0.0.1" || port.Target != 18390 {
++			if name != "core" || port.HostIP != "127.0.0.1" || port.Target != 18390 || port.Published != "18390" {
 +				return errors.New("Mastermind profile exposes a private component")
 +			}
 +		}
++		required := map[string]map[string]string{
++			"core":    {"core-data": "/data", "vault-data": "/data/vault"},
++			"runtime": {"vault-data": "/vault", "runtime-data": "/home/mastermind"},
++			"worker":  {"work-data": "/work"},
++		}[name]
++		mounted, targets := map[string]bool{}, map[string]bool{}
 +		for _, volume := range service.Volumes {
++			if targets[volume.Target] {
++				return errors.New("Mastermind mount target is duplicated")
++			}
++			targets[volume.Target] = true
 +			if volume.Type == "volume" {
-+				if volume.Source != "core-data" && volume.Source != "vault-data" && volume.Source != "runtime-data" && volume.Source != "work-data" {
-+					return errors.New("Mastermind profile mounts an unowned volume")
-+				}
-+				if name == "runtime" && volume.Source != "vault-data" && volume.Source != "runtime-data" || name == "worker" && volume.Source != "work-data" {
++				if required[volume.Source] != volume.Target || mounted[volume.Source] || volume.ReadOnly {
 +					return errors.New("Mastermind profile crosses a component data boundary")
 +				}
++				mounted[volume.Source] = true
 +				continue
 +			}
 +			if volume.Type != "bind" || !volume.ReadOnly {
 +				return errors.New("Mastermind profile contains an unsupported host mount")
 +			}
 +			allowed := filepath.Join(head.ProjectDir, "secrets", name)
-+			relative, relErr := filepath.Rel(allowed, volume.Source)
-+			ownSecret := relErr == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
-+			agentSocket := name == "core" && (volume.Source == "/run/neptune" || volume.Source == filepath.Dir(e.runtime.SocketPath))
++			ownSecret := volume.Source == allowed && volume.Target == "/run/mastermind"
++			agentSocket := name == "core" && volume.Source == volume.Target && (volume.Source == "/run/neptune" || volume.Source == filepath.Dir(e.runtime.SocketPath))
 +			if !ownSecret && !agentSocket || strings.Contains(volume.Source, "docker.sock") || strings.Contains(volume.Target, "docker.sock") {
 +				return errors.New("Mastermind profile requests an unowned host path")
 +			}
++		}
++		if len(mounted) != len(required) || !targets["/run/mastermind"] || name == "core" && (!targets["/run/neptune"] || !targets[filepath.Dir(e.runtime.SocketPath)]) {
++			return errors.New("Mastermind profile is missing a required scoped mount")
 +		}
 +	}
 +	return nil
@@ -1535,6 +1426,13 @@ index 0000000..b615eec
 +	files, err := readDeployment(resolved.ComposePath, "mastermind")
 +	if err != nil {
 +		return err
++	}
++	for _, suffix := range []string{"", ".sig.json"} {
++		metadata, readErr := os.ReadFile(resolved.ManifestPath + suffix)
++		if readErr != nil || len(metadata) > 2*1024*1024 {
++			return errors.New("verified Mastermind release metadata is missing")
++		}
++		files["mastermind-release.json"+suffix] = metadata
 +	}
 +	candidate := filepath.Join(head.ProjectDir, ".updater-candidate-"+job.RequestID+".yaml")
 +	if err = atomicDeploymentWrite(candidate, files["compose.production.yaml"]); err != nil {
@@ -1579,6 +1477,7 @@ index 0000000..b615eec
 +	job.PreviousVersion = head.CurrentVersion
 +	job.ComponentImages = images
 +	job.ManifestSHA256 = hash
++	job.PreviousManifestSHA256 = values["MASTERMIND_RELEASE_SHA256"]
 +	job.DeploymentSnapshot = filepath.Join(filepath.Dir(job.BackupPath), "deployment.json")
 +	if err = snapshotDeployment(head, files, job.DeploymentSnapshot); err != nil {
 +		return err
@@ -1594,7 +1493,9 @@ index 0000000..b615eec
 +	if err = applyDeployment(head, files); err != nil {
 +		return err
 +	}
-+	if err = setEnvValues(head.EnvFile, componentEnvironment(images, job.Version)); err != nil {
++	updatedEnvironment := componentEnvironment(images, job.Version)
++	updatedEnvironment["MASTERMIND_RELEASE_SHA256"] = hash
++	if err = setEnvValues(head.EnvFile, updatedEnvironment); err != nil {
 +		return err
 +	}
 +	if err = e.groupCommand(ctx, head, "run", "--rm", "--no-deps", "--entrypoint", "python", "core", "-m", "mastermind.cli", "update-migrate",
@@ -1639,7 +1540,9 @@ index 0000000..b615eec
 +	if err := restoreDeployment(head, job.DeploymentSnapshot); err != nil {
 +		return err
 +	}
-+	if err := setEnvValues(head.EnvFile, componentEnvironment(job.PreviousComponents, job.PreviousVersion)); err != nil {
++	previousEnvironment := componentEnvironment(job.PreviousComponents, job.PreviousVersion)
++	previousEnvironment["MASTERMIND_RELEASE_SHA256"] = job.PreviousManifestSHA256
++	if err := setEnvValues(head.EnvFile, previousEnvironment); err != nil {
 +		return err
 +	}
 +	// File remains beneath a root-only directory; this fixed UID receives only the sealed bind-mounted archive.
@@ -1824,10 +1727,10 @@ index 0000000..7a4df6c
 +}
 diff --git a/internal/engine/mastermind_test.go b/internal/engine/mastermind_test.go
 new file mode 100644
-index 0000000..2492cf3
+index 0000000..8fcccb5
 --- /dev/null
 +++ b/internal/engine/mastermind_test.go
-@@ -0,0 +1,234 @@
+@@ -0,0 +1,250 @@
 +package engine
 +
 +import (
@@ -1875,7 +1778,20 @@ index 0000000..2492cf3
 +		}
 +		services := map[string]any{}
 +		for _, component := range componentNames {
-+			services[component] = map[string]any{"image": env["MASTERMIND_"+strings.ToUpper(component)+"_IMAGE"], "user": "10001:10001", "read_only": true, "cap_drop": []string{"ALL"}}
++			volumes := []map[string]any{{"type": "bind", "source": filepath.Join(directory, "secrets", component), "target": "/run/mastermind", "read_only": true}}
++			data := map[string]map[string]string{"core": {"core-data": "/data", "vault-data": "/data/vault"}, "runtime": {"vault-data": "/vault", "runtime-data": "/home/mastermind"}, "worker": {"work-data": "/work"}}[component]
++			for source, target := range data {
++				volumes = append(volumes, map[string]any{"type": "volume", "source": source, "target": target})
++			}
++			service := map[string]any{"image": env["MASTERMIND_"+strings.ToUpper(component)+"_IMAGE"], "user": "10001:10001", "read_only": true, "cap_drop": []string{"ALL"}, "security_opt": []string{"no-new-privileges:true"}, "volumes": volumes}
++			if component == "core" {
++				service["ports"] = []map[string]any{{"host_ip": "127.0.0.1", "target": 18390, "published": "18390"}}
++				for _, source := range []string{"/run/neptune", "/run/exocortex"} {
++					volumes = append(volumes, map[string]any{"type": "bind", "source": source, "target": source, "read_only": true})
++				}
++				service["volumes"] = volumes
++			}
++			services[component] = service
 +		}
 +		if r.extraService {
 +			services["unrelated"] = map[string]any{}
@@ -1983,6 +1899,9 @@ index 0000000..2492cf3
 +				Dependencies: map[string]string{"kernel": "0.2.10", "volt": "0.1.5", "saturn": "0.1.15", "chronos": "0.1.1", "neptune": "0.1.7", "updater": "0.4.7"}}
 +			manifestBytes, _ := json.Marshal(resolved.Manifest)
 +			if err = os.WriteFile(resolved.ManifestPath, manifestBytes, 0600); err != nil {
++				t.Fatal(err)
++			}
++			if err = os.WriteFile(resolved.ManifestPath+".sig.json", []byte("signature already verified by injected release resolver"), 0600); err != nil {
 +				t.Fatal(err)
 +			}
 +			instance.SetTestDependencies(func(string, string, string, time.Duration) (kernel.Snapshot, error) {

@@ -220,7 +220,7 @@ class Restore:
         try:
             self.backup.audit.emit("restore.apply", actor="owner", target=operation_id,
                                    context={"notes": note_count, "backup_boundary": manifest["boundary"]})
-        except Exception:  # A diagnostic failure cannot undo a verified committed generation.
+        except Exception:  # noqa: BLE001 — diagnostics cannot undo an already verified committed generation
             warnings.append("AUDIT_UNAVAILABLE")
         self.last_warning = warnings[0] if warnings else None
         return {"id": operation_id, "state": "COMPLETED", "notes": note_count,

@@ -67,6 +67,15 @@ def verify(manifest, envelope, public_key, version=None):
     for key in ("kernel", "volt", "saturn", "chronos", "neptune", "updater"):
         if not VERSION.fullmatch(group.get("dependencies", {}).get(key, "")):
             raise ValueError("The exact tested dependency tuple is missing")
+    if not VERSION.fullmatch(group.get("obsidian_version", "")) or not VERSION.fullmatch(value.get("minimum_updater_version", "")) \
+            or type(value.get("database_schema")) is not int or value["database_schema"] < 1 \
+            or type(group.get("minimum_source_schema")) is not int or type(group.get("maximum_source_schema")) is not int \
+            or not 1 <= group["minimum_source_schema"] <= group["maximum_source_schema"]:
+        raise ValueError("Release compatibility bounds are invalid")
+    if not isinstance(value.get("files"), dict) or not value["files"] or any(
+            not isinstance(name, str) or not isinstance(digest, str) or not HASH.fullmatch(digest)
+            for name, digest in value["files"].items()):
+        raise ValueError("Release file inventory is invalid")
     if not HASH.fullmatch(value.get("compose_bundle", {}).get("sha256", "")):
         raise ValueError("Bundle digest is missing")
     return value
@@ -102,9 +111,9 @@ def download(url, destination, limit):
         os.fsync(output.fileno())
 
 
-def extract(bundle, destination):
+def extract(bundle, destination, inventory=None):
     import unicodedata
-    seen, members, total = {}, [], 0
+    seen, directories, members, total = {}, {}, [], 0
     with tarfile.open(bundle, "r:gz") as archive:
         for entry in archive:
             name = entry.name
@@ -116,16 +125,27 @@ def extract(bundle, destination):
             if key in seen or any(key.startswith(old+"/") or old.startswith(key+"/") for old in seen):
                 raise ValueError("Colliding release bundle paths")
             seen[key] = True
+            parts = name.split("/")
+            for length in range(1, len(parts)):
+                directory = "/".join(parts[:length])
+                folded = unicodedata.normalize("NFC", directory).casefold()
+                if folded in directories and directories[folded] != directory:
+                    raise ValueError("Colliding release bundle directory spelling")
+                directories[folded] = directory
             total += entry.size
             if len(seen) > 10000 or total > 256*1024**2 or entry.size < 0:
                 raise ValueError("Release bundle exceeds extraction limits")
             members.append(entry)
+        if inventory is not None and set(inventory) != {entry.name for entry in members}:
+            raise ValueError("Release bundle differs from the signed file inventory")
         for entry in members:
             target = Path(destination)/entry.name
             target.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
             with archive.extractfile(entry) as source, target.open("xb") as output:
                 shutil.copyfileobj(source, output, length=1024*1024)
             target.chmod(0o755 if entry.mode & 0o111 else 0o644)
+            if inventory is not None and sha256(target) != inventory[entry.name]:
+                raise ValueError("Release file checksum differs from the signed inventory")
 
 
 def prepare(base, key_bytes, version):
@@ -137,6 +157,9 @@ def prepare(base, key_bytes, version):
     target = Path("/opt/exocortex/mastermind")
     if target.exists() or target.is_symlink():
         raise ValueError("Mastermind already exists; use its explicit update or repair workflow")
+    wrapper = Path("/usr/local/sbin/mastermind-install")
+    if wrapper.exists() or wrapper.is_symlink():
+        raise ValueError("mastermind-install command already belongs to another installation")
     trust = Path("/etc/exocortex/release-trust/mastermind.pem")
     if trust.exists() or trust.is_symlink():
         if regular(trust, 16384) != key_bytes:
@@ -158,7 +181,7 @@ def prepare(base, key_bytes, version):
             raise ValueError("Release bundle checksum mismatch")
         stage = work/"deployment"
         stage.mkdir(mode=0o750)
-        extract(bundle, stage)
+        extract(bundle, stage, value["files"])
         for file in (manifest, envelope):
             shutil.copyfile(file, stage/file.name)
         # Prepared files are durable and reviewable before any service is started.
@@ -169,9 +192,6 @@ def prepare(base, key_bytes, version):
                 output.write(key_bytes)
             trust.chmod(0o644)
         stage.rename(target)
-    wrapper = Path("/usr/local/sbin/mastermind-install")
-    if wrapper.exists() or wrapper.is_symlink():
-        raise ValueError("mastermind-install command already belongs to another installation")
     wrapper.write_text('#!/bin/sh\nexec python3 /opt/exocortex/mastermind/packaging/install.py "$@"\n')
     wrapper.chmod(0o755)
     print("Prepared Mastermind "+version+"; no application was started.")

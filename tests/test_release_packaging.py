@@ -37,9 +37,10 @@ def signed_release(tmp_path, release_tools):
     image = "ghcr.io/qualification/mastermind/core@sha256:"+"a"*64
     value = {"schema_version": 1, "service": "mastermind", "version": "0.0.1",
         "image": {"reference": image.split("@")[0], "digest": "sha256:"+"a"*64},
-        "compose_bundle": {"sha256": "b"*64},
+        "compose_bundle": {"sha256": "b"*64}, "database_schema": 1, "minimum_updater_version": "0.4.7", "files": {"compose.production.yaml": "e"*64},
         "mastermind": {"profile": "mastermind.components.v1", "platform": "linux/amd64", "source_sha": "d"*40,
             "bridge_version": "0.0.1", "model_sha256": "c"*64, "health_profile": "mastermind.functional.v1",
+            "obsidian_version": "1.13.7", "minimum_source_schema": 1, "maximum_source_schema": 1,
             "components": {name: image for name in ("core", "runtime", "worker")},
             "dependencies": {name: "0.0.1" for name in ("kernel", "volt", "saturn", "chronos", "neptune", "updater")}}}
     manifest.write_text(json.dumps(value))
@@ -70,7 +71,7 @@ def test_release_authentication_exact_bytes_key_role_and_version(signed_release,
         verifier.verify(manifest, envelope, public)
 
 
-@pytest.mark.parametrize("names", [["../escape"], ["/absolute"], ["a\\b"], ["a", "A"], ["file", "file/child"]])
+@pytest.mark.parametrize("names", [["../escape"], ["/absolute"], ["a\\b"], ["a", "A"], ["file", "file/child"], ["Dir/a", "dir/b"]])
 def test_release_bundle_rejects_unsafe_paths_before_writing(tmp_path, release_tools, names):
     verifier, _, _ = release_tools
     archive, destination = tmp_path/"bundle.tar.gz", tmp_path/"out"
@@ -106,6 +107,7 @@ def test_release_bundle_rejects_links_and_removes_special_modes(tmp_path, releas
 
 def test_production_compose_enforces_principals_and_loopback(tmp_path, release_tools):
     import copy
+
     import yaml
     _, installer, _ = release_tools
     source = yaml.safe_load((ROOT/"compose.production.yaml").read_text())

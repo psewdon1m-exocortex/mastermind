@@ -193,11 +193,11 @@ class Service:
                         self.vault.index(force=due)
                         self.index_failure = None
                     reconciled = now if due else reconciled
-            except Exception as error:  # Keep observing an unavailable journal; never silently lose the watcher.
+            except Exception as error:  # noqa: BLE001 — latch failure and keep the watcher alive for recovery
                 self.index_failure = error.code if isinstance(error, DomainError) else "STORAGE_UNAVAILABLE"
                 try:
                     self.dirty.record("*")
-                except Exception:
+                except Exception:  # noqa: BLE001 — failed dirty-journal write must latch NOT_READY
                     self.dirty.failure = "DIRTY_JOURNAL_UNAVAILABLE"
             try:
                 if now-cleaned >= 60:

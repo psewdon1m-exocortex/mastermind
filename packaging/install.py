@@ -199,6 +199,13 @@ def install(directory):
     config = parse_env(directory/".env")
     manifest = verify(directory/"mastermind-release.json", directory/"mastermind-release.json.sig.json",
                       Path("/etc/exocortex/release-trust/mastermind.pem"))
+    for relative, digest in manifest["files"].items():
+        if relative.startswith("/") or any(part in ("", ".", "..") for part in relative.split("/")) or "\\" in relative:
+            raise ValueError("Signed inventory contains an invalid path")
+        candidate = directory/relative
+        if candidate.resolve().is_relative_to(directory.resolve()) is False or candidate.is_symlink() \
+                or not candidate.is_file() or sha256(candidate) != digest:
+            raise ValueError("Installed release file differs from signed inventory: "+relative)
     if config.get("MASTERMIND_RELEASE_SHA256") != sha256(directory/"mastermind-release.json") \
             or config.get("MASTERMIND_VERSION") != manifest["version"]:
         raise ValueError("Environment release lock differs from the authenticated release")

@@ -1,4 +1,3 @@
-import asyncio
 import hashlib
 import json
 import os
@@ -10,7 +9,8 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from test_api import api as api_fixture, authenticate
+from test_api import api as api_fixture
+from test_api import authenticate
 from test_owner_operations import keys
 
 from mastermind.admin import create_admin_app, socket_path, start_admin, stop_admin
@@ -113,18 +113,15 @@ async def test_actual_unix_socket_permissions_listener_and_cleanup():
 def test_cli_never_opens_fifo_symlink_or_hardlink_as_recovery_source(tmp_path):
     target = tmp_path / "fifo"
     os.mkfifo(target)
-    with pytest.raises(DomainError):
-        with regular_source(target, 10):
-            pass
+    with pytest.raises(DomainError), regular_source(target, 10):
+        pass
     target.unlink()
     original = tmp_path / "original"
     original.write_bytes(b"abc")
     target.symlink_to(original)
-    with pytest.raises(OSError):
-        with regular_source(target, 10):
-            pass
+    with pytest.raises(OSError), regular_source(target, 10):
+        pass
     target.unlink()
     os.link(original, target)
-    with pytest.raises(DomainError):
-        with regular_source(target, 10):
-            pass
+    with pytest.raises(DomainError), regular_source(target, 10):
+        pass

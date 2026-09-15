@@ -55,7 +55,7 @@ def build(args):
     files = {}
     for name in ("compose.production.yaml", "pyproject.toml", "requirements.lock", "requirements.worker.lock", "embedding-model.lock.json"):
         files[name] = (ROOT/name).read_bytes()
-    for directory in ("packaging", "docs"):
+    for directory in ("packaging", "docs", "integrations/patches"):
         for path in (ROOT/directory).rglob("*"):
             if path.is_file() and "__pycache__" not in path.parts and path.suffix not in (".pyc",):
                 files[path.relative_to(ROOT).as_posix()] = path.read_bytes()
