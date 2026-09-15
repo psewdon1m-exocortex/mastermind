@@ -1,14 +1,19 @@
 """Run only inside the disposable mastermind-qualification-host container."""
 import json
+import argparse
 import os
 import socket
 import subprocess
 from pathlib import Path
 
 
-def main():
+def assert_host():
     if socket.gethostname() != "mastermind-qualification-host" or os.geteuid() != 0:
         raise SystemExit("This fixture is restricted to its dedicated disposable host")
+
+
+def main():
+    assert_host()
     fixture = Path("/opt/qualification")
     for source, name in ((fixture/"transport-ca.crt", "mastermind-qualification.crt"),
                          (fixture/"combined-ca.crt", "mastermind-integration.crt")):
@@ -43,6 +48,12 @@ def main():
     config.update({"dns": ["10.245.0.1"], "insecure-registries": ["registry.mastermind.test:5000"]})
     daemon.write_text(json.dumps(config))
     subprocess.run(["systemctl", "restart", "docker"], check=True)
+    render_nginx()
+    print("PASS: isolated host DNS, private CA and real Nginx syntax/listeners; application not installed yet")
+
+
+def render_nginx():
+    assert_host()
     Path("/etc/nginx/sites-enabled/default").unlink(missing_ok=True)
     config = """include /opt/nginx-qualification/mastermind-http.conf;
 server { listen 443 ssl default_server; ssl_reject_handshake on; return 444; }
@@ -62,9 +73,12 @@ server {
         .replace("/opt/exocortex/mastermind/packaging/nginx", "/opt/nginx-qualification")
     Path("/etc/nginx/conf.d/mastermind-qualification.conf").write_text(config+source)
     subprocess.run(["nginx", "-t"], check=True)
-    subprocess.run(["systemctl", "restart", "nginx"], check=True)
-    print("PASS: isolated host DNS, private CA and real Nginx syntax/listeners; application not installed yet")
+    subprocess.run(["systemctl", "reload-or-restart", "nginx"], check=True)
+    print("PASS: canonical qualification Nginx config rendered and loaded")
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--nginx-only", action="store_true")
+    arguments = parser.parse_args()
+    render_nginx() if arguments.nginx_only else main()

@@ -7,6 +7,8 @@ import subprocess
 from pathlib import Path
 
 CATALOG = "PART_12_KNOWN_DEPLOYMENT_AND_OPERATIONS_PROBLEMS.md"
+CATALOG_REPOSITORY = "https://github.com/psewdon1m-exocortex/general"
+CATALOG_PATH = ".docs/" + CATALOG
 ROW = re.compile(r"^\|\s*\*\*([A-Z]+-[0-9]{2})\*\*\s*\|(.+)\|(.+)\|\s*$")
 SHA = re.compile(r"[a-f0-9]{40}")
 DIGEST = re.compile(r"[a-f0-9]{64}")
@@ -70,6 +72,7 @@ def verify(report, catalog, lock, *, revision, tag, phase, evidence_root, manife
     require(SHA.fullmatch(lock.get("authority_revision", "")) is not None, "Unpinned central revision")
     require(lock.get("files", {}).get(CATALOG) == catalog_hash, "Catalog does not match the pinned policy bytes")
     expected = {"schema_version": 1, "service": "mastermind", "revision": revision, "release_tag": tag,
+                "catalog_repository": CATALOG_REPOSITORY, "catalog_path": CATALOG_PATH,
                 "catalog_revision": lock["authority_revision"], "catalog_sha256": catalog_hash,
                 "manifest_sha256": manifest_sha256}
     require(all(report.get(key) == value for key, value in expected.items()), "Stale or mismatched qualification identity")

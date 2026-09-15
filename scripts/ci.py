@@ -1,0 +1,121 @@
+"""Reproducible read-only CI gates; this command never signs or publishes."""
+import argparse
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import tarfile
+import time
+import uuid
+from pathlib import Path
+
+from validate_repository import versions
+
+ROOT = Path(__file__).resolve().parents[1]
+GITLEAKS = "ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f"
+
+
+def validate_ref(ref, version):
+    if not ref.startswith("refs/tags/"):
+        return "verification"
+    tag = ref.removeprefix("refs/tags/")
+    if tag not in {"v" + version, "mastermind-v" + version} or version == "0.0.0":
+        raise ValueError("Tag must match the exact nonzero service version")
+    return "release-candidate" if tag.startswith("mastermind-") else "verification"
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ref", default=os.environ.get("GITHUB_REF", ""))
+    parser.add_argument("--images", action="store_true")
+    parser.add_argument("--secrets", action="store_true")
+    args = parser.parse_args()
+    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    if subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"], cwd=ROOT):
+        raise SystemExit("CI evidence requires a clean committed source revision")
+    profile = validate_ref(args.ref, versions(ROOT))
+    output = ROOT / "artifacts/ci" / revision
+    output.mkdir(parents=True, exist_ok=True)
+    scratch = ROOT / ".local/ci" / (revision[:12] + "-" + uuid.uuid4().hex[:12])
+    source, storage = scratch / "source", scratch / "storage"
+    source.mkdir(parents=True)
+    storage.mkdir(mode=0o777)
+    storage.chmod(0o777)
+    archive = scratch / "source.tar"
+    subprocess.run(["git", "archive", "--format=tar", "--output=" + str(archive), revision], cwd=ROOT, check=True)
+    with tarfile.open(archive) as stream:
+        if any(not item.isfile() and not item.isdir() for item in stream.getmembers()):
+            raise SystemExit("CI source export rejects links and special files")
+        stream.extractall(source, filter="data")
+    steps = []
+    def run(name, command, *, timeout=3600):
+        started = time.monotonic()
+        path = output / (name + ".log")
+        print("RUN " + name, flush=True)
+        with path.open("wb") as log:
+            try:
+                result = subprocess.run(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, timeout=timeout)
+                code = result.returncode
+            except subprocess.TimeoutExpired:
+                code = 124
+        record = {"name": name, "command": command, "exit_code": code,
+                  "seconds": round(time.monotonic() - started, 3), "log_sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+        steps.append(record)
+        if code:
+            raise ValueError(name + " failed; inspect " + str(path))
+        print("PASS " + name, flush=True)
+    result = {"schema": "mastermind.ci.v1", "revision": revision, "profile": profile, "steps": steps}
+    npm = "npm.cmd" if os.name == "nt" else "npm"
+    try:
+        run("repository", [sys.executable, "scripts/validate_repository.py"])
+        run("catalog", [sys.executable, "scripts/known_problems_gate.py", "catalog", "--output", str(output / "catalog.json")])
+        run("python-lint", [sys.executable, "-m", "ruff", "check", "src", "tests"])
+        for path in sorted((ROOT / "packaging").rglob("*.sh")):
+            run("shell-" + path.stem, ["sh", "-n", str(path)])
+        for path in sorted((ROOT / "scripts").glob("*.cjs")):
+            run("syntax-" + path.stem, ["node", "--check", str(path)])
+        run("bridge-check", [npm, "--prefix", "bridge", "run", "check"])
+        run("bridge-tests", [npm, "--prefix", "bridge", "test"])
+        run("bridge-build", [npm, "--prefix", "bridge", "run", "build"])
+        if args.images:
+            run("offline-model", [sys.executable, "scripts/fetch_embedding_model.py"])
+            images = {}
+            for component in ("core", "runtime", "worker"):
+                tag = "mastermind-" + component + ":ci-" + revision[:12]
+                command = ["docker", "build", "-f", "Dockerfile" + ("" if component == "core" else "." + component), "-t", tag]
+                if component == "worker":
+                    command += ["--build-context", "embedding=" + str(ROOT / ".local/models/multilingual-e5-small")]
+                run("image-" + component, [*command, "."])
+                images[component] = subprocess.check_output(["docker", "image", "inspect", "--format", "{{.Id}}", tag], text=True).strip()
+                if not re.fullmatch(r"sha256:[a-f0-9]{64}", images[component]):
+                    raise ValueError("Image build did not yield an immutable identity")
+            result["images"] = images
+            isolated = ["docker", "run", "--rm", "--network", "none", "--read-only", "--user", "10001:10001",
+                        "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "--memory", "2g", "--cpus", "2",
+                        "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m,mode=1777", "--mount", "type=bind,source=" + str(source) + ",target=/suite,readonly",
+                        "--mount", "type=bind,source=" + str(storage) + ",target=/verification"]
+            run("linux-tests", [*isolated, "--entrypoint", "python", images["worker"], "-m", "pytest", "/suite/tests", "-q",
+                                "-o", "pythonpath=/app/src", "-p", "no:cacheprovider", "--basetemp=/verification/pytest"], timeout=600)
+            run("real-worker-sandbox", [*isolated, "--tmpfs", "/work:rw,nosuid,nodev,size=256m,mode=1777",
+                "--tmpfs", "/run/mastermind:rw,nosuid,nodev,size=1m,mode=1777", "--entrypoint", "python", images["worker"],
+                "/suite/scripts/integration/probe_worker.py"], timeout=180)
+        else:
+            run("component-tests", [sys.executable, "-m", "pytest", "-q", "--junitxml=" + str(output / "tests.xml")], timeout=600)
+        if args.secrets:
+            scan = ["docker", "run", "--rm", "--network", "none", "--read-only", "--cap-drop", "ALL",
+                    "--mount", "type=bind,source=" + str(ROOT) + ",target=/repo,readonly",
+                    "--mount", "type=bind,source=" + str(source) + ",target=/source,readonly", "--entrypoint", "/usr/bin/gitleaks", GITLEAKS]
+            run("secret-history", [*scan, "git", "/repo", "--config", "/repo/.gitleaks.toml", "--redact", "--no-banner", "--log-opts=--all"])
+            run("secret-source", [*scan, "dir", "/source", "--config", "/repo/.gitleaks.toml", "--redact", "--no-banner"])
+        result["status"] = "PASS"
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        result.update(status="FAIL", reason=str(error))
+    (output / "result.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8", newline="\n")
+    print(result["status"] + " CI " + revision, flush=True)
+    return 0 if result["status"] == "PASS" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

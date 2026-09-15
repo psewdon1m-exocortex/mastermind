@@ -16,7 +16,7 @@ def main():
     results = {}
     for service, value in lock["services"].items():
         source = ROOT / ".local/services" / service
-        target = ROOT / ".local/patch-replay" / service
+        target = ROOT / ".local/patch-replay" / (service + "-" + value["patch_sha256"][:16])
         patch = ROOT / value["patch"]
         assert hashlib.sha256(patch.read_bytes()).hexdigest() == value["patch_sha256"]
         if not target.exists():

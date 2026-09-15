@@ -1,7 +1,10 @@
-"""Build unpublished signed fault candidates in independent, disposable clones."""
+"""Build unpublished signed candidates in independent, disposable clones."""
 import argparse
 import json
 import subprocess
+import re
+import sys
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -14,16 +17,22 @@ def run(*args, cwd=ROOT):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("version", choices=("0.0.3", "0.0.4", "0.0.5"))
-    parser.add_argument("--fault", choices=("migration", "functional", "delay"), required=True)
+    parser.add_argument("version")
+    parser.add_argument("--fault", choices=("none", "migration", "functional", "delay"), default="none")
+    parser.add_argument("--base", type=Path)
     args = parser.parse_args()
+    if not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", args.version):
+        raise SystemExit("Invalid numeric candidate version")
+    base = args.base or (ROOT if args.fault == "none" else ROOT / ".local/release-source/0.0.2")
     source = ROOT / ".local/release-source" / args.version
     if source.exists():
         raise SystemExit("Candidate already exists; immutable qualification artifacts may not be replaced")
-    run("git", "clone", "--no-hardlinks", str(ROOT / ".local/release-source/0.0.2"), str(source))
-    for name in ("src/mastermind/__init__.py", "pyproject.toml", "bridge/manifest.json", "bridge/package.json", "bridge/package-lock.json"):
+    run("git", "clone", "--no-hardlinks", str(base), str(source))
+    old_version = tomllib.loads((source / "pyproject.toml").read_text("utf-8"))["project"]["version"]
+    for name in ("src/mastermind/__init__.py", "pyproject.toml", "bridge/manifest.json", "bridge/package.json", "bridge/package-lock.json", "package.json", "package-lock.json"):
         path = source / name
-        path.write_text(path.read_text().replace('0.0.2', args.version), newline="\n")
+        if path.exists():
+            path.write_text(path.read_text("utf-8").replace(old_version, args.version), encoding="utf-8", newline="\n")
     cli = source / "src/mastermind/cli.py"
     needle = "            migrate(config, args.request, args.version, args.schema)\n"
     injection = needle + "            from .fs import atomic_write\n            atomic_write(config.vault / 'Qualification rejected candidate.md', b'Unaccepted candidate wrote this file.\\n')\n"
@@ -31,11 +40,14 @@ def main():
         injection += "            raise DomainError('QUALIFICATION_MIGRATION_FAILURE', 'Injected unpublished candidate failure.', 500)\n"
     if args.fault == "delay":
         injection += "            time.sleep(45)\n"
-    cli.write_text(cli.read_text().replace(needle, injection), newline="\n")
+    if args.fault != "none":
+        body = cli.read_text("utf-8")
+        assert needle in body, "Migration fault injection point is absent"
+        cli.write_text(body.replace(needle, injection), encoding="utf-8", newline="\n")
     if args.fault == "functional":
         api = source / "src/mastermind/api.py"
-        api.write_text(api.read_text().replace('        def verify():\n            identity = data["request_id"]',
-            '        def verify():\n            raise DomainError("QUALIFICATION_FUNCTIONAL_FAILURE", "Injected unpublished candidate failure.", 503)\n            identity = data["request_id"]'), newline="\n")
+        api.write_text(api.read_text("utf-8").replace('        def verify():\n            identity = data["request_id"]',
+            '        def verify():\n            raise DomainError("QUALIFICATION_FUNCTIONAL_FAILURE", "Injected unpublished candidate failure.", 503)\n            identity = data["request_id"]'), encoding="utf-8", newline="\n")
     run("git", "add", ".", cwd=source)
     run("git", "-c", "user.name=Mastermind qualification", "-c", "user.email=qualification@localhost", "commit", "-m", "Unpublished " + args.fault + " fault candidate " + args.version, cwd=source)
     revision = run("git", "rev-parse", "HEAD", cwd=source).strip()
@@ -60,7 +72,7 @@ def main():
     lock = FIXTURE / ("components-" + args.version + ".json")
     lock.write_text(json.dumps(components, indent=2) + "\n", newline="\n")
     output = FIXTURE / ("release-" + args.version)
-    python = str(ROOT / ".venv/Scripts/python.exe")
+    python = sys.executable
     print(run(python, str(source / "scripts/build_release.py"), "build", "--output", str(output), "--components", str(lock),
         "--public-key", str(FIXTURE / "mastermind.pem"), "--updater-bundle", str(FIXTURE / "updater"),
         "--repository", "psewdon1m-exocortex/mastermind", "--source-sha", revision))

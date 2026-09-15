@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+# Use the explicitly configured interpreter, or the repository's Python 3.
+exec "${MASTERMIND_PYTHON:-python3}" scripts/pre_push.py --hook

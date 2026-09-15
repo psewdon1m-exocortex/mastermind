@@ -22,6 +22,7 @@ def qualification(tmp_path):
     path = tmp_path / "executed.json"
     path.write_text(json.dumps(proof))
     report = {"schema_version": 1, "service": "mastermind", "revision": revision, "release_tag": "mastermind-v0.0.1",
+              "catalog_repository": gate.CATALOG_REPOSITORY, "catalog_path": gate.CATALOG_PATH,
               "catalog_revision": lock["authority_revision"], "catalog_sha256": lock["files"][gate.CATALOG], "manifest_sha256": digest,
               "checks": [{"id": identifier, "status": "PASS", "evidence": [{"path": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}]}
                          for identifier in ("REL-01", "REL-06")]}
@@ -44,7 +45,7 @@ def test_complete_exact_candidate_qualification_and_final_phase(qualification):
         verify()
 
 
-@pytest.mark.parametrize("fault", ["missing", "duplicate", "unknown", "fail", "stale_source", "stale_catalog", "stale_artifact", "no_evidence", "unexplained_na", "forged_na", "path_escape"])
+@pytest.mark.parametrize("fault", ["missing", "duplicate", "unknown", "fail", "stale_source", "stale_catalog", "stale_artifact", "no_evidence", "unexplained_na", "forged_na", "path_escape", "foreign_catalog", "foreign_catalog_path"])
 def test_unresolved_or_cross_candidate_evidence_never_opens_signing(qualification, fault):
     original, _, _, verify = qualification
     report = copy.deepcopy(original)
@@ -59,6 +60,8 @@ def test_unresolved_or_cross_candidate_evidence_never_opens_signing(qualificatio
         report[{"stale_source": "revision", "stale_catalog": "catalog_sha256", "stale_artifact": "manifest_sha256"}[fault]] = "d" * 64
     elif fault == "no_evidence":
         row["evidence"] = []
+    elif fault.startswith("foreign_catalog"):
+        report["catalog_path" if fault.endswith("path") else "catalog_repository"] = "foreign"
     elif fault in ("unexplained_na", "forged_na"):
         row.update(status="N/A", reason="Not relevant" if fault == "unexplained_na" else "A long reason without inspected paths is insufficient.")
     else:
