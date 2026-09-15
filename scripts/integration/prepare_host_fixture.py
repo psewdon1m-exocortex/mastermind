@@ -62,7 +62,7 @@ def main():
     for relative in ("install.sh", "systemd/updater.service", "release-trust/gryphon.pem"):
         destination = vendor/relative
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(ROOT/".local/services/updater"/relative, destination)
+        destination.write_text((ROOT/".local/services/updater"/relative).read_text("utf-8"), newline="\n")
     shutil.copyfile(ROOT/".local/services/updater/updater", vendor/"updater-linux-amd64")
     for service in ("updater", "neptune"):
         shutil.copyfile(FIXTURE/(service+".pem"), vendor/"release-trust"/(service+".pem"))

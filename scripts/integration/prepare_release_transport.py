@@ -1,5 +1,6 @@
 """Assemble unpublished signed artifacts served inside the qualification host."""
 import hashlib
+import io
 import json
 import shutil
 import sys
@@ -37,8 +38,13 @@ def main():
             info.uid = info.gid = info.mtime = 0
             info.uname = info.gname = ""
             info.mode = 0o755 if name in ("neptuned", "neptunectl", "install.sh") else 0o644
-            with path.open("rb") as stream:
-                archive.addfile(info, stream)
+            if name != "neptuned":
+                body = path.read_text("utf-8").encode("utf-8")
+                info.size = len(body)
+                archive.addfile(info, io.BytesIO(body))
+            else:
+                with path.open("rb") as stream:
+                    archive.addfile(info, stream)
     with artifact.open("rb") as stream:
         digest = hashlib.file_digest(stream, "sha256").hexdigest()
     manifest = target/"neptune-linux-release-linux-x64.json"

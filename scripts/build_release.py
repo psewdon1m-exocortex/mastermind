@@ -67,7 +67,11 @@ def build(args):
         if path.is_symlink():
             raise ValueError("Updater bundle must contain ordinary files")
         if path.is_file():
-            files["vendor/updater/"+path.relative_to(args.updater_bundle).as_posix()] = path.read_bytes()
+            name = "vendor/updater/"+path.relative_to(args.updater_bundle).as_posix()
+            body = path.read_bytes()
+            if name.endswith((".sh", ".service")) and b"\r" in body:
+                raise ValueError("Qualified Linux installer inputs must already use LF: "+name)
+            files[name] = body
     required_vendor = {"vendor/updater/"+name for name in ("install.sh", "updater-linux-amd64", "systemd/updater.service",
                       "release-trust/updater.pem", "release-trust/neptune.pem", "release-trust/gryphon.pem")}
     if not required_vendor.issubset(files):
