@@ -100,7 +100,7 @@ def main():
             run("test-storage-owner", ["docker", "run", "--rm", "--network", "none", "--read-only", "--user", "0:0",
                 "--cap-drop", "ALL", "--cap-add", "CHOWN", "--cap-add", "FOWNER", "--security-opt", "no-new-privileges:true",
                 "--mount", "type=volume,source=" + volume + ",target=/verification", "--entrypoint", "python", images["core"],
-                "-c", "import os; os.makedirs('/verification/worker'); [(os.chown(p,10001,10001),os.chmod(p,0o700)) for p in ['/verification','/verification/worker']]"])
+                "-c", "import os; os.chown('/verification',0,0); os.chmod('/verification',0o700); os.makedirs('/verification/worker'); [(os.chown(p,10001,10001),os.chmod(p,0o700)) for p in ['/verification/worker','/verification']]"])
             result["test_storage_volume"] = volume
             isolated = ["docker", "run", "--rm", "--network", "none", "--read-only", "--user", "10001:10001",
                         "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "--memory", "2g", "--cpus", "2",
