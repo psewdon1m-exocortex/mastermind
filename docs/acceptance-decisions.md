@@ -21,9 +21,13 @@ remain authoritative for every unaffected requirement.
 - No remote repository exists. Current commits and CI-script executions are local;
   GitHub Actions, publication and production deployment have not been performed.
 
-The remaining work covers the final three-image build, complete Linux checks,
-dependency remediation, real native and producer regressions, host installation
-and update/rollback recovery, and consolidation of exact-version evidence.
+The final three-image build, 510-test Linux suite, bounded native and producer
+regressions, clean host installation and update/rollback recovery have passed
+locally. Remaining release work covers dependency remediation/review, immutable
+upstream producer/policy identities and remote publication setup when a repository
+exists. Physical removal of the stopped external copy and unused C: transfer
+credentials was rejected by automatic execution review. See the current
+[implementation ledger](IMPLEMENTATION.md) for evidence and exact limitations.
 
 The change needs no data migration and does not change backup compatibility.
 Rollback continues to use the encrypted pre-update snapshot and tested group

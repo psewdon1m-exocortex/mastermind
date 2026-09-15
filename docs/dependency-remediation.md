@@ -9,6 +9,11 @@ The 2026-09-15 exact-image scan is retained at
 0.118.0 scanned the immutable Core/Runtime/Worker identities recorded by local CI.
 Raw High/Critical package matches are respectively **51/0**, **70/2** and **71/9**;
 these counts include repeated source-package matches and possible version errors.
+The final 6e11a0f rebuild has different OCI provenance indexes but identical
+RootFS layers and runtime configuration (`artifacts/final-image-payload-equivalence.json`).
+Its new read-only inventory also passed (`artifacts/security-inventory-6e11a0f.json`).
+The original scan remains attached to its original image identities; no new scan
+PASS or remediated finding is inferred from this equivalence check.
 
 ## Completed changes and evidence
 

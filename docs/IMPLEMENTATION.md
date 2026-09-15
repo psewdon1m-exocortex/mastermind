@@ -42,29 +42,35 @@ C: and Docker Desktop. The stopped external WSL registration/data still exist
 because automatic execution review rejected their deletion. No remote exists;
 the only image pushes were to the loopback qualification registry.
 
-The three candidate 0.1.0 images built from `b42891fbebbf105b32a318c1b86cd3f5510f0f3a`
-passed full local CI: **508 Linux tests, zero skips**, Bridge parser/type/build,
+The three candidate 0.1.0 images built from implementation revision
+`6e11a0f14831f957a2b865db8e0ceaacdd02b23f` passed full local CI:
+**510 Linux tests, zero skips**, Bridge parser/type/build,
 real offline model and isolated Chrome/SSRF checks, complete source/history
-secret scans. Exact config digests are in `artifacts/current-image-identities.json`
-and `artifacts/ci/b42891fbebbf105b32a318c1b86cd3f5510f0f3a/result.json`.
+secret scans. Exact Docker image identities are in `artifacts/final-image-identities.json`
+and `artifacts/ci/6e11a0f14831f957a2b865db8e0ceaacdd02b23f/result.json`.
+Docker Desktop exposes OCI index identities here, not config digests. The rebuild
+changed provenance index bytes; all RootFS layers and runtime configuration are
+identical to the preceding b42891f images, as verified in
+`artifacts/final-image-payload-equivalence.json`. Historical host/security evidence
+retains its original identity; the final native run uses the new exact images.
 
 | Executed exit check | Result and retained local evidence |
 | --- | --- |
-| Bounded native operation | PASS in 100.090 s: 6 actual keyboard saves, 2 coordinated mutations, 368,915,142 export bytes, reconnects, no OOM/container restart, persisted final native Activity. `native-runtime-b42891f/result.json` |
+| Bounded native operation | PASS in 97.582 s on final images: 6 actual keyboard saves, 2 coordinated mutations, 368,915,870 export bytes, reconnects, no OOM/container restart, persisted final native Activity. `native-runtime-6e11a0f/result.json` |
 | Native boundaries and resources | PASS actual lost acknowledgement, stale dirty buffer, socket revocation, native/@ rename, attachment/folder moves, graph, Chronos cards and Saturn image/video/audio/PDF/Range. `native-lost-ack-b42891f.log`, `native-boundaries-b42891f.log`, `native-rename-b42891f.log`, `native-moves-b42891f.log`, `native-graph-b42891f.log`, `native-resources-b42891f-v2.log` |
 | Independent Runtime restart | PASS 5.830 s; Core process unchanged, saved text retained, browser reconnected. `native-restart-current.log` |
 | Shared and owned UI | PASS password/edit/conflict/revoke, retained protected references, real clipboard/fallback, settings, keyboard/modal/focus, browser backup/download/inspect/resume/restore, log export. `shared-b42891f.log`, `shell-workflows-b42891f-v2.log` |
 | Responsive UI | PASS 1920×1080 and 390×844, navigation/documentation search, no horizontal overflow or browser/CSP errors; screenshots reviewed. `shell-responsive-current.log`, `shell/` |
-| Crusher | PASS 15 jobs including real Worker extraction, expected failures/retry, actual Core SIGKILL/restart and exactly one resulting commit. Only Google's paid REST endpoint is controlled; provider quality/availability is not claimed. `crusher-b42891f-v2.log` |
+| Crusher | PASS 15 jobs on final images including real Worker extraction, expected failures/retry, actual Core SIGKILL/restart and exactly one resulting commit. Only Google's paid REST endpoint is controlled; provider quality/availability is not claimed. `crusher-final-6e11a0f.log` |
 | Encrypted native restore | PASS 23.906 s, 368,028,205 archive bytes, 350 MiB attachment hash preserved, old session revoked and verification copy removed. `large-native-restore-b42891f.log` |
 | Independent archive and mirror | PASS on the newly fixed Neptune image in 45.141 s, exact 350 MiB reader hash, extra Neptune RSS 25,788,416 bytes below 128 MiB bound. `large-pipelines-neptune-migration.log`, `large-pipelines.json` |
-| Actual producer contracts | PASS real Saturn SFTP/Range, immutable reader, principal isolation, Kernel/Volt and minimal Chronos projection. `integration-contract-current.log` |
+| Actual producer contracts | PASS real Saturn SFTP/Range, immutable reader, principal isolation, Kernel/Volt and minimal Chronos projection, repeated after the final Core crash/restart. `final-reader-after-core-crash-v2.log` |
 | Saturn transport faults | PASS actual process SIGKILL with held persisted upload lease, interrupted HTTP 502, retry and reader hash. Real loopback SSH/SFTP server then withheld READ after OPEN: bounded failure, early bytes retained and new connection recovered. `saturn-process-kill-current.log`, `saturn-real-sftp-stall-current-v2.log` |
 | Fresh OS install | PASS authenticated signed bootstrap, install, native trust on generated empty Vault, Settings → Updater → Neptune enrollment and reader readiness. Separate C: volumes, database and SFTP namespace. `clean-host-bootstrap.log`, `clean-host-install-v2.log`, `clean-host-native-trust.log`, `clean-host-enrollment.log` |
 | Installation diagnostics | PASS current installer returns READY/exit 0; stopped Neptune produces detailed NOT_READY JSON/exit 1; restart restores READY. `clean-host-doctor-recovery.log` |
 | Host bounded snapshot spool | PASS actual 4 MiB streaming/hash/seal, wrong identity, cancellation, expiry and oversized declaration rejected before allocation. No actual 8 GiB transfer. `host-spool-bounded-current-v3.log` |
 | Actual host update/recovery | PASS 0.0.2 → 0.1.0, manual return retaining new notes, Updater SIGKILL after candidate write → automatic ROLLED_BACK, return to 0.1.0 and canonical HTTPS edge checks. `host-update-0.1.0.log`, `host-manual-rollback-current-0.0.2.log`, `host-updater-interruption-current.log`, `host-fault-0.0.5-current.log`, `host-return-current-0.1.0.log`, `host-edge-b42891f.log` |
-| Post-fault data identity | PASS original 350 MiB attachment SHA-256 `055621ce89f553eb434851825a44986eb91efe091569238303f44872fbfe33c5` and unchanged synthetic opaque plugin data. `host-post-fault-bytes-current.log` |
+| Post-fault data identity | PASS original 350 MiB attachment SHA-256 `055621ce89f553eb434851825a44986eb91efe091569238303f44872fbfe33c5` and byte-for-byte unchanged synthetic opaque plugin data. `host-post-fault-exact-bytes-final.json` |
 
 All evidence names in this table are relative to ignored `artifacts/`. Earlier
 failed runs remain failures. Subsequent passes describe corrected code or corrected
@@ -82,10 +88,12 @@ column check and ALTER now share an immediate transaction. Fresh and legacy
 databases are tested with 16 concurrent initializers across four iterations.
 The current installer preserves doctor diagnostics on dependency failure. Clean
 host preparation now initializes its own Saturn volume permissions and runs real
-database migrations before starting API/worker. These post-b42891f source changes
-require the next clean committed CI run; its result is written under
-`artifacts/ci/<full-source-sha>/result.json`. Native receipts bind both source SHA
-and actual running image identities; historical results must not be relabelled.
+database migrations before starting API/worker. These changes are included in
+the tested implementation revision 6e11a0f. The later evidence-only documentation
+checkpoint does not change executable/image inputs. Native receipts bind both
+source SHA and actual running image identities; historical results must not be
+relabelled. The final Linux suite took 84.60 s and reported two upstream
+FastAPI/Starlette deprecation warnings, with no failed or skipped tests.
 
 ### Remaining gates
 
@@ -101,6 +109,11 @@ and actual running image identities; historical results must not be relabelled.
   public release or production installation has been created or claimed.
 - Actual paid Gemini, eight-hour endurance and 8 GiB transfers were not run.
   The latter two are explicitly excluded by the owner, not unfinished tests.
+- Physical cleanup remains blocked by automatic execution review (`blocked by
+  policy`): the stopped E: WSL copy and the five obsolete C: TLS files plus the
+  disabled `.local/use-qualification-docker.ps1` shim remain. Separate removal of
+  those six C: files was also rejected before execution. Only Docker Desktop is
+  active; no transfer helper is being used.
 
 ## Historical checkpoints — superseded by current qualification
 
