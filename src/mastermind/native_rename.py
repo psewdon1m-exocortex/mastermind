@@ -142,7 +142,7 @@ class NativeRename:
             resolve(self.vault.config.vault, new_path)
             paused, plan = False, None
             try:
-                checkpoint = self.runtime.request("POST", "/internal/native-prepare", {"operation_id": operation_id})
+                checkpoint = self.runtime.prepare_native(operation_id)
                 paused = True
                 self.deadline = time.monotonic() + 120
                 if checkpoint.get("activity"):
@@ -295,4 +295,4 @@ class NativeRename:
                 self.active = None
                 self.deadline = None
                 if paused and not self.coordinator.recovery_required:
-                    self.runtime.request("POST", "/internal/native-release", {"operation_id": operation_id})
+                    self.runtime.release_pause(operation_id, native=True)

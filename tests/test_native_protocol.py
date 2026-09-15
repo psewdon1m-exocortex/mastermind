@@ -22,6 +22,12 @@ class ProtocolRuntime:
     def request(self, method, route, payload=None):
         return {"state": "stopped", "buffers_verified": True}
 
+    def prepare_native(self, operation_id):
+        return self.request("POST", "/internal/native-prepare", {"operation_id": operation_id})
+
+    def release_pause(self, operation_id, *, native=False):
+        return self.request("POST", "/internal/native-release", {"operation_id": operation_id})
+
     @contextmanager
     def pause(self, identity, resume_if=lambda: True):
         yield

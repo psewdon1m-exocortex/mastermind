@@ -40,6 +40,7 @@ class Supervisor:
         self.display = None
         self.window_manager = None
         self.leases = set()
+        self.cancelled_quiesces = set()
         self.allowed = False
         self.native_operation = None
         self.boot_id = secrets.token_hex(16)
@@ -110,7 +111,7 @@ class Supervisor:
         return self.obsidian is not None and self.obsidian.poll() is None
 
     def start(self):
-        if self.running() or not self.allowed or self.leases:
+        if self.running() or not self.allowed or self.leases or self.native_operation:
             return
         self.verify_no_writers()
         if not self.vault.is_dir():
@@ -210,6 +211,33 @@ class Supervisor:
         status["owner_setup_required"] = (self.home / "mastermind-native-setup.json").exists()
         return status
 
+    def quiesce(self, identity):
+        with self.lock:
+            self.check_pause_identity(identity)
+            activity = self.stop_verified(identity)
+            self.leases.add(identity)
+            return {"state": "stopped", "operation_id": identity, "activity": activity}
+
+    def check_pause_identity(self, identity):
+        if identity in self.cancelled_quiesces:
+            raise DomainError("QUIESCE_CANCELLED", "This editor pause has already been cancelled.", 409)
+        if len(self.cancelled_quiesces) >= 1024 and identity not in self.leases:
+            raise DomainError("RUNTIME_RESTART_REQUIRED", "Too many interrupted pause attempts; restart Runtime before retrying.", 503)
+
+    def cancel_quiesce(self, identity):
+        with self.lock:
+            if len(self.cancelled_quiesces) < 1024:
+                self.cancelled_quiesces.add(identity)
+            # At capacity all new quiesces are rejected; never evict a tombstone
+            # and allow a delayed request to recreate an orphaned lease.
+            self.leases.discard(identity)
+            if self.native_operation == identity:
+                self.native_operation = None
+            if not self.leases and self.native_operation is None and self.running():
+                self.bridge("/unfreeze", {})
+            self.start()
+            return {"cancelled": True}
+
 
 def create_app():
     supervisor = Supervisor()
@@ -279,11 +307,11 @@ def create_app():
 
     @app.post("/internal/quiesce", dependencies=[Depends(authorized)])
     def quiesce(payload: dict):
-        with supervisor.lock:
-            identity = operation(payload)
-            activity = supervisor.stop_verified(identity)
-            supervisor.leases.add(identity)
-            return {"state": "stopped", "operation_id": identity, "activity": activity}
+        return supervisor.quiesce(operation(payload))
+
+    @app.post("/internal/cancel-quiesce", dependencies=[Depends(authorized)])
+    def cancel_quiesce(payload: dict):
+        return supervisor.cancel_quiesce(operation(payload))
 
     @app.post("/internal/resume", dependencies=[Depends(authorized)])
     def resume(payload: dict):
@@ -339,6 +367,7 @@ def create_app():
     def native_prepare(payload: dict):
         with supervisor.lock:
             identity = operation(payload)
+            supervisor.check_pause_identity(identity)
             if not supervisor.running() or supervisor.leases or supervisor.native_operation:
                 raise DomainError("VAULT_BUSY", "Native editor is unavailable for a managed rename.", 423)
             checkpoint = supervisor.bridge("/quiesce", {"operation_id": identity})

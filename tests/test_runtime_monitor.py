@@ -46,7 +46,7 @@ def monitor(service):
             return {"boot_id": "new-boot", "busy": False, "paused": False, "running": False, "startup_allowed": False}
         return {}
     context = SimpleNamespace(config=SimpleNamespace(runtime_mode="supervised"), ready=True, state=state, vault=vault,
-        coordinator=coordinator, runtime=SimpleNamespace(request=request), data_ready=lambda: None,
+        coordinator=coordinator, runtime=SimpleNamespace(request=request, reconcile_cancellations=lambda: None), data_ready=lambda: None,
         updates=SimpleNamespace(blocks=False), dirty=SimpleNamespace(flush=lambda: calls.append("flush")),
         activity=SimpleNamespace(ingest=lambda value: None), audit=SimpleNamespace(emit=lambda *args, **kwargs: None))
     return RuntimeMonitor(context), calls

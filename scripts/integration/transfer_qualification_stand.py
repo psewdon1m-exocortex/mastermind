@@ -30,6 +30,7 @@ HOST = "mastermind-qualification-host"
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--finish-copied", action="store_true", help="Resume only after every volume has a successful retained transfer record")
+    parser.add_argument("--resume-volume-archives", action="store_true", help="Resume this stopped fixture's verified archive imports using large 9p reads")
     args = parser.parse_args()
     assert os.name == "nt" and CACHE.resolve() == Path("E:/mastermind-qualification-cache-20260915/stand-transfer")
     CACHE.mkdir(parents=True, exist_ok=True)
@@ -43,10 +44,11 @@ def main():
         return subprocess.check_output(["docker", *arguments], env=destination if remote else source, text=True, stderr=subprocess.STDOUT, timeout=timeout)
     assert docker(["info", "--format", "{{.Name}}"], timeout=20).strip() == "docker-desktop"
     assert docker(["info", "--format", "{{.Name}}"], remote=True, timeout=20).strip() == "mastermind-qualification-wsl"
-    configuration = json.loads((CACHE / "containers.private.json").read_text("utf-8")) if args.finish_copied else json.loads(docker(["inspect", *NAMES]))
+    resuming = args.finish_copied or args.resume_volume_archives
+    configuration = json.loads((CACHE / "containers.private.json").read_text("utf-8")) if resuming else json.loads(docker(["inspect", *NAMES]))
     assert {item["Name"].lstrip("/") for item in configuration} == set(NAMES)
     existing = set(docker(["ps", "-a", "--format", "{{.Names}}"], remote=True).splitlines())
-    if not args.finish_copied:
+    if not resuming:
         assert not existing.intersection(NAMES), "Destination already contains part of the stand; inspect before resuming"
         (CACHE / "containers.private.json").write_text(json.dumps(configuration, indent=2), encoding="utf-8")
     networks = {name for item in configuration for name in item["NetworkSettings"]["Networks"]}
@@ -55,10 +57,18 @@ def main():
     volumes = {mount["Name"] for item in configuration for mount in item["Mounts"] if mount["Type"] == "volume"}
     assert all(re.fullmatch(r"mastermind-[a-z0-9_-]+", name) for name in volumes)
     volume_records = json.loads(docker(["volume", "inspect", *sorted(volumes)]))
-    if args.finish_copied:
-        copied = set(re.findall(r"^COPIED (mastermind-[a-z0-9_-]+)$", (ROOT / "artifacts/stand-wsl-transfer.log").read_text("utf-8"), re.MULTILINE))
-        assert copied == volumes, "Every completed volume copy must have its original successful execution record"
+    if resuming:
+        logs = [ROOT / "artifacts" / name for name in ("stand-wsl-transfer.log", "stand-wsl-transfer-resume.log")]
+        copied = set(re.findall(r"^COPIED (mastermind-[a-z0-9_-]+)$", "\n".join(path.read_text("utf-8") for path in logs if path.exists()), re.MULTILINE))
+        assert copied <= volumes
         assert all(not item["State"]["Running"] for item in json.loads(docker(["inspect", *NAMES]))), "Original fixtures must remain stopped"
+        if args.resume_volume_archives:
+            assert all(not item["State"]["Running"] for item in json.loads(docker(["inspect", *sorted(existing.intersection(NAMES))], remote=True))) if existing.intersection(NAMES) else True
+            for record in volume_records:
+                if record["Name"] not in copied:
+                    transfer_volume(record, docker, resume=True)
+        else:
+            assert copied == volumes, "Every completed volume copy must have its original successful execution record"
         finish(configuration, definitions, docker, existing)
         return
     docker(["stop", "--time", "60", *[item["Name"].lstrip("/") for item in configuration if item["State"]["Running"]]], timeout=180)
@@ -74,20 +84,30 @@ def main():
     docker(["export", "--output", str(rootfs), HOST])
     docker(["import", str(rootfs), host_image], remote=True)
     for record in volume_records:
-        name = record["Name"]
-        archive = name + ".private.tar"
+        transfer_volume(record, docker)
+    finish(configuration, definitions, docker, existing)
+
+
+def transfer_volume(record, docker, *, resume=False):
+    name = record["Name"]
+    archive = name + ".private.tar"
+    path = CACHE / archive
+    if not resume or not path.exists():
         docker(["run", "--rm", "--network", "none", "--read-only", "--mount", "type=volume,source=" + name + ",target=/from,readonly",
             "--mount", "type=bind,source=" + str(CACHE) + ",target=/transfer", "--entrypoint", "tar", "ubuntu:24.04",
-            "-cpf", "/transfer/" + archive, "-C", "/from", "."])
-        create = ["volume", "create"]
-        for key, value in (record.get("Labels") or {}).items():
-            create += ["--label", key + "=" + value]
-        docker([*create, name], remote=True)
-        docker(["run", "--rm", "--network", "none", "--read-only", "--mount", "type=volume,source=" + name + ",target=/to",
-            "--mount", "type=bind,source=/mnt/e/mastermind-qualification-cache-20260915/stand-transfer,target=/transfer,readonly",
-            "--entrypoint", "tar", "ubuntu:24.04", "-xpf", "/transfer/" + archive, "-C", "/to"], remote=True)
-        print("COPIED " + name, flush=True)
-    finish(configuration, definitions, docker, existing)
+            "--blocking-factor=2048", "-cpf", "/transfer/" + archive, "-C", "/from", "."])
+    assert path.is_file() and not path.is_symlink() and path.stat().st_size >= 10240 and path.stat().st_size % 512 == 0
+    with path.open("rb") as stream:
+        stream.seek(-1024, 2)
+        assert stream.read() == bytes(1024), "A partial archive must never be used to restore the fixture"
+    create = ["volume", "create"]
+    for key, value in (record.get("Labels") or {}).items():
+        create += ["--label", key + "=" + value]
+    docker([*create, name], remote=True)
+    docker(["run", "--rm", "--network", "none", "--read-only", "--mount", "type=volume,source=" + name + ",target=/to",
+        "--mount", "type=bind,source=/mnt/e/mastermind-qualification-cache-20260915/stand-transfer,target=/transfer,readonly",
+        "--entrypoint", "tar", "ubuntu:24.04", "--blocking-factor=2048", "--read-full-records", "-xpf", "/transfer/" + archive, "-C", "/to"], remote=True, timeout=3600)
+    print("COPIED " + name, flush=True)
 
 
 def finish(configuration, definitions, docker, existing):

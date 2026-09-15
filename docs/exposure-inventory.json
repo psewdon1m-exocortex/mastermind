@@ -968,6 +968,15 @@
     {
       "component": "runtime",
       "method": "POST",
+      "path": "/internal/cancel-quiesce",
+      "source": "src/mastermind/runtime_supervisor.py",
+      "exposure": "private_network",
+      "principal": "runtime_control",
+      "indexable": false
+    },
+    {
+      "component": "runtime",
+      "method": "POST",
       "path": "/internal/native-prepare",
       "source": "src/mastermind/runtime_supervisor.py",
       "exposure": "private_network",

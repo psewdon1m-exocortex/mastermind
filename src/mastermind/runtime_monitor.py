@@ -18,6 +18,7 @@ class RuntimeMonitor:
             return
         try:
             service.data_ready()
+            service.runtime.reconcile_cancellations()
             lifecycle = service.runtime.request("GET", "/internal/lifecycle", timeout=5)
             if lifecycle.get("busy") or lifecycle.get("paused"):
                 return
