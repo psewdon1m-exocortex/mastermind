@@ -157,3 +157,16 @@ def test_preparation_enforces_directory_and_file_modes_under_restrictive_umask(t
         assert all(path.stat().st_mode & 0o777 == 0o640 for path in folder.iterdir())
     assert (tmp_path/"secrets/core/worker_token").read_bytes() == (tmp_path/"secrets/worker/worker_token").read_bytes()
     assert not (tmp_path/"secrets/worker/bootstrap_access_key").exists()
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux installer process supervision")
+def test_host_command_output_and_inherited_pipe_have_hard_bounds(release_tools):
+    import time
+    _, installer, _ = release_tools
+    with pytest.raises(ValueError, match="output limit"):
+        installer.run([sys.executable, "-c", "import os; os.write(1,b'x'*2000000)"], timeout=5)
+    started = time.monotonic()
+    with pytest.raises(ValueError, match="deadline"):
+        installer.run([sys.executable, "-c", "import time; time.sleep(10)"], timeout=0.2)
+    assert time.monotonic()-started < 3
+    assert installer.run([sys.executable, "-c", "print('ready')"], capture=True) == "ready\n"

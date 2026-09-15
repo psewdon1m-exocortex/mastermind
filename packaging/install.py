@@ -1,13 +1,14 @@
 """Own-service installer; preparation never starts containers or edits ingress."""
 import argparse
-import grp
 import json
 import os
 import platform
 import re
+import selectors
 import secrets
 import shutil
 import stat
+import signal
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,9 @@ from pathlib import Path
 
 from release_verify import regular, sha256, verify
 
+if sys.platform == "linux":
+    import grp
+
 ROOT = Path("/opt/exocortex/mastermind")
 POLICY = "mastermind.installation.v1"
 
@@ -25,13 +29,35 @@ POLICY = "mastermind.installation.v1"
 def run(args, *, cwd=None, timeout=300, capture=False, accepted_codes=(0,)):
     # Never print command arguments: some installer operations carry credentials
     # in their input file, and diagnostic failures must remain bounded.
-    with tempfile.TemporaryFile() as output:
-        result = subprocess.run(args, cwd=cwd, stdout=output, stderr=subprocess.STDOUT, timeout=timeout)
-        output.seek(0)
-        body = output.read(1024*1024+1)
-        if result.returncode not in accepted_codes or len(body) > 1024*1024:
-            raise ValueError("Host command failed: "+Path(args[0]).name+" (exit "+str(result.returncode)+")")
+    process = subprocess.Popen(args, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
+    deadline, body = time.monotonic()+timeout, bytearray()
+    try:
+        with selectors.DefaultSelector() as selector:
+            selector.register(process.stdout, selectors.EVENT_READ)
+            while selector.get_map():
+                remaining = deadline-time.monotonic()
+                if remaining <= 0:
+                    raise ValueError("Host command deadline exceeded: "+Path(args[0]).name)
+                for key, _ in selector.select(min(remaining, 0.25)):
+                    chunk = os.read(key.fileobj.fileno(), 65536)
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                    elif len(body)+len(chunk) > 1024*1024:
+                        raise ValueError("Host command output limit exceeded: "+Path(args[0]).name)
+                    else:
+                        body.extend(chunk)
+            process.wait(timeout=max(0.01, deadline-time.monotonic()))
+        if process.returncode not in accepted_codes:
+            raise ValueError("Host command failed: "+Path(args[0]).name+" (exit "+str(process.returncode)+")")
         return body.decode("utf-8") if capture else None
+    finally:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        if process.poll() is None:
+            process.wait(timeout=5)
+        process.stdout.close()
 
 
 def write(path, value, *, mode=0o600, gid=None, exclusive=False):
@@ -231,16 +257,19 @@ def install(directory):
     # Neptune is enrolled separately by the owner with Saturn's one-time code.
     # Initial installation must prove Core/Runtime/Worker/Kernel/Updater, while
     # reporting an unconfigured replication dependency without fabricating PASS.
+    setup = diagnostic["dependencies"].get("runtime") == {"status": "PENDING", "code": "NATIVE_OWNER_SETUP_REQUIRED"}
     required = [*diagnostic["checks"].values(),
-                *(v for k, v in diagnostic["dependencies"].items() if k != "neptune")]
+                *(v for k, v in diagnostic["dependencies"].items() if k != "neptune" and not (k == "runtime" and setup))]
     if not diagnostic.get("canonical_ready") or any(v["status"] != "PASS" for v in required):
         write(directory/"installation.json", json.dumps({"schema": POLICY, "state": "NOT_READY", "doctor": diagnostic})+"\n")
         raise ValueError("Local readiness failed; inspect installation.json and run mastermind-install doctor")
-    write(directory/"installation.json", json.dumps({"schema": POLICY, "state": "LOCAL_READY", "version": manifest["version"],
+    write(directory/"installation.json", json.dumps({"schema": POLICY, "state": "OWNER_SETUP_REQUIRED" if setup else "LOCAL_READY", "version": manifest["version"],
           "installed_at": time.time(), "edge": "NOT_VERIFIED", "doctor": diagnostic})+"\n")
-    print("Mastermind "+manifest["version"]+" is ready on 127.0.0.1:18390.")
+    print("Mastermind "+manifest["version"]+(" is installed; native owner setup is pending." if setup else " is ready on 127.0.0.1:18390."))
     print("Initial owner Access Key: /opt/exocortex/mastermind/secrets/core/bootstrap_access_key (value not printed).")
     print("Next: configure host Nginx using packaging/nginx, nginx -t, then verify canonical HTTPS from outside this host.")
+    if setup:
+        print("Sign in, open Vault and complete Obsidian's native trust prompt. Then run mastermind-install doctor; readiness requires a verified Bridge.")
     if diagnostic["dependencies"]["neptune"]["status"] != "PASS":
         print("Neptune remains unconfigured: enter the Mastermind setup code from Saturn in Settings > Backup.")
 

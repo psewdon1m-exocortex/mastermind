@@ -1,8 +1,29 @@
 import os
 import subprocess
 import sys
+import json
 
 import pytest
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Linux Runtime lifecycle")
+def test_fresh_profile_preserves_native_trust_and_clears_pending_only_after_bridge(tmp_path, monkeypatch):
+    import mastermind.runtime_supervisor as module
+    monkeypatch.setattr(module, "install_bridge_files", lambda *_: None)
+    supervisor = module.Supervisor()
+    supervisor.home, supervisor.vault = tmp_path, tmp_path/"vault"
+    supervisor.install_bridge()
+    marker = tmp_path/"mastermind-native-setup.json"
+    assert marker.exists()
+    profile = tmp_path/".config/obsidian/obsidian.json"
+    assert set(json.loads(profile.read_text())) == {"vaults", "updateDisabled"}
+    monkeypatch.setattr(supervisor, "running", lambda: True)
+    monkeypatch.setattr(supervisor, "bridge", lambda _: {"ready": False})
+    assert supervisor.status()["owner_setup_required"] is True
+    monkeypatch.setattr(supervisor, "bridge", lambda _: {"ready": True})
+    assert supervisor.status()["owner_setup_required"] is False
+    supervisor.install_bridge()
+    assert not marker.exists()
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Linux child-subreaper semantics")

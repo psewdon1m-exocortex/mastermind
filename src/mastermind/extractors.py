@@ -340,7 +340,12 @@ def extract(path, name, mime="application/octet-stream"):
                 data = source.read(8*1024**2+1)
             if len(data) > 8*1024**2:
                 raise DomainError("EXTRACTION_LIMIT", "The RTF document exceeds its extraction limit.", 413)
-            value = rtf_to_text(data.decode("latin-1"), errors="strict")
+            codepage = re.search(br"\\ansicpg(\d{1,5})\b", data[:8192])
+            encoding = "cp"+codepage[1].decode("ascii") if codepage else "cp1252"
+            try:
+                value = rtf_to_text(data.decode(encoding), errors="strict")
+            except LookupError:
+                raise DomainError("EXTRACTION_FAILED", "The RTF document declares an unsupported code page.", 422) from None
             # RTF Unicode escapes may encode a valid UTF-16 surrogate pair.
             text.add(value.encode("utf-16", errors="surrogatepass").decode("utf-16", errors="replace"))
             result.update(type="document", mime="application/rtf")

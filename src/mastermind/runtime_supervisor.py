@@ -87,7 +87,7 @@ class Supervisor:
         applications = configuration.getroot().find("{"+namespace+"}applications")
         if applications is None:
             applications = ET.SubElement(configuration.getroot(), "{"+namespace+"}applications")
-        application = ET.SubElement(applications, "{"+namespace+"}application", {"class": "obsidian"})
+        application = ET.SubElement(applications, "{"+namespace+"}application", {"class": "md.obsidian.Obsidian"})
         ET.SubElement(application, "{"+namespace+"}maximized").text = "yes"
         managed_config = self.home / "openbox-mastermind.xml"
         configuration.write(managed_config, encoding="utf-8", xml_declaration=True)
@@ -97,6 +97,10 @@ class Supervisor:
     def install_bridge(self):
         install_bridge_files(self.vault, self.artifacts)
         profile = self.home / ".config/obsidian/obsidian.json"
+        if not profile.exists():
+            # Native Obsidian owns Vault trust. Never silently enable imported
+            # community plugins or manipulate its private browser storage.
+            atomic_json(self.home / "mastermind-native-setup.json", {"pending": True})
         settings = json.loads(profile.read_text("utf-8")) if profile.exists() else {}
         settings.update({"vaults": {"mastermind": {"path": str(self.vault), "ts": int(time.time()*1000),
                                                   "open": True}}, "updateDisabled": True})
@@ -133,6 +137,7 @@ class Supervisor:
             try:
                 status = self.bridge("/status")
                 if status.get("ready") and status.get("version") == expected_version and status.get("protocol_version") == 1:
+                    (self.home / "mastermind-native-setup.json").unlink(missing_ok=True)
                     return status
             except DomainError:
                 pass
@@ -200,6 +205,9 @@ class Supervisor:
                 status["bridge"] = self.bridge("/status")
             except DomainError:
                 status["bridge"] = {"ready": False}
+        if status.get("bridge", {}).get("ready"):
+            (self.home / "mastermind-native-setup.json").unlink(missing_ok=True)
+        status["owner_setup_required"] = (self.home / "mastermind-native-setup.json").exists()
         return status
 
 

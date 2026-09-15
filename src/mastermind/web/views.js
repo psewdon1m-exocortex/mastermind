@@ -35,7 +35,7 @@ export async function vault(root){
   bind(root,'click','[data-fullscreen]',async()=>{if(document.fullscreenElement)await document.exitFullscreen();else await runtime.requestFullscreen();});
   const fullscreen=()=>{$('[data-fullscreen]',root).textContent=document.fullscreenElement?'Exit fullscreen':'Fullscreen';};document.addEventListener('fullscreenchange',fullscreen);
   bind(root,'click','[data-portable]',(e,b)=>pending(b,()=>startOperation('portable')));
-  const stop=poll(async()=>{const [s,downloads]=await Promise.all([api('/api/status'),api('/api/runtime/downloads')]);if(!root.isConnected)return;const ready=s.runtime?.bridge?.ready&&s.runtime?.startup_allowed;$('.state',root).textContent=ready?'Obsidian connected':'Runtime recovering · '+(s.runtime_failure||s.failure||s.runtime?.state||'waiting');if(ready&&disconnected)connect();disconnected=!ready;
+  const stop=poll(async()=>{const [s,downloads]=await Promise.all([api('/api/status'),api('/api/runtime/downloads')]);if(!root.isConnected)return;const ready=s.runtime?.bridge?.ready&&s.runtime?.startup_allowed;$('.state',root).textContent=ready?'Obsidian connected':s.runtime?.owner_setup_required?'First launch: complete the Vault trust prompt in Obsidian below.':'Runtime recovering · '+(s.runtime_failure||s.failure||s.runtime?.state||'waiting');if(ready&&disconnected)connect();disconnected=!ready;
     const queue=$('.runtime-downloads',root);queue.hidden=!downloads.length;queue.innerHTML=downloads.map(item=>`<a download href="/api/owner/resources/content?${new URLSearchParams({path:item.path,download:'true'})}">Download ${escape(item.path.split('/').at(-1))}</a>`).join('');},3000);
   return()=>{stop();document.removeEventListener('fullscreenchange',fullscreen);frame.src='about:blank';};
 }

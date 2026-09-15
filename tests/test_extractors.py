@@ -62,6 +62,8 @@ def test_rtf_unicode_codepage_and_hidden_destinations(tmp_path):
     assert result["type"] == "document"
     assert "Привет" in result["text"] and "мир" in result["text"] and "😀" in result["text"]
     assert "CANARY" not in result["text"] and "rtf1" not in result["text"]
+    literal = source(tmp_path, "literal.rtf", r"{\rtf1\ansi\ansicpg1251 Привет мир}".encode("cp1251"))
+    assert literal["text"] == "Привет мир"
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="The qualified antiword parser runs in the Linux Worker")

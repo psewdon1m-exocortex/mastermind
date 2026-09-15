@@ -127,6 +127,8 @@ async def doctor(service):
     def runtime():
         result = service.runtime.status()
         if not result.get("bridge", {}).get("ready") or not result.get("startup_allowed"):
+            if result.get("owner_setup_required") and result.get("display_ready") and result.get("state") == "running":
+                return {"status": "PENDING", "code": "NATIVE_OWNER_SETUP_REQUIRED"}
             raise DomainError("RUNTIME_NOT_READY", "Native Runtime is not ready.", 503)
         return {"obsidian": "RUNNING", "bridge": "READY"}
     def vnc():
