@@ -1,0 +1,1203 @@
+{
+  "schema": "mastermind.exposure.v1",
+  "mode": "non-indexable",
+  "routes": [
+    {
+      "component": "core-admin",
+      "method": "DELETE",
+      "path": "/v1/operations/{identifier}",
+      "source": "src/mastermind/admin.py",
+      "exposure": "owner_uid_unix_socket",
+      "principal": "host_operator",
+      "indexable": false
+    },
+    {
+      "component": "core-admin",
+      "method": "GET",
+      "path": "/v1/doctor",
+      "source": "src/mastermind/admin.py",
+      "exposure": "owner_uid_unix_socket",
+      "principal": "host_operator",
+      "indexable": false
+    },
+    {
+      "component": "core-admin",
+      "method": "GET",
+      "path": "/v1/operations/{identifier}",
+      "source": "src/mastermind/admin.py",
+      "exposure": "owner_uid_unix_socket",
+      "principal": "host_operator",
+      "indexable": false
+    },
+    {
+      "component": "core-admin",
+      "method": "GET",
+      "path": "/v1/operations/{identifier}/download",
+      "source": "src/mastermind/admin.py",
+      "exposure": "owner_uid_unix_socket",
+      "principal": "host_operator",
+      "indexable": false
+    },
+    {
+      "component": "core-admin",
+      "method": "GET",
+      "path": "/v1/replication/status",
+      "source": "src/mastermind/admin.py",
+      "exposure": "owner_uid_unix_socket",
+      "principal": "host_operator",
+      "indexable": false
+    },
+    {
+      "component": "core-admin",
+      "method": "GET",
+      "path": "/v1/updates",
+      "source": "src/mastermind/admin.py",
+      "exposure": "owner_uid_unix_socket",
+      "principal": "host_operator",
+      "indexable": false
+    },
+    {
+      "component": "core-admin",
+      "method": "GET",
+      "path": "/v1/updates/rollback",
+      "source": "src/mastermind/admin.py",
+      "exposure": "owner_uid_unix_socket",
+      "principal": "host_operator",
+      "indexable": false
+    },
+    {
+      "component": "core-admin",
+      "method": "GET",
+      "path": "/v1/vault/validate",
+      "source": "src/mastermind/admin.py",
+      "exposure": "owner_uid_unix_socket",
+      "principal": "host_operator",
+      "indexable": false
+    },
+    {
+      "component": "core-admin",
+      "method": "POST",
+      "path": "/v1/operations",
+      "source": "src/mastermind/admin.py",
+      "exposure": "owner_uid_unix_socket",
+      "principal": "host_operator",
+      "indexable": false
+    },
+    {
+      "component": "core-admin",
+      "method": "POST",
+      "path": "/v1/operations/{identifier}/confirm",
+      "source": "src/mastermind/admin.py",
+      "exposure": "owner_uid_unix_socket",
+      "principal": "host_operator",
+      "indexable": false
+    },
+    {
+      "component": "core-admin",
+      "method": "POST",
+      "path": "/v1/reindex",
+      "source": "src/mastermind/admin.py",
+      "exposure": "owner_uid_unix_socket",
+      "principal": "host_operator",
+      "indexable": false
+    },
+    {
+      "component": "core-admin",
+      "method": "POST",
+      "path": "/v1/replication/reconcile",
+      "source": "src/mastermind/admin.py",
+      "exposure": "owner_uid_unix_socket",
+      "principal": "host_operator",
+      "indexable": false
+    },
+    {
+      "component": "core-admin",
+      "method": "POST",
+      "path": "/v1/updates",
+      "source": "src/mastermind/admin.py",
+      "exposure": "owner_uid_unix_socket",
+      "principal": "host_operator",
+      "indexable": false
+    },
+    {
+      "component": "core-admin",
+      "method": "POST",
+      "path": "/v1/updates/check",
+      "source": "src/mastermind/admin.py",
+      "exposure": "owner_uid_unix_socket",
+      "principal": "host_operator",
+      "indexable": false
+    },
+    {
+      "component": "core-admin",
+      "method": "POST",
+      "path": "/v1/updates/rollback",
+      "source": "src/mastermind/admin.py",
+      "exposure": "owner_uid_unix_socket",
+      "principal": "host_operator",
+      "indexable": false
+    },
+    {
+      "component": "core-admin",
+      "method": "PUT",
+      "path": "/v1/operations/{identifier}/content",
+      "source": "src/mastermind/admin.py",
+      "exposure": "owner_uid_unix_socket",
+      "principal": "host_operator",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "DELETE",
+      "path": "/api/note",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/auth/session",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/graph",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/index/semantic",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/logs",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/note",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/notes",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/external",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/resources",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/resources/content",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/updates",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/updates/rollback",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/runtime/downloads",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/search/semantic",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/status",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/healthz",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "public_bootstrap",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/internal/bridge/graph",
+      "source": "src/mastermind/api.py",
+      "exposure": "private_network",
+      "principal": "bridge",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/internal/bridge/resources",
+      "source": "src/mastermind/api.py",
+      "exposure": "private_network",
+      "principal": "bridge",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/internal/bridge/resources/content",
+      "source": "src/mastermind/api.py",
+      "exposure": "private_network",
+      "principal": "bridge",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/readyz",
+      "source": "src/mastermind/api.py",
+      "exposure": "private_network",
+      "principal": "local_health",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/robots.txt",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "public_bootstrap",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/runtime/{path:path}",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/auth/login",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "public_bootstrap",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/auth/rotate",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/exports/portable",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/index/semantic/rebuild",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/internal/neptune/{kind}",
+      "source": "src/mastermind/api.py",
+      "exposure": "loopback_and_export_identity",
+      "principal": "neptune_export",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/internal/neptune/{kind}/receipt",
+      "source": "src/mastermind/api.py",
+      "exposure": "loopback_and_export_identity",
+      "principal": "neptune_export",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/internal/updater/confirm",
+      "source": "src/mastermind/api.py",
+      "exposure": "loopback_and_updater_identity",
+      "principal": "updater_control",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/internal/updater/functional",
+      "source": "src/mastermind/api.py",
+      "exposure": "loopback_and_updater_identity",
+      "principal": "updater_control",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/note/rename",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/notes",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/owner/updates",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/owner/updates/rollback",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/internal/bridge/events",
+      "source": "src/mastermind/api.py",
+      "exposure": "private_network",
+      "principal": "bridge",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/internal/bridge/external/download",
+      "source": "src/mastermind/api.py",
+      "exposure": "private_network",
+      "principal": "bridge",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/internal/bridge/external/open",
+      "source": "src/mastermind/api.py",
+      "exposure": "private_network",
+      "principal": "bridge",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/internal/bridge/graph-presentation",
+      "source": "src/mastermind/api.py",
+      "exposure": "private_network",
+      "principal": "bridge",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/internal/bridge/links",
+      "source": "src/mastermind/api.py",
+      "exposure": "private_network",
+      "principal": "bridge",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/internal/bridge/native-intent",
+      "source": "src/mastermind/api.py",
+      "exposure": "private_network",
+      "principal": "bridge",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/internal/bridge/note/create",
+      "source": "src/mastermind/api.py",
+      "exposure": "private_network",
+      "principal": "bridge",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/internal/bridge/note/delete",
+      "source": "src/mastermind/api.py",
+      "exposure": "private_network",
+      "principal": "bridge",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/internal/bridge/path-version",
+      "source": "src/mastermind/api.py",
+      "exposure": "private_network",
+      "principal": "bridge",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/internal/bridge/references",
+      "source": "src/mastermind/api.py",
+      "exposure": "private_network",
+      "principal": "bridge",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/internal/bridge/rename",
+      "source": "src/mastermind/api.py",
+      "exposure": "private_network",
+      "principal": "bridge",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/internal/bridge/suggest",
+      "source": "src/mastermind/api.py",
+      "exposure": "private_network",
+      "principal": "bridge",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "PUT",
+      "path": "/api/note",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "WEBSOCKET",
+      "path": "/runtime/websockify",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/v1/crusher/jobs",
+      "source": "src/mastermind/crusher_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner_or_crusher_session",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/v1/crusher/jobs/{identifier}",
+      "source": "src/mastermind/crusher_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner_or_crusher_session",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/v1/crusher/access",
+      "source": "src/mastermind/crusher_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/v1/crusher/jobs",
+      "source": "src/mastermind/crusher_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner_or_crusher_session",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/v1/crusher/sessions",
+      "source": "src/mastermind/crusher_routes.py",
+      "exposure": "canonical_https",
+      "principal": "one_use_crusher_code",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/v1/crusher/uploads",
+      "source": "src/mastermind/crusher_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner_or_crusher_session",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/v1/crusher/uploads/{identifier}/complete",
+      "source": "src/mastermind/crusher_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner_or_crusher_session",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "PUT",
+      "path": "/api/v1/crusher/uploads/{identifier}/content",
+      "source": "src/mastermind/crusher_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner_or_crusher_session",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "DELETE",
+      "path": "/api/owner/operations/{identifier}",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "public_bootstrap",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/analytics",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "public_bootstrap",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/appearance",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "public_bootstrap",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/agents",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/agents/neptune/initialization",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/analytics",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/connection",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/documentation",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/metrics",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/operations",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/operations/{identifier}",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/operations/{identifier}/download",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/settings",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/assets/{path:path}",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "public_bootstrap",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/crusher",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "public_bootstrap",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/dashboard",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "public_bootstrap",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/documentation",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "public_bootstrap",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/login",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "public_bootstrap",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/settings",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "public_bootstrap",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/shares",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "public_bootstrap",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/vault",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "public_bootstrap",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "PATCH",
+      "path": "/api/owner/settings",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/owner/agents/neptune/enroll",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/owner/connection",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/owner/operations",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/owner/operations/{identifier}/confirm",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/owner/updates/check",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "PUT",
+      "path": "/api/owner/operations/{identifier}/content",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "runtime",
+      "method": "GET",
+      "path": "/healthz",
+      "source": "src/mastermind/runtime_supervisor.py",
+      "exposure": "private_network",
+      "principal": "local_health",
+      "indexable": false
+    },
+    {
+      "component": "runtime",
+      "method": "GET",
+      "path": "/internal/lifecycle",
+      "source": "src/mastermind/runtime_supervisor.py",
+      "exposure": "private_network",
+      "principal": "runtime_control",
+      "indexable": false
+    },
+    {
+      "component": "runtime",
+      "method": "GET",
+      "path": "/internal/status",
+      "source": "src/mastermind/runtime_supervisor.py",
+      "exposure": "private_network",
+      "principal": "runtime_control",
+      "indexable": false
+    },
+    {
+      "component": "runtime",
+      "method": "POST",
+      "path": "/internal/allow-start",
+      "source": "src/mastermind/runtime_supervisor.py",
+      "exposure": "private_network",
+      "principal": "runtime_control",
+      "indexable": false
+    },
+    {
+      "component": "runtime",
+      "method": "POST",
+      "path": "/internal/begin-recovery",
+      "source": "src/mastermind/runtime_supervisor.py",
+      "exposure": "private_network",
+      "principal": "runtime_control",
+      "indexable": false
+    },
+    {
+      "component": "runtime",
+      "method": "POST",
+      "path": "/internal/native-prepare",
+      "source": "src/mastermind/runtime_supervisor.py",
+      "exposure": "private_network",
+      "principal": "runtime_control",
+      "indexable": false
+    },
+    {
+      "component": "runtime",
+      "method": "POST",
+      "path": "/internal/native-release",
+      "source": "src/mastermind/runtime_supervisor.py",
+      "exposure": "private_network",
+      "principal": "runtime_control",
+      "indexable": false
+    },
+    {
+      "component": "runtime",
+      "method": "POST",
+      "path": "/internal/open",
+      "source": "src/mastermind/runtime_supervisor.py",
+      "exposure": "private_network",
+      "principal": "runtime_control",
+      "indexable": false
+    },
+    {
+      "component": "runtime",
+      "method": "POST",
+      "path": "/internal/quiesce",
+      "source": "src/mastermind/runtime_supervisor.py",
+      "exposure": "private_network",
+      "principal": "runtime_control",
+      "indexable": false
+    },
+    {
+      "component": "runtime",
+      "method": "POST",
+      "path": "/internal/rename",
+      "source": "src/mastermind/runtime_supervisor.py",
+      "exposure": "private_network",
+      "principal": "runtime_control",
+      "indexable": false
+    },
+    {
+      "component": "runtime",
+      "method": "POST",
+      "path": "/internal/resume",
+      "source": "src/mastermind/runtime_supervisor.py",
+      "exposure": "private_network",
+      "principal": "runtime_control",
+      "indexable": false
+    },
+    {
+      "component": "runtime",
+      "method": "POST",
+      "path": "/internal/verify-generation",
+      "source": "src/mastermind/runtime_supervisor.py",
+      "exposure": "private_network",
+      "principal": "runtime_control",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/v1/shares",
+      "source": "src/mastermind/shared_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/s/{token}",
+      "source": "src/mastermind/shared_routes.py",
+      "exposure": "canonical_https",
+      "principal": "share_entry",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/s/{token}/api/note",
+      "source": "src/mastermind/shared_routes.py",
+      "exposure": "canonical_https",
+      "principal": "share_projection",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/s/{token}/api/policy",
+      "source": "src/mastermind/shared_routes.py",
+      "exposure": "canonical_https",
+      "principal": "share_entry",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/s/{token}/font.woff2",
+      "source": "src/mastermind/shared_routes.py",
+      "exposure": "canonical_https",
+      "principal": "share_entry",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "PATCH",
+      "path": "/api/v1/shares/{identifier}",
+      "source": "src/mastermind/shared_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/v1/shares",
+      "source": "src/mastermind/shared_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/s/{token}/api/session",
+      "source": "src/mastermind/shared_routes.py",
+      "exposure": "canonical_https",
+      "principal": "share_entry",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "PUT",
+      "path": "/s/{token}/api/note",
+      "source": "src/mastermind/shared_routes.py",
+      "exposure": "canonical_https",
+      "principal": "share_projection",
+      "indexable": false
+    },
+    {
+      "component": "worker",
+      "method": "DELETE",
+      "path": "/jobs/{identifier}",
+      "source": "src/mastermind/worker.py",
+      "exposure": "private_network",
+      "principal": "worker_control",
+      "indexable": false
+    },
+    {
+      "component": "worker",
+      "method": "GET",
+      "path": "/healthz",
+      "source": "src/mastermind/worker.py",
+      "exposure": "private_network",
+      "principal": "worker_control",
+      "indexable": false
+    },
+    {
+      "component": "worker",
+      "method": "GET",
+      "path": "/jobs/{identifier}/source",
+      "source": "src/mastermind/worker.py",
+      "exposure": "private_network",
+      "principal": "worker_control",
+      "indexable": false
+    },
+    {
+      "component": "worker",
+      "method": "POST",
+      "path": "/chunks",
+      "source": "src/mastermind/worker.py",
+      "exposure": "private_network",
+      "principal": "worker_control",
+      "indexable": false
+    },
+    {
+      "component": "worker",
+      "method": "POST",
+      "path": "/embeddings",
+      "source": "src/mastermind/worker.py",
+      "exposure": "private_network",
+      "principal": "worker_control",
+      "indexable": false
+    },
+    {
+      "component": "worker",
+      "method": "POST",
+      "path": "/jobs/{identifier}/acquire",
+      "source": "src/mastermind/worker.py",
+      "exposure": "private_network",
+      "principal": "worker_control",
+      "indexable": false
+    },
+    {
+      "component": "worker",
+      "method": "POST",
+      "path": "/jobs/{identifier}/extract",
+      "source": "src/mastermind/worker.py",
+      "exposure": "private_network",
+      "principal": "worker_control",
+      "indexable": false
+    },
+    {
+      "component": "worker",
+      "method": "POST",
+      "path": "/jobs/{identifier}/git",
+      "source": "src/mastermind/worker.py",
+      "exposure": "private_network",
+      "principal": "worker_control",
+      "indexable": false
+    },
+    {
+      "component": "worker",
+      "method": "POST",
+      "path": "/jobs/{identifier}/render",
+      "source": "src/mastermind/worker.py",
+      "exposure": "private_network",
+      "principal": "worker_control",
+      "indexable": false
+    },
+    {
+      "component": "worker",
+      "method": "PUT",
+      "path": "/jobs/{identifier}/source",
+      "source": "src/mastermind/worker.py",
+      "exposure": "private_network",
+      "principal": "worker_control",
+      "indexable": false
+    }
+  ]
+}

@@ -62,7 +62,7 @@ server {
         client_max_body_size 2m;
         include /opt/exocortex/mastermind/packaging/nginx/mastermind-proxy.conf;
     }
-    location ~ ^/(?:api/(?:auth|owner|v1|search|index|notes|note|activity|status|logs|exports|runtime|appearance)(?:/|$)|runtime/(?:index\.html|assets/)|assets/|(?:login|dashboard|vault|crusher|analytics|shares|settings|documentation|robots\.txt)$) {
+    location ~ ^/(?:api/(?:auth|owner|v1|search|index|notes|note|graph|activity|status|logs|exports|runtime|appearance)(?:/|$)|runtime/(?:index\.html|assets/)|assets/|(?:login|dashboard|vault|crusher|analytics|shares|settings|documentation|robots\.txt)$) {
         client_max_body_size 16m;
         include /opt/exocortex/mastermind/packaging/nginx/mastermind-proxy.conf;
     }

@@ -39,10 +39,8 @@ def main():
     output = ROOT / "artifacts/ci" / revision
     output.mkdir(parents=True, exist_ok=True)
     scratch = ROOT / ".local/ci" / (revision[:12] + "-" + uuid.uuid4().hex[:12])
-    source, storage = scratch / "source", scratch / "storage"
+    source = scratch / "source"
     source.mkdir(parents=True)
-    storage.mkdir(mode=0o777)
-    storage.chmod(0o777)
     archive = scratch / "source.tar"
     subprocess.run(["git", "archive", "--format=tar", "--output=" + str(archive), revision], cwd=ROOT, check=True)
     with tarfile.open(archive) as stream:
@@ -70,6 +68,7 @@ def main():
     npm = "npm.cmd" if os.name == "nt" else "npm"
     try:
         run("repository", [sys.executable, "scripts/validate_repository.py"])
+        run("exposure", [sys.executable, "scripts/exposure_inventory.py"])
         run("catalog", [sys.executable, "scripts/known_problems_gate.py", "catalog", "--output", str(output / "catalog.json")])
         run("python-lint", [sys.executable, "-m", "ruff", "check", "src", "tests"])
         for path in sorted((ROOT / "packaging").rglob("*.sh")):
@@ -92,10 +91,17 @@ def main():
                 if not re.fullmatch(r"sha256:[a-f0-9]{64}", images[component]):
                     raise ValueError("Image build did not yield an immutable identity")
             result["images"] = images
+            volume = "mastermind-ci-" + scratch.name
+            run("test-storage", ["docker", "volume", "create", "--label", "mastermind.purpose=ci-tests", volume])
+            run("test-storage-owner", ["docker", "run", "--rm", "--network", "none", "--read-only", "--user", "0:0",
+                "--cap-drop", "ALL", "--cap-add", "CHOWN", "--cap-add", "FOWNER", "--security-opt", "no-new-privileges:true",
+                "--mount", "type=volume,source=" + volume + ",target=/verification", "--entrypoint", "python", images["core"],
+                "-c", "import os; os.chown('/verification',10001,10001); os.chmod('/verification',0o700)"])
+            result["test_storage_volume"] = volume
             isolated = ["docker", "run", "--rm", "--network", "none", "--read-only", "--user", "10001:10001",
                         "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "--memory", "2g", "--cpus", "2",
                         "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m,mode=1777", "--mount", "type=bind,source=" + str(source) + ",target=/suite,readonly",
-                        "--mount", "type=bind,source=" + str(storage) + ",target=/verification"]
+                        "--mount", "type=volume,source=" + volume + ",target=/verification"]
             run("linux-tests", [*isolated, "--entrypoint", "python", images["worker"], "-m", "pytest", "/suite/tests", "-q",
                                 "-o", "pythonpath=/app/src", "-p", "no:cacheprovider", "--basetemp=/verification/pytest"], timeout=600)
             run("real-worker-sandbox", [*isolated, "--tmpfs", "/work:rw,nosuid,nodev,size=256m,mode=1777",

@@ -8,11 +8,11 @@ Production uses the canonical HTTPS origin. JSON errors expose stable sanitized 
 | --- | --- |
 | `/healthz`, `/robots.txt`, `/api/appearance` | Bounded public liveness, crawler policy and login appearance |
 | `/api/auth/login`, `/api/auth/session`, `/api/auth/logout`, `/api/auth/rotate` | Exact Access Key, then owner cookie; unsafe operations require origin/CSRF |
-| `/api/status`, `/api/notes`, `/api/note`, `/api/search`, `/api/index`, `/api/activity`, `/api/logs` | Owner-only status, bounded canonical/derived reads and managed writes |
-| `/api/owner/settings`, `/metrics`, `/analytics`, `/documentation`, `/connection` | Authenticated operator state; settings use revision/conflict checks |
+| `/api/status`, `/api/notes`, `/api/note`, `/api/graph`, `/api/search/semantic`, `/api/index/semantic`, `/api/logs` | Owner-only status, bounded canonical/derived reads and managed writes |
+| `/api/owner/settings`, `/api/owner/metrics`, `/api/owner/analytics`, `/api/owner/documentation`, `/api/owner/connection` | Authenticated operator state; settings use revision/conflict checks |
 | `/api/owner/operations` and `/{id}/content`, `/confirm`, `/download` | Durable staged backup/portable/restore operations; stream actual size/hash and confirm destructive replacement |
 | `/api/owner/agents` and `/agents/neptune/{enroll,initialization}` | Own-head lifecycle; setup code stays in memory, durable job identity survives restart |
-| `/api/owner/updates` and `/updates/check` | Approved exact release discovery and one typed whole-group operation |
+| `/api/owner/updates`, `/api/owner/updates/check`, `/api/owner/updates/rollback` | Approved exact release discovery, recorded previous version and one typed whole-group operation |
 | `/api/owner/resources` and `/resources/content` | Neptune scoped listing/metadata/content; single Range, ETag/If-Range, bounded streaming |
 | `/runtime/index.html`, `/runtime/assets/*`, `/runtime/websockify` | Owner-only native gateway; ongoing session verification after WebSocket upgrade |
 | `/api/v1/shares` and `/{id}` | Owner creation/configuration/revocation of a path-bound Share |
@@ -30,4 +30,4 @@ Runtime `/internal/*` accepts typed lifecycle/open/rename operations only. Worke
 
 Neptune `/api/v1/projects/mastermind/{resources,resource-metadata,resource-content}` requires the owner-purpose scoped local identity. Updater `/v1/heads/mastermind/{preparations,backup-spools}` binds immutable version, request ID and sealed spool ownership. Spool content streams directly; no base64 whole-archive body or caller-supplied host path is accepted.
 
-Route handlers and negative boundary tests remain the exact implementation authority; family descriptions do not widen their method or path allowlist. New routes must update the exposure inventory, proxy profile, operator documentation and principal-boundary tests together.
+The versioned [exposure inventory](exposure-inventory.json) lists every registered method/path, source, component, principal and exposure. Its source comparison rejects missing or stale entries. Negative tests enumerate owner routes and verify that an anonymous client cannot reach any of them; proxy coverage checks prevent a documented owner API from silently becoming an ingress 404. Family descriptions do not widen the allowlist. New routes must update this inventory, proxy profile, operator documentation and principal-boundary tests together.
