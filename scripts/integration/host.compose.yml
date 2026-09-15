@@ -1,0 +1,40 @@
+# Disposable local OS for actual systemd / nested Docker acceptance only.
+# No workstation Docker socket, user Vault or host system directory is mounted.
+name: mastermind-host-qualification
+services:
+  registry:
+    image: registry:3.0.0@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e
+    container_name: mastermind-qualification-registry
+    ports: ["127.0.0.1:18500:5000"]
+    volumes: ["registry-data:/var/lib/registry"]
+    networks:
+      edge: {ipv4_address: 172.31.0.3}
+    mem_limit: 512m
+    cpus: 2
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "2"}
+  host:
+    image: mastermind-qualification-host:local
+    build: {context: ., dockerfile: Host.Dockerfile}
+    container_name: mastermind-qualification-host
+    hostname: mastermind-qualification-host
+    privileged: true
+    cgroup: private
+    security_opt: ["label=disable"]
+    tmpfs: ["/run:rw,nosuid,nodev,size=128m", "/tmp:rw,nosuid,nodev,size=512m"]
+    volumes: ["host-data:/opt", "host-docker:/var/lib/docker"]
+    ports: ["127.0.0.1:18445:443"]
+    networks:
+      edge: {ipv4_address: 172.31.0.4}
+    mem_limit: 10g
+    cpus: 4
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "2"}
+networks:
+  edge: {external: true, name: mastermind-integration_edge}
+volumes:
+  host-data: {external: true, name: mastermind-qualification-host-data}
+  host-docker: {external: true, name: mastermind-qualification-host-docker}
+  registry-data: {external: true, name: mastermind-qualification-registry-data}

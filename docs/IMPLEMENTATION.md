@@ -36,6 +36,26 @@ No stage passes because its code exists. Each gate records exact commands, count
 
 ## Current checkpoints — 2026-09-15
 
+**Main-disk qualification checkpoint:** source d5b0897 passed complete local CI
+with **507 Linux tests, zero skips**, actual isolated Chrome/SSRF and offline
+model probes, Bridge checks and source/history secret scans. The five producer
+images rebuilt from the locked sources; all four exported patches replayed
+cleanly. Current real Saturn SFTP/Range, Neptune reader through Kernel/Volt and
+Chronos projection/principal-separation probes pass. Evidence is in
+`artifacts/ci/d5b08977ec7ba46ff159fba32fa412b690cb257e/result.json`,
+`producer-build-current/result.json`, `producer-patch-replay.json` and
+`integration-contract-current.log`.
+
+Native Activity now reaches the Core database with current Bridge 0.1.0.
+The extended browser runner first exposed three harness defects: opening the
+viewer before startup, selecting an invisible auxiliary canvas, and using an
+incorrect SQLite filename. These failed runs remain FAIL; the corrected runner
+still requires a complete new PASS. Startup errors are now visible as bounded
+codes in owner status. The disposable Linux host and its registry are recreated
+from the original C: volumes via `scripts/integration/host.compose.yml`; the
+current installer repairs the legacy Updater executable permissions and own-head
+registration. Current-image installation, update and rollback remain open.
+
 **Current owner-directed scope:** rebuild on the main Docker Desktop engine with
 approximately 151 GiB available on C:. Original named fixture volumes remain;
 their old Desktop containers/images are absent and will be recreated. Later

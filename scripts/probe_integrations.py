@@ -171,11 +171,15 @@ def neptune_reader():
 
 
 def chronos_card():
+    from datetime import UTC, datetime, timedelta
     owner = client("chronos")
     checked(owner.post("/api/auth/login", json={"access_key": (FIXTURE / "chronos-access").read_text()}))
     owner.headers["X-CSRF-Token"] = owner.cookies.get("chronos_csrf")
+    # A preserved fixture database may already contain the previous run. Use a
+    # fresh historical interval instead of colliding with its fixed timestamp.
+    started = datetime(2000, 1, 1, tzinfo=UTC) + timedelta(seconds=uuid.uuid4().int % (20 * 365 * 86400))
     created = checked(owner.post("/api/sessions", json={"category": "execution",
-        "started_at": "2026-09-14T20:00:00+00:00", "stopped_at": "2026-09-14T20:15:00+00:00",
+        "started_at": started.isoformat(), "stopped_at": (started + timedelta(minutes=15)).isoformat(),
         "note": "Synthetic fixture: this note must not leave the one-event projection."}), 201)
     identifier = created["public_id"]
     route = "/api/v1/internal/mastermind/events/" + identifier

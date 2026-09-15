@@ -435,7 +435,7 @@ def create_app(config=None, service=None):
             and not context.dirty.failure
         state = "NOT_READY" if not ok else "HEALTHY" if runtime.get("bridge", {}).get("ready") \
             and not context.maintenance_failure and not context.operation_audit_failure and not context.restore.last_warning else "DEGRADED"
-        return {"status": state, "runtime": runtime, "failure": context.index_failure or context.dirty.failure,
+        return {"status": state, "runtime": runtime, "failure": context.failure or context.index_failure or context.dirty.failure,
                 "conflicts": context.vault.conflicts, "uptime_seconds": time.monotonic()-context.started,
                 "semantic_index": context.semantic.status(), "runtime_failure": context.runtime_monitor.failure,
                 "maintenance_failure": context.maintenance_failure, "audit_failure": context.operation_audit_failure,

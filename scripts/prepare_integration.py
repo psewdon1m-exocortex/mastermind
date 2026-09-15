@@ -177,12 +177,13 @@ services["gateway"] = {**common,
     "image": "nginx:1.29.4-alpine@sha256:4870c12cd2ca986de501a804b4f506ad3875a0b1874940ba0a2c7f763f1855b2",
     "entrypoint": ["nginx", "-g", "daemon off;", "-c", "/fixture/nginx.conf"], "mem_limit": "128m",
     "volumes": ["./:/fixture:ro", "neptune-socket:/run/neptune:ro"], "ports": ["127.0.0.1:19441:443"],
-    "networks": {"private": {"ipv4_address": "10.194.0.10", "aliases": [name + ".mastermind.test" for name in ["kernel", "volt", "saturn", "chronos"]]}, "edge": {}},
+    "networks": {"private": {"ipv4_address": "10.194.0.10", "aliases": [name + ".mastermind.test" for name in ["kernel", "volt", "saturn", "chronos"]]}, "edge": {"ipv4_address": "172.31.0.2"}},
     "depends_on": ["kernel", "volt", "saturn", "chronos", "neptune"]}
 services["saturn"]["depends_on"].update(postgres={"condition": "service_healthy"}, sftp={"condition": "service_started"})
 save("compose.yml", yaml.safe_dump({"name": "mastermind-integration", "services": services,
     "volumes": {**{name + "-data": {} for name in ["kernel", "volt", "saturn", "postgres", "sftp", "neptune", "chronos"]}, "neptune-socket": {}},
-    "networks": {"private": {"internal": True, "ipam": {"config": [{"subnet": "10.194.0.0/24"}]}}, "edge": {}}}, sort_keys=False))
+    "networks": {"private": {"internal": True, "ipam": {"config": [{"subnet": "10.194.0.0/24"}]}},
+                 "edge": {"ipam": {"config": [{"subnet": "172.31.0.0/24"}]}}}}, sort_keys=False))
 save("core-override.yml", yaml.safe_dump({"services": {"core": {
     "group_add": ["101"],
     "environment": {"MASTERMIND_KERNEL_URL": "https://kernel.mastermind.test", "MASTERMIND_SECRET_BACKEND": "kernel",

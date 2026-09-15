@@ -100,6 +100,17 @@ def test_owner_routes_nonindexable_and_unauthorized_runtime(api):
     assert denied.value.code == 4401
 
 
+def test_startup_failure_is_visible_to_owner_without_exposing_diagnostics(api):
+    client, service = api
+    authenticate(client)
+    service.ready = False
+    service.failure = "RECOVERY_REQUIRED"
+    response = client.get("/api/status")
+    assert response.status_code == 200
+    assert response.json()["status"] == "NOT_READY"
+    assert response.json()["failure"] == "RECOVERY_REQUIRED"
+
+
 def test_owner_cookie_csrf_and_etag_write_workflow(api):
     client, _ = api
     response = authenticate(client)

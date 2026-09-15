@@ -25,10 +25,17 @@ function inspect(){return ['core','runtime'].map(name=>{const state=JSON.parse(e
     assert.equal(login.status(),200);const csrf=(await login.json()).csrf,headers={Origin:origin,'X-CSRF-Token':csrf};
     async function api(route,method='GET',data){const response=await context.request.fetch(origin+route,{method,headers,data,timeout:180000});
       assert.equal(response.status(),200,route+' HTTP '+response.status());return response.json();}
-    async function ready(){for(let i=0;i<120;i++){const state=await api('/api/status');if(state.runtime?.bridge?.ready&&state.runtime.startup_allowed)return state;
+    async function ready(){for(let i=0;i<120;i++){const state=await api('/api/status');if(state.status==='HEALTHY'&&state.runtime?.bridge?.ready&&state.runtime.startup_allowed)return state;
       await sleep(500);}throw Error('Runtime did not become ready');}
     const page=await context.newPage();let connections=0,frames=0;page.on('websocket',socket=>{if(socket.url().includes('websockify')){connections++;socket.on('framereceived',()=>frames++);}});
-    async function connect(){await page.goto(origin+'/runtime/index.html?autoconnect=1&path=runtime/websockify&resize=remote');await sleep(3000);}
+    async function connect(){
+      for(let attempt=0;attempt<120;attempt++){
+        const response=await page.goto(origin+'/runtime/index.html?autoconnect=1&path=runtime/websockify&resize=remote');
+        if(response.status()===503){assert.ok(attempt<119,'Core startup did not settle');await sleep(500);continue;}
+        assert.equal(response.status(),200,'Native viewer did not load');
+        await page.locator('canvas:visible').first().waitFor({state:'visible',timeout:15000});await sleep(3000);return;
+      }
+    }
     await connect();
     if(process.argv.includes('--inspect')){await page.screenshot({path:path.join(output,'initial.png')});log({status:'INSPECT_ONLY',containers:inspect()});return;}
     if(process.argv.includes('--trust-generated-fixture')){await page.mouse.click(880,608);await sleep(3000);}
@@ -73,7 +80,7 @@ function inspect(){return ['core','runtime'].map(name=>{const state=JSON.parse(e
     // Close the last real editor session. No coordinated mutation follows it:
     // this proves the Bridge HTTP event path, independently of snapshot ingestion.
     await page.keyboard.press('Control+o');await sleep(300);await page.keyboard.type('root');await sleep(400);await page.keyboard.press('Enter');
-    const activityCode="import sqlite3,sys; from mastermind.config import Config; c=sqlite3.connect('file:'+str(Config.environment().state/'mastermind.db')+'?mode=ro',uri=True); print(c.execute(\"SELECT COUNT(*) FROM activity WHERE path=? AND kind='EDIT' AND occurred_at>=?\",('Runtime soak.md',float(sys.argv[1]))).fetchone()[0])";
+    const activityCode="import sqlite3,sys; from mastermind.config import Config; c=sqlite3.connect('file:'+str(Config.environment().state/'mastermind.sqlite3')+'?mode=ro',uri=True); print(c.execute(\"SELECT COUNT(*) FROM activity WHERE path=? AND kind='EDIT' AND occurred_at>=?\",('Runtime soak.md',float(sys.argv[1]))).fetchone()[0])";
     let activityDelivered=false;
     for(let attempt=0;attempt<30;attempt++){
       const state=await ready();
