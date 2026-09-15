@@ -4,6 +4,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
+from mastermind import __version__
 from mastermind.api import CSRF_COOKIE, OWNER_COOKIE, create_app
 from mastermind.config import Config
 from mastermind.errors import DomainError
@@ -143,8 +144,20 @@ def test_bridge_references_and_activity_use_separate_scope(api):
     assert response.status_code == 200
     assert response.json()[0]["start"] == 2
     body = {"events": [{"id": "id-1", "session_id": "edit-1", "path": "Café.md", "kind": "EDIT",
-                         "occurred_at": time.time()}], "version": "0.0.1", "epoch": service.activity.epoch}
+                         "occurred_at": time.time()}], "version": __version__, "epoch": service.activity.epoch}
     for _ in range(2):
         assert client.post("/internal/bridge/events", json=body,
                            headers={"Authorization": "Bearer bridge-test-token"}).status_code == 200
     assert service.state.one("SELECT COUNT(*) AS count FROM activity")["count"] == 1
+
+
+@pytest.mark.parametrize("version", [None, "0.0.1", "999.0.0", True])
+def test_bridge_activity_rejects_incompatible_build_before_persisting(api, version):
+    client, service = api
+    assert version != __version__
+    body = {"version": version, "epoch": service.activity.epoch,
+            "events": [{"id": "rejected-event", "kind": "EDIT", "path": "Note.md", "occurred_at": time.time()}]}
+    response = client.post("/internal/bridge/events", json=body, headers={"Authorization": "Bearer bridge-test-token"})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "INVALID_ACTIVITY"
+    assert service.state.one("SELECT COUNT(*) AS count FROM activity")["count"] == 0

@@ -48,7 +48,7 @@ def qualified(tmp_path, promotion):
     record["native_runtime"] = save("soak.json", {"schema": "mastermind.native-runtime-regression.v1", "revision": revision,
         "status": "PASS", "elapsed_ms": 120_000, "checkpoints": 6, "frames": 1000, "connections": 4,
         "coordinated_mutations": 2, "portable_exports": 1, "export_bytes": 350 * 1024**2,
-        "content_preserved": True, "single_copy_markers": True, "long_duration_stability": "NOT_TESTED_BY_OWNER_DECISION",
+        "content_preserved": True, "single_copy_markers": True, "activity_delivered": True, "long_duration_stability": "NOT_TESTED_BY_OWNER_DECISION",
         "containers": [{"name": name, "image": images[name], "oom": False, "restarts": 0} for name in ("core", "runtime")]})
     security = {"schema": "mastermind.supply-chain.v1", "status": "PASS", "images": images, "reports": {}}
     for name, image_id in images.items():
@@ -68,7 +68,7 @@ def test_complete_qualification_receipts_are_verified(qualified, promotion):
 @pytest.mark.parametrize("fault", ["stale", "missing_check", "missing_log", "changed_log", "failed_ci", "missing_ci_step",
     "changed_raw_evidence", "unbounded_soak", "smoke_soak", "interrupted_soak", "wrong_soak_image", "restart_soak",
     "oom_soak", "no_frames", "few_checkpoints", "stale_soak", "missing_mutation_soak", "missing_export_soak",
-    "missing_reconnect_soak", "changed_content_soak", "duplicate_content_soak", "hidden_exclusion_soak", "small_export_soak",
+    "missing_reconnect_soak", "changed_content_soak", "duplicate_content_soak", "hidden_exclusion_soak", "small_export_soak", "lost_activity_soak",
     "unreviewed_security", "forged_security_pass", "changed_sbom", "path_escape"])
 def test_incomplete_or_mismatched_evidence_never_opens_signing(qualified, promotion, fault):
     record, path, revision, manifest, components, save = qualified
@@ -115,6 +115,8 @@ def test_incomplete_or_mismatched_evidence_never_opens_signing(qualified, promot
             soak["single_copy_markers"] = False
         elif fault == "hidden_exclusion_soak":
             soak.pop("long_duration_stability")
+        elif fault == "lost_activity_soak":
+            soak["activity_delivered"] = False
         else:
             soak["frames" if fault == "no_frames" else "checkpoints"] = 0
         record["native_runtime"] = save("soak.json", soak)

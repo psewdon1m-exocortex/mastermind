@@ -91,7 +91,7 @@ def validate_results(record, candidate, revision, manifest_digest, components):
             soak.get("frames", 0) > 0 and soak.get("connections", 0) >= 3 and
             soak.get("coordinated_mutations", 0) >= 2 and soak.get("portable_exports", 0) >= 1 and
             soak.get("export_bytes", 0) >= 350 * 1024**2 and
-            soak.get("content_preserved") is True and soak.get("single_copy_markers") is True and
+            soak.get("content_preserved") is True and soak.get("single_copy_markers") is True and soak.get("activity_delivered") is True and
             soak.get("long_duration_stability") == "NOT_TESTED_BY_OWNER_DECISION",
             "Complete bounded native regression and explicit long-duration exclusion are required")
     containers = soak.get("containers", [])

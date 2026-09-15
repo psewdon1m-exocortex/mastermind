@@ -638,7 +638,7 @@ def create_app(config=None, service=None):
     async def events(request: Request):
         data = await bounded_json(request, 128*1024)
         batch = data.get("events")
-        if data.get("version") != "0.0.1" or not isinstance(batch, list) or len(batch) > 100:
+        if data.get("version") != __version__ or not isinstance(batch, list) or len(batch) > 100:
             raise DomainError("INVALID_ACTIVITY", "Bridge event envelope is invalid.", 422)
         return await asyncio.to_thread(context.activity.ingest, data)
 

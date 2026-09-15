@@ -9,7 +9,8 @@ remain authoritative for every unaffected requirement.
 - Do not run an eight-hour stability test. Native acceptance instead executes
   six real editor saves, two coordinated Core mutations, reconnects and one
   streamed representative Vault export. It verifies preserved text, no duplicate
-  markers, image identity, no OOM and no container restart. The runner has a
+  markers, durable delivery of native Activity to Core, image identity, no OOM
+  and no container restart. The runner has a
   15-minute failure deadline, not a minimum waiting period.
 - Do not transfer an 8 GiB payload for verification. The host Updater transport
   probe uses 4 MiB, including actual hashing/sealing, cancellation, authorization

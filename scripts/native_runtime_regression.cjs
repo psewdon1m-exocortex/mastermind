@@ -38,12 +38,13 @@ function inspect(){return ['core','runtime'].map(name=>{const state=JSON.parse(e
     log({status:'STARTED',profile:'bounded-native-regression',required_checkpoints:requiredCheckpoints,maximum_ms:maximumDuration,run,containers:baseline,bridge:initial.runtime.bridge});
     const initialNote=await api('/api/note?path=Runtime%20soak.md');let expected=initialNote.text,checkpoints=0;
     async function openNote(){await page.mouse.click(650,500);await page.keyboard.press('Control+o');await sleep(300);await page.keyboard.type('Runtime soak');await sleep(400);await page.keyboard.press('Enter');await sleep(700);}
-    await openNote();let coordinatedMutations=0,portableExports=0,exportBytes=0;
+    await openNote();let coordinatedMutations=0,portableExports=0,exportBytes=0,lastEditStarted=0;
     while(checkpoints<requiredCheckpoints){
       assert.ok(Date.now()-started<maximumDuration,'Native regression exceeded its bounded execution time');
       const elapsed=Date.now()-started;await api('/api/auth/session');await ready();
       {
         const editStarted=Date.now();
+        lastEditStarted=editStarted;
         await openNote();await page.keyboard.press('Escape');await page.mouse.click(720,450);await page.keyboard.press('Control+End');
         const marker='\nSOAK '+run+' '+checkpoints+'\n';await page.keyboard.type(marker,{delay:15});
         const inputSent=Date.now();let note;
@@ -69,10 +70,23 @@ function inspect(){return ['core','runtime'].map(name=>{const state=JSON.parse(e
         log({event:'HEALTH',elapsed_ms:Date.now()-started,connections,frames,containers:states});}
     }
     const note=await api('/api/note?path=Runtime%20soak.md');assert.equal(note.text,expected);await api('/api/auth/session');
+    // Close the last real editor session. No coordinated mutation follows it:
+    // this proves the Bridge HTTP event path, independently of snapshot ingestion.
+    await page.keyboard.press('Control+o');await sleep(300);await page.keyboard.type('root');await sleep(400);await page.keyboard.press('Enter');
+    const activityCode="import sqlite3,sys; from mastermind.config import Config; c=sqlite3.connect('file:'+str(Config.environment().state/'mastermind.db')+'?mode=ro',uri=True); print(c.execute(\"SELECT COUNT(*) FROM activity WHERE path=? AND kind='EDIT' AND occurred_at>=?\",('Runtime soak.md',float(sys.argv[1]))).fetchone()[0])";
+    let activityDelivered=false;
+    for(let attempt=0;attempt<30;attempt++){
+      const state=await ready();
+      const saved=Number(execFileSync('docker',['exec',project+'-core-1','python','-c',activityCode,String(lastEditStarted/1000)],{encoding:'utf8',timeout:10000}).trim());
+      if(saved>0&&state.runtime.bridge.activity_pending===0){activityDelivered=true;break;}
+      await sleep(1000);
+    }
+    assert.ok(activityDelivered,'The current Bridge did not deliver its native edit session to Core');
+    await page.screenshot({path:path.join(output,'activity-delivered.png')});log({event:'ACTIVITY_DELIVERED',elapsed_ms:Date.now()-started});
     assert.ok(Date.now()-started<=maximumDuration);assert.ok(connections>=3);assert.equal(coordinatedMutations,2);assert.equal(portableExports,1);
     const result={schema:'mastermind.native-runtime-regression.v1',status:'PASS',revision:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),
       elapsed_ms:Date.now()-started,checkpoints,connections,frames,coordinated_mutations:coordinatedMutations,portable_exports:portableExports,export_bytes:exportBytes,
-      content_preserved:true,single_copy_markers:true,long_duration_stability:'NOT_TESTED_BY_OWNER_DECISION',containers:inspect()};
+      content_preserved:true,single_copy_markers:true,activity_delivered:activityDelivered,long_duration_stability:'NOT_TESTED_BY_OWNER_DECISION',containers:inspect()};
     fs.writeFileSync(path.join(output,'result.json'),JSON.stringify(result,null,2));log(result);
   }finally{if(browser)await browser.close();fs.closeSync(handle);fs.unlinkSync(lock);}
 })().catch(error=>{const result={status:'FAIL',failed_at:new Date().toISOString(),message:String(error.message).split('\n')[0]};

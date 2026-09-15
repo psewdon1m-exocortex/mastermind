@@ -10,6 +10,7 @@ import threading
 import time
 from urllib.parse import urljoin, urlsplit
 
+from . import __version__
 from .crusher_access import public_url
 from .errors import DomainError
 
@@ -158,7 +159,7 @@ class PublicFetch:
                     timer.daemon = True
                     timer.start()
                 connection.request("GET", parsed.path + ("?"+parsed.query if parsed.query else ""), headers={
-                    "User-Agent": "Mastermind/0.0.1 source-reader", "Accept-Encoding": "identity", "Connection": "close"})
+                    "User-Agent": f"Mastermind/{__version__} source-reader", "Accept-Encoding": "identity", "Connection": "close"})
                 connected_socket[0] = getattr(connection, "sock", None)
                 response = connection.getresponse()
                 headers = response.getheaders()

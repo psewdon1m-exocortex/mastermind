@@ -12,7 +12,9 @@ WORKDIR /app
 COPY requirements.worker.lock /app/requirements.worker.lock
 RUN pip install --no-cache-dir -r requirements.worker.lock
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/mastermind/browser
-RUN python -m playwright install-deps chromium && rm -rf /var/lib/apt/lists/*
+RUN python -m playwright install-deps chromium \
+    && apt-get purge -y --auto-remove xvfb \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=browser /browser /opt/mastermind/browser
 COPY worker-browser.lock.json /app/worker-browser.lock.json
 COPY src /app/src
