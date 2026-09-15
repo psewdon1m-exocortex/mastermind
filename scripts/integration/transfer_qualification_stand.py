@@ -9,12 +9,17 @@ import os
 import re
 import ssl
 import subprocess
+import sys
+import tarfile
 import time
 from pathlib import Path, PureWindowsPath
 
 import httpx
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts"))
+from image_candidate import config_identity
+
 CACHE = Path("E:/mastermind-qualification-cache-20260915/stand-transfer")
 NAMES = [
     "mastermind-integration-postgres-1", "mastermind-integration-sftp-1", "mastermind-integration-kernel-1",
@@ -110,8 +115,26 @@ def transfer_volume(record, docker, *, resume=False):
     print("COPIED " + name, flush=True)
 
 
+def loaded_image_identities(configuration, archive_path, docker):
+    # Desktop exports OCI indexes, while the separate overlay2 daemon loads
+    # image-config identities and need not retain the original RepoDigest alias.
+    # Resolve the exact exported bytes; never substitute a similarly named tag.
+    identities = {}
+    with tarfile.open(archive_path) as archive:
+        for item in configuration:
+            if item["Name"].lstrip("/") == HOST or item["Image"] in identities:
+                continue
+            identity = config_identity(archive, item["Image"])
+            observed = docker(["image", "inspect", "--format", "{{.Id}}", identity], remote=True).strip()
+            if observed != identity:
+                raise ValueError("Imported fixture image differs from its exported OCI identity")
+            identities[item["Image"]] = identity
+    return identities
+
+
 def finish(configuration, definitions, docker, existing):
     host_image = "mastermind-private-host:qualification-transfer-20260915"
+    identities = loaded_image_identities(configuration, CACHE / "images.tar", docker)
     current_networks = set(docker(["network", "ls", "--format", "{{.Name}}"], remote=True).splitlines())
     for network in definitions:
         if network["Name"] in current_networks:
@@ -135,6 +158,8 @@ def finish(configuration, definitions, docker, existing):
             body, host = dict(item["Config"]), dict(item["HostConfig"])
             if name == HOST:
                 body["Image"] = host_image
+            else:
+                body["Image"] = identities[item["Image"]]
             binds = []
             for mount in item["Mounts"]:
                 if mount["Type"] not in {"bind", "volume"}:
