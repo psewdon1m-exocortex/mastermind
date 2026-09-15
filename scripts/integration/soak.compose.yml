@@ -1,0 +1,82 @@
+name: mastermind-runtime-soak
+services:
+  initialize:
+    image: mastermind-core:development
+    entrypoint: [python, /qualification/soak_initialize.py]
+    user: "0:0"
+    network_mode: none
+    volumes:
+      - data:/data
+      - vault:/vault
+      - profile:/profile
+      - ./soak_initialize.py:/qualification/soak_initialize.py:ro
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "2"}
+  runtime:
+    image: mastermind-runtime:development
+    init: true
+    depends_on:
+      initialize: {condition: service_completed_successfully}
+    user: "10001:10001"
+    read_only: true
+    environment:
+      MASTERMIND_CORE_URL: http://core:18390
+      MASTERMIND_SECRET_DIRECTORY: /run/mastermind
+    volumes:
+      - vault:/vault
+      - profile:/home/mastermind
+      - ../../.local/runtime-soak/runtime:/run/mastermind:ro
+    tmpfs: ["/tmp:rw,nosuid,nodev,size=256m,mode=1777"]
+    shm_size: 256m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 3g
+    cpus: 2
+    pids_limit: 256
+    networks: [isolated]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/healthz',timeout=3)"]
+      interval: 10s
+      timeout: 4s
+      retries: 6
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "2"}
+  core:
+    image: mastermind-core:development
+    depends_on:
+      runtime: {condition: service_healthy}
+    user: "10001:10001"
+    read_only: true
+    environment:
+      MASTERMIND_HOME: /data
+      MASTERMIND_PUBLIC_URL: http://localhost:18394
+      MASTERMIND_SECRET_BACKEND: development-files
+      MASTERMIND_SECRET_DIRECTORY: /run/mastermind
+      MASTERMIND_RUNTIME_URL: http://runtime:8091
+    volumes:
+      - data:/data
+      - vault:/data/vault
+      - ../../.local/runtime-soak/core:/run/mastermind:ro
+    ports: ["127.0.0.1:18394:18390"]
+    tmpfs: ["/tmp:rw,nosuid,nodev,size=64m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 2g
+    cpus: 2
+    pids_limit: 128
+    networks: [isolated, edge]
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}
+networks:
+  isolated: {internal: true}
+  edge: {}
+volumes:
+  data:
+  vault:
+  profile:

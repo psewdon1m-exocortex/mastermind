@@ -1,0 +1,4317 @@
+diff --git a/app/api.py b/app/api.py
+index 060345d..84b1cfb 100644
+--- a/app/api.py
++++ b/app/api.py
+@@ -1,1376 +1,1378 @@
+-from __future__ import annotations
+-
+-import asyncio
+-import csv
+-from contextlib import asynccontextmanager, suppress
+-from datetime import date, datetime, time, timedelta, timezone
+-import hashlib
+-import hmac
+-from io import BytesIO, StringIO
+-import json
+-import logging
+-from pathlib import Path
+-import re
+-import secrets
+-import time as time_module
+-from typing import Any, AsyncIterator
+-from urllib.parse import urlparse
+-import zipfile
+-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+-
+-from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, Response, UploadFile
+-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+-from fastapi.staticfiles import StaticFiles
+-from pydantic import BaseModel, Field
+-
+-from .config import RuntimeConfig, load_config, validate_runtime_config
+-from .constants import CATEGORIES, CATEGORY_LABELS, DEFAULT_SETTINGS
+-from .database import create_pool, run_migrations
+-from .gryphon import (
+-    ChronosNotificationSupervisor,
+-    GryphonCommandService,
+-    GryphonClient,
+-    GryphonError,
+-    GryphonNotifier,
+-)
+-from .kernel_register import KernelRegisterError, apply_register, load_snapshot, register_value, profile_missing
++from __future__ import annotations
++
++import asyncio
++import csv
++from contextlib import asynccontextmanager, suppress
++from datetime import date, datetime, time, timedelta, timezone
++import hashlib
++import hmac
++from io import BytesIO, StringIO
++import json
++import logging
++from pathlib import Path
++import re
++import secrets
++import time as time_module
++from typing import Any, AsyncIterator
++from urllib.parse import urlparse
++import zipfile
++from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
++
++from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, Response, UploadFile
++from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
++from fastapi.staticfiles import StaticFiles
++from pydantic import BaseModel, Field
++
++from .config import RuntimeConfig, load_config, validate_runtime_config
++from .constants import CATEGORIES, CATEGORY_LABELS, DEFAULT_SETTINGS
++from .database import create_pool, run_migrations
++from .gryphon import (
++    ChronosNotificationSupervisor,
++    GryphonCommandService,
++    GryphonClient,
++    GryphonError,
++    GryphonNotifier,
++)
++from .kernel_register import KernelRegisterError, apply_register, load_snapshot, register_value, profile_missing
+ from .neptune import NeptuneClient, NeptuneError
+-from .runtime import RuntimeState
+-from .security import (
+-    create_session_token,
+-    decrypt_service_secret,
+-    encrypt_service_secret,
+-    hash_password,
+-    new_csrf_token,
+-    validate_new_access_key,
+-    verify_password,
+-    verify_session_token,
+-)
+-from .store import Store
+-from .telemetry import TelemetrySampler
+-from .timer_service import TimerError, TimerService, timezone_for
+-from .updater import UpdaterClient, UpdaterError, check_github_release
+-from .validation import SettingsInput, validate_settings
+-
+-
+-LOGGER = logging.getLogger("chronos.api")
+-COOKIE_NAME = "chronos_session"
+-CSRF_COOKIE_NAME = "chronos_csrf"
+-COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
+-TIME_PATTERN = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+-LOGIN_ATTEMPTS: dict[str, list[float]] = {}
+-SENSITIVE_ATTEMPTS: dict[str, list[float]] = {}
+-ROBOTS_POLICY = Path(__file__).with_name("robots.txt").read_text(encoding="utf-8")
+-PROXY_IDENTITY_HEADERS = (
+-    "forwarded",
+-    "x-forwarded-for",
+-    "x-real-ip",
+-    "cf-connecting-ip",
+-)
+-BLOCKED_PROBE_PATH = re.compile(
+-    r"(?:^|/)\.|\.(?:env|ini|log|sql|bak|backup|old|swp|zip|tar|gz)$",
+-    re.IGNORECASE,
+-)
+-
+-
+-class LoginInput(BaseModel):
+-    access_key: str = Field(min_length=1, max_length=1024)
+-
+-
+-class TimerInput(BaseModel):
+-    category: str
+-
+-
+-class SessionInput(BaseModel):
+-    category: str
+-    started_at: datetime
+-    stopped_at: datetime
+-    note: str = Field(default="", max_length=500)
+-
+-
+-class SessionUpdate(BaseModel):
+-    category: str
+-    started_at: datetime
+-    stopped_at: datetime | None
+-    note: str = Field(default="", max_length=500)
+-
+-
+-class AccessKeyInput(BaseModel):
+-    current_access_key: str = Field(min_length=1, max_length=1024)
+-    new_access_key: str = Field(min_length=12, max_length=1024)
+-    confirm_access_key: str = Field(min_length=12, max_length=1024)
+-
+-
+-class KernelUrlInput(BaseModel):
+-    kernel_url: str = Field(min_length=1, max_length=2048)
+-
+-
+-class KernelTokenInput(BaseModel):
+-    kernel_url: str = Field(min_length=1, max_length=2048)
+-    new_token: str = Field(min_length=24, max_length=4096)
+-    confirm_token: str = Field(min_length=24, max_length=4096)
+-
+-
+-class NeptuneScheduleInput(BaseModel):
+-    enabled: bool
+-    interval_hours: int = Field(ge=1, le=8760)
+-
+-
+-class NeptuneInitializationInput(BaseModel):
+-    enrollment_code: str = Field(pattern=r"^[A-Za-z0-9_-]{32}$")
+-
+-
+-class UpdateInput(BaseModel):
+-    version: str = Field(min_length=5, max_length=64)
+-
+-
+-def _request_id() -> str:
+-    return secrets.token_hex(12)
+-
+-
+-def _client_key(request: Request) -> str:
+-    return request.client.host if request.client else "unknown"
+-
+-
+-def _is_proxied_request(request: Request) -> bool:
+-    return any(request.headers.get(name) for name in PROXY_IDENTITY_HEADERS)
+-
+-
+-def _check_login_rate(request: Request) -> None:
+-    key = _client_key(request)
+-    now = time_module.monotonic()
+-    attempts = [value for value in LOGIN_ATTEMPTS.get(key, []) if now - value < 300]
+-    if len(attempts) >= 10:
+-        raise HTTPException(status_code=429, detail="Too many sign-in attempts. Try again later.")
+-    attempts.append(now)
+-    LOGIN_ATTEMPTS[key] = attempts
+-
+-
+-def _clear_login_rate(request: Request) -> None:
+-    LOGIN_ATTEMPTS.pop(_client_key(request), None)
+-
+-
+-def _check_sensitive_rate(request: Request, action: str) -> None:
+-    key = f"{action}:{_client_key(request)}"
+-    now = time_module.monotonic()
+-    attempts = [value for value in SENSITIVE_ATTEMPTS.get(key, []) if now - value < 300]
+-    if len(attempts) >= 10:
+-        raise HTTPException(status_code=429, detail="Too many credential changes. Try again later.")
+-    attempts.append(now)
+-    SENSITIVE_ATTEMPTS[key] = attempts
+-
+-
+-def _clear_sensitive_rate(request: Request, action: str) -> None:
+-    SENSITIVE_ATTEMPTS.pop(f"{action}:{_client_key(request)}", None)
+-
+-
+-async def operator(request: Request) -> dict[str, Any]:
+-    store: Store = request.app.state.store
+-    runtime: RuntimeState = request.app.state.runtime
+-    security = await store.security()
+-    payload = verify_session_token(
+-        request.cookies.get(COOKIE_NAME),
+-        runtime.config.session_secret,
+-        int(security["session_generation"]),
+-    )
+-    if payload is None or await store.session_revoked(request.cookies.get(COOKIE_NAME, "")):
+-        raise HTTPException(status_code=401, detail="Authentication required")
+-    request.state.operator = security["username"]
+-    request.state.session = payload
+-    return payload
+-
+-
+-async def mutation_operator(
+-    request: Request, session: dict[str, Any] = Depends(operator)
+-) -> dict[str, Any]:
+-    header = request.headers.get("X-CSRF-Token", "")
+-    cookie = request.cookies.get(CSRF_COOKIE_NAME, "")
+-    expected = str(session.get("csrf") or "")
+-    if not header or not cookie or not hmac.compare_digest(header, expected) or not hmac.compare_digest(cookie, expected):
+-        raise HTTPException(status_code=403, detail="CSRF validation failed")
+-    return session
+-
+-
+-def _set_session_cookies(
+-    response: Response,
+-    config: RuntimeConfig,
+-    token: str,
+-    csrf: str,
+-) -> None:
+-    response.set_cookie(
+-        COOKIE_NAME,
+-        token,
+-        max_age=12 * 60 * 60,
+-        httponly=True,
+-        secure=config.cookie_secure,
+-        samesite="strict",
+-        path="/",
+-    )
+-    response.set_cookie(
+-        CSRF_COOKIE_NAME,
+-        csrf,
+-        max_age=12 * 60 * 60,
+-        httponly=False,
+-        secure=config.cookie_secure,
+-        samesite="strict",
+-        path="/",
+-    )
+-
+-
+-def _clear_session_cookies(response: Response, config: RuntimeConfig) -> None:
+-    response.delete_cookie(
+-        COOKIE_NAME, secure=config.cookie_secure, httponly=True, samesite="strict", path="/"
+-    )
+-    response.delete_cookie(
+-        CSRF_COOKIE_NAME, secure=config.cookie_secure, httponly=False, samesite="strict", path="/"
+-    )
+-
+-
+-def _validate_settings(data: SettingsInput) -> dict[str, Any]:
+-    try:
+-        values = validate_settings(data)
+-    except ValueError as error:
+-        raise HTTPException(status_code=400, detail=str(error)) from error
+-    if not values:
+-        raise HTTPException(status_code=400, detail="No settings were supplied")
+-    return values
+-
+-
+-def _normalize_kernel_url(value: str) -> str:
+-    candidate = value.strip().rstrip("/")
+-    try:
+-        parsed = urlparse(candidate)
+-        port = parsed.port
+-    except ValueError as error:
+-        raise HTTPException(status_code=400, detail="Kernel URL is invalid") from error
+-    if (
+-        parsed.scheme != "https"
+-        or not parsed.hostname
+-        or parsed.username
+-        or parsed.password
+-        or parsed.query
+-        or parsed.fragment
+-        or parsed.path not in {"", "/"}
+-        or (port is not None and not 1 <= port <= 65535)
+-    ):
+-        raise HTTPException(status_code=400, detail="Kernel URL must be an HTTPS origin")
+-    return candidate
+-
+-
+-async def _validated_kernel_config(
+-    runtime: RuntimeState, *, kernel_url: str, kernel_token: str
+-) -> RuntimeConfig:
+-    candidate = runtime.config.with_kernel_credentials(
+-        kernel_url=kernel_url, kernel_service_token=kernel_token
+-    )
+-    try:
+-        snapshot = await asyncio.to_thread(
+-            load_snapshot, candidate, use_cache=False, write_cache=False
+-        )
+-        return await asyncio.to_thread(apply_register, candidate, snapshot)
+-    except KernelRegisterError as error:
+-        raise HTTPException(
+-            status_code=400,
+-            detail="Kernel rejected the candidate connection or returned an invalid Register snapshot",
+-        ) from error
+-
+-
+-def _backup_json(value: dict[str, Any]) -> bytes:
+-    return (json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")
+-
+-
+-def _backup_zip(value: dict[str, Any], version: str) -> bytes:
+-    payload = _backup_json(value)
+-    payload_name = "chronos-backup.json"
+-    output = BytesIO()
+-    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+-        archive.writestr(payload_name, payload)
+-        archive.writestr(
+-            "manifest.json",
+-            json.dumps(
+-                {
+-                    "schema": "exocortex.chronos.backup-manifest.v1",
+-                    "format": "logical-backup",
+-                    "schema_version": 1,
+-                    "service": "chronos",
+-                    "source_version": version,
+-                    "created_at": value["created_at"],
+-                    "scope": "complete",
+-                    "restore_mode": "replace",
+-                    "files": {
+-                        payload_name: {
+-                            "sha256": hashlib.sha256(payload).hexdigest(),
+-                            "uncompressed_bytes": len(payload),
+-                            "records": len(value.get("sessions", [])),
+-                        }
+-                    },
+-                },
+-                indent=2,
+-            )
+-            + "\n",
+-        )
+-        archive.writestr(
+-            "README.txt",
+-            "Chronos logical backup. Restore this ZIP from Settings / Backup.\n",
+-        )
+-    return output.getvalue()
+-
+-
+-async def _load_register_once(app: FastAPI) -> None:
+-    runtime: RuntimeState = app.state.runtime
+-    store: Store = app.state.store
+-    previous = runtime.config.register_revision
+-    try:
+-        snapshot = await asyncio.to_thread(load_snapshot, runtime.config)
+-        updated = await asyncio.to_thread(apply_register, runtime.config, snapshot)
+-        await runtime.replace(updated)
+-        missing = profile_missing(snapshot) if updated.kernel_url else []
+-        runtime.register_ready = not missing
+-        runtime.register_error = "Missing Register keys: " + ", ".join(missing) if missing else ""
+-        if updated.register_revision and updated.register_revision != previous:
+-            await store.audit(
+-                status="info",
+-                action="kernel.register.refreshed",
+-                target=updated.register_revision,
+-                actor="system",
+-                message="Kernel Register configuration applied",
+-            )
+-    except KernelRegisterError as error:
+-        runtime.register_ready = False
+-        runtime.register_error = str(error)
+-        LOGGER.warning("Kernel Register refresh failed: %s", error)
+-        await store.audit(
+-            status="error",
+-            action="kernel.register.refresh_failed",
+-            actor="system",
+-            message=str(error),
+-        )
+-
+-
+-async def _register_refresh_loop(app: FastAPI) -> None:
+-    while True:
+-        await _load_register_once(app)
+-        await asyncio.sleep(app.state.runtime.config.kernel_refresh_seconds)
+-
+-
+-@asynccontextmanager
+-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+-    config = load_config()
+-    validate_runtime_config(config)
+-    config.data_dir.mkdir(parents=True, exist_ok=True)
+-    pool = await create_pool(config.database_url)
+-    migrations_dir = Path(__file__).resolve().parents[1] / "infrastructure" / "migrations"
+-    await run_migrations(pool, migrations_dir)
+-    store = Store(
+-        pool,
+-        audit_max_entries=config.audit_max_entries,
+-        audit_retention_days=config.audit_retention_days,
+-    )
+-    await store.initialize(
+-        admin_username=config.admin_username,
+-        admin_password=config.admin_password,
+-        default_timezone=config.default_timezone,
+-        kernel_url_seed=config.kernel_url,
+-        kernel_token_ciphertext_seed=encrypt_service_secret(
+-            config.kernel_service_token, config.session_secret
+-        ),
+-    )
+-    stored_kernel = await store.kernel_credentials()
+-    try:
+-        stored_kernel_token = decrypt_service_secret(
+-            str(stored_kernel["kernel_token_ciphertext"]), config.session_secret
+-        )
+-    except ValueError as error:
+-        raise RuntimeError(
+-            "Stored Kernel credential cannot be opened with CHRONOS_SESSION_SECRET"
+-        ) from error
+-    config = config.with_kernel_credentials(
+-        kernel_url=str(stored_kernel["kernel_url"]),
+-        kernel_service_token=stored_kernel_token,
+-    )
+-    validate_runtime_config(config)
+-    runtime = RuntimeState(config)
+-    timers = TimerService(store)
+-    gryphon = GryphonCommandService(store, timers)
+-    gryphon_client = GryphonClient(
+-        config.gryphon_socket_path,
+-        config.gryphon_service_token_file,
+-        config.gryphon_timeout_seconds,
+-    )
+-    notifications = ChronosNotificationSupervisor(
+-        store,
+-        timers,
+-        gryphon,
+-        GryphonNotifier(gryphon_client),
+-    )
+-    app.state.pool = pool
+-    app.state.store = store
+-    app.state.runtime = runtime
+-    app.state.timers = timers
+-    app.state.gryphon = gryphon
+-    app.state.gryphon_client = gryphon_client
+-    app.state.telemetry = TelemetrySampler(config.storage_path or config.data_dir)
+-    app.state.updater = UpdaterClient(
+-        config.updater_socket_path, config.updater_control_token, config.updater_head_id
+-    )
+-    app.state.neptune = NeptuneClient(
+-        config.neptune_socket_path, config.neptune_project_id, config.neptune_control_token_file
+-    )
+-    await _load_register_once(app)
+-    register_task = asyncio.create_task(_register_refresh_loop(app), name="kernel-register-refresh")
+-    notification_task = asyncio.create_task(
+-        notifications.run(), name="gryphon-notification-supervisor"
+-    )
+-    catalog_task = asyncio.create_task(
+-        gryphon_client.maintain_command_catalog(), name="gryphon-command-catalog"
+-    )
+-    try:
+-        yield
+-    finally:
+-        register_task.cancel()
+-        await notifications.stop()
+-        notification_task.cancel()
+-        catalog_task.cancel()
+-        for task in (register_task, notification_task, catalog_task):
+-            with suppress(asyncio.CancelledError):
+-                await task
+-        await pool.close()
+-
+-
+-def create_app() -> FastAPI:
+-    app = FastAPI(
+-        title="Chronos",
+-        version="0.1.1",
+-        docs_url=None,
+-        redoc_url=None,
+-        openapi_url=None,
++from .mastermind_reader import install_mastermind_reader
++from .runtime import RuntimeState
++from .security import (
++    create_session_token,
++    decrypt_service_secret,
++    encrypt_service_secret,
++    hash_password,
++    new_csrf_token,
++    validate_new_access_key,
++    verify_password,
++    verify_session_token,
++)
++from .store import Store
++from .telemetry import TelemetrySampler
++from .timer_service import TimerError, TimerService, timezone_for
++from .updater import UpdaterClient, UpdaterError, check_github_release
++from .validation import SettingsInput, validate_settings
++
++
++LOGGER = logging.getLogger("chronos.api")
++COOKIE_NAME = "chronos_session"
++CSRF_COOKIE_NAME = "chronos_csrf"
++COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
++TIME_PATTERN = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
++LOGIN_ATTEMPTS: dict[str, list[float]] = {}
++SENSITIVE_ATTEMPTS: dict[str, list[float]] = {}
++ROBOTS_POLICY = Path(__file__).with_name("robots.txt").read_text(encoding="utf-8")
++PROXY_IDENTITY_HEADERS = (
++    "forwarded",
++    "x-forwarded-for",
++    "x-real-ip",
++    "cf-connecting-ip",
++)
++BLOCKED_PROBE_PATH = re.compile(
++    r"(?:^|/)\.|\.(?:env|ini|log|sql|bak|backup|old|swp|zip|tar|gz)$",
++    re.IGNORECASE,
++)
++
++
++class LoginInput(BaseModel):
++    access_key: str = Field(min_length=1, max_length=1024)
++
++
++class TimerInput(BaseModel):
++    category: str
++
++
++class SessionInput(BaseModel):
++    category: str
++    started_at: datetime
++    stopped_at: datetime
++    note: str = Field(default="", max_length=500)
++
++
++class SessionUpdate(BaseModel):
++    category: str
++    started_at: datetime
++    stopped_at: datetime | None
++    note: str = Field(default="", max_length=500)
++
++
++class AccessKeyInput(BaseModel):
++    current_access_key: str = Field(min_length=1, max_length=1024)
++    new_access_key: str = Field(min_length=12, max_length=1024)
++    confirm_access_key: str = Field(min_length=12, max_length=1024)
++
++
++class KernelUrlInput(BaseModel):
++    kernel_url: str = Field(min_length=1, max_length=2048)
++
++
++class KernelTokenInput(BaseModel):
++    kernel_url: str = Field(min_length=1, max_length=2048)
++    new_token: str = Field(min_length=24, max_length=4096)
++    confirm_token: str = Field(min_length=24, max_length=4096)
++
++
++class NeptuneScheduleInput(BaseModel):
++    enabled: bool
++    interval_hours: int = Field(ge=1, le=8760)
++
++
++class NeptuneInitializationInput(BaseModel):
++    enrollment_code: str = Field(pattern=r"^[A-Za-z0-9_-]{32}$")
++
++
++class UpdateInput(BaseModel):
++    version: str = Field(min_length=5, max_length=64)
++
++
++def _request_id() -> str:
++    return secrets.token_hex(12)
++
++
++def _client_key(request: Request) -> str:
++    return request.client.host if request.client else "unknown"
++
++
++def _is_proxied_request(request: Request) -> bool:
++    return any(request.headers.get(name) for name in PROXY_IDENTITY_HEADERS)
++
++
++def _check_login_rate(request: Request) -> None:
++    key = _client_key(request)
++    now = time_module.monotonic()
++    attempts = [value for value in LOGIN_ATTEMPTS.get(key, []) if now - value < 300]
++    if len(attempts) >= 10:
++        raise HTTPException(status_code=429, detail="Too many sign-in attempts. Try again later.")
++    attempts.append(now)
++    LOGIN_ATTEMPTS[key] = attempts
++
++
++def _clear_login_rate(request: Request) -> None:
++    LOGIN_ATTEMPTS.pop(_client_key(request), None)
++
++
++def _check_sensitive_rate(request: Request, action: str) -> None:
++    key = f"{action}:{_client_key(request)}"
++    now = time_module.monotonic()
++    attempts = [value for value in SENSITIVE_ATTEMPTS.get(key, []) if now - value < 300]
++    if len(attempts) >= 10:
++        raise HTTPException(status_code=429, detail="Too many credential changes. Try again later.")
++    attempts.append(now)
++    SENSITIVE_ATTEMPTS[key] = attempts
++
++
++def _clear_sensitive_rate(request: Request, action: str) -> None:
++    SENSITIVE_ATTEMPTS.pop(f"{action}:{_client_key(request)}", None)
++
++
++async def operator(request: Request) -> dict[str, Any]:
++    store: Store = request.app.state.store
++    runtime: RuntimeState = request.app.state.runtime
++    security = await store.security()
++    payload = verify_session_token(
++        request.cookies.get(COOKIE_NAME),
++        runtime.config.session_secret,
++        int(security["session_generation"]),
++    )
++    if payload is None or await store.session_revoked(request.cookies.get(COOKIE_NAME, "")):
++        raise HTTPException(status_code=401, detail="Authentication required")
++    request.state.operator = security["username"]
++    request.state.session = payload
++    return payload
++
++
++async def mutation_operator(
++    request: Request, session: dict[str, Any] = Depends(operator)
++) -> dict[str, Any]:
++    header = request.headers.get("X-CSRF-Token", "")
++    cookie = request.cookies.get(CSRF_COOKIE_NAME, "")
++    expected = str(session.get("csrf") or "")
++    if not header or not cookie or not hmac.compare_digest(header, expected) or not hmac.compare_digest(cookie, expected):
++        raise HTTPException(status_code=403, detail="CSRF validation failed")
++    return session
++
++
++def _set_session_cookies(
++    response: Response,
++    config: RuntimeConfig,
++    token: str,
++    csrf: str,
++) -> None:
++    response.set_cookie(
++        COOKIE_NAME,
++        token,
++        max_age=12 * 60 * 60,
++        httponly=True,
++        secure=config.cookie_secure,
++        samesite="strict",
++        path="/",
++    )
++    response.set_cookie(
++        CSRF_COOKIE_NAME,
++        csrf,
++        max_age=12 * 60 * 60,
++        httponly=False,
++        secure=config.cookie_secure,
++        samesite="strict",
++        path="/",
++    )
++
++
++def _clear_session_cookies(response: Response, config: RuntimeConfig) -> None:
++    response.delete_cookie(
++        COOKIE_NAME, secure=config.cookie_secure, httponly=True, samesite="strict", path="/"
++    )
++    response.delete_cookie(
++        CSRF_COOKIE_NAME, secure=config.cookie_secure, httponly=False, samesite="strict", path="/"
++    )
++
++
++def _validate_settings(data: SettingsInput) -> dict[str, Any]:
++    try:
++        values = validate_settings(data)
++    except ValueError as error:
++        raise HTTPException(status_code=400, detail=str(error)) from error
++    if not values:
++        raise HTTPException(status_code=400, detail="No settings were supplied")
++    return values
++
++
++def _normalize_kernel_url(value: str) -> str:
++    candidate = value.strip().rstrip("/")
++    try:
++        parsed = urlparse(candidate)
++        port = parsed.port
++    except ValueError as error:
++        raise HTTPException(status_code=400, detail="Kernel URL is invalid") from error
++    if (
++        parsed.scheme != "https"
++        or not parsed.hostname
++        or parsed.username
++        or parsed.password
++        or parsed.query
++        or parsed.fragment
++        or parsed.path not in {"", "/"}
++        or (port is not None and not 1 <= port <= 65535)
++    ):
++        raise HTTPException(status_code=400, detail="Kernel URL must be an HTTPS origin")
++    return candidate
++
++
++async def _validated_kernel_config(
++    runtime: RuntimeState, *, kernel_url: str, kernel_token: str
++) -> RuntimeConfig:
++    candidate = runtime.config.with_kernel_credentials(
++        kernel_url=kernel_url, kernel_service_token=kernel_token
++    )
++    try:
++        snapshot = await asyncio.to_thread(
++            load_snapshot, candidate, use_cache=False, write_cache=False
++        )
++        return await asyncio.to_thread(apply_register, candidate, snapshot)
++    except KernelRegisterError as error:
++        raise HTTPException(
++            status_code=400,
++            detail="Kernel rejected the candidate connection or returned an invalid Register snapshot",
++        ) from error
++
++
++def _backup_json(value: dict[str, Any]) -> bytes:
++    return (json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")
++
++
++def _backup_zip(value: dict[str, Any], version: str) -> bytes:
++    payload = _backup_json(value)
++    payload_name = "chronos-backup.json"
++    output = BytesIO()
++    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
++        archive.writestr(payload_name, payload)
++        archive.writestr(
++            "manifest.json",
++            json.dumps(
++                {
++                    "schema": "exocortex.chronos.backup-manifest.v1",
++                    "format": "logical-backup",
++                    "schema_version": 1,
++                    "service": "chronos",
++                    "source_version": version,
++                    "created_at": value["created_at"],
++                    "scope": "complete",
++                    "restore_mode": "replace",
++                    "files": {
++                        payload_name: {
++                            "sha256": hashlib.sha256(payload).hexdigest(),
++                            "uncompressed_bytes": len(payload),
++                            "records": len(value.get("sessions", [])),
++                        }
++                    },
++                },
++                indent=2,
++            )
++            + "\n",
++        )
++        archive.writestr(
++            "README.txt",
++            "Chronos logical backup. Restore this ZIP from Settings / Backup.\n",
++        )
++    return output.getvalue()
++
++
++async def _load_register_once(app: FastAPI) -> None:
++    runtime: RuntimeState = app.state.runtime
++    store: Store = app.state.store
++    previous = runtime.config.register_revision
++    try:
++        snapshot = await asyncio.to_thread(load_snapshot, runtime.config)
++        updated = await asyncio.to_thread(apply_register, runtime.config, snapshot)
++        await runtime.replace(updated)
++        missing = profile_missing(snapshot) if updated.kernel_url else []
++        runtime.register_ready = not missing
++        runtime.register_error = "Missing Register keys: " + ", ".join(missing) if missing else ""
++        if updated.register_revision and updated.register_revision != previous:
++            await store.audit(
++                status="info",
++                action="kernel.register.refreshed",
++                target=updated.register_revision,
++                actor="system",
++                message="Kernel Register configuration applied",
++            )
++    except KernelRegisterError as error:
++        runtime.register_ready = False
++        runtime.register_error = str(error)
++        LOGGER.warning("Kernel Register refresh failed: %s", error)
++        await store.audit(
++            status="error",
++            action="kernel.register.refresh_failed",
++            actor="system",
++            message=str(error),
++        )
++
++
++async def _register_refresh_loop(app: FastAPI) -> None:
++    while True:
++        await _load_register_once(app)
++        await asyncio.sleep(app.state.runtime.config.kernel_refresh_seconds)
++
++
++@asynccontextmanager
++async def lifespan(app: FastAPI) -> AsyncIterator[None]:
++    config = load_config()
++    validate_runtime_config(config)
++    config.data_dir.mkdir(parents=True, exist_ok=True)
++    pool = await create_pool(config.database_url)
++    migrations_dir = Path(__file__).resolve().parents[1] / "infrastructure" / "migrations"
++    await run_migrations(pool, migrations_dir)
++    store = Store(
++        pool,
++        audit_max_entries=config.audit_max_entries,
++        audit_retention_days=config.audit_retention_days,
++    )
++    await store.initialize(
++        admin_username=config.admin_username,
++        admin_password=config.admin_password,
++        default_timezone=config.default_timezone,
++        kernel_url_seed=config.kernel_url,
++        kernel_token_ciphertext_seed=encrypt_service_secret(
++            config.kernel_service_token, config.session_secret
++        ),
++    )
++    stored_kernel = await store.kernel_credentials()
++    try:
++        stored_kernel_token = decrypt_service_secret(
++            str(stored_kernel["kernel_token_ciphertext"]), config.session_secret
++        )
++    except ValueError as error:
++        raise RuntimeError(
++            "Stored Kernel credential cannot be opened with CHRONOS_SESSION_SECRET"
++        ) from error
++    config = config.with_kernel_credentials(
++        kernel_url=str(stored_kernel["kernel_url"]),
++        kernel_service_token=stored_kernel_token,
++    )
++    validate_runtime_config(config)
++    runtime = RuntimeState(config)
++    timers = TimerService(store)
++    gryphon = GryphonCommandService(store, timers)
++    gryphon_client = GryphonClient(
++        config.gryphon_socket_path,
++        config.gryphon_service_token_file,
++        config.gryphon_timeout_seconds,
++    )
++    notifications = ChronosNotificationSupervisor(
++        store,
++        timers,
++        gryphon,
++        GryphonNotifier(gryphon_client),
++    )
++    app.state.pool = pool
++    app.state.store = store
++    app.state.runtime = runtime
++    app.state.timers = timers
++    app.state.gryphon = gryphon
++    app.state.gryphon_client = gryphon_client
++    app.state.telemetry = TelemetrySampler(config.storage_path or config.data_dir)
++    app.state.updater = UpdaterClient(
++        config.updater_socket_path, config.updater_control_token, config.updater_head_id
++    )
++    app.state.neptune = NeptuneClient(
++        config.neptune_socket_path, config.neptune_project_id, config.neptune_control_token_file
++    )
++    await _load_register_once(app)
++    register_task = asyncio.create_task(_register_refresh_loop(app), name="kernel-register-refresh")
++    notification_task = asyncio.create_task(
++        notifications.run(), name="gryphon-notification-supervisor"
++    )
++    catalog_task = asyncio.create_task(
++        gryphon_client.maintain_command_catalog(), name="gryphon-command-catalog"
++    )
++    try:
++        yield
++    finally:
++        register_task.cancel()
++        await notifications.stop()
++        notification_task.cancel()
++        catalog_task.cancel()
++        for task in (register_task, notification_task, catalog_task):
++            with suppress(asyncio.CancelledError):
++                await task
++        await pool.close()
++
++
++def create_app() -> FastAPI:
++    app = FastAPI(
++        title="Chronos",
++        version="0.1.1",
++        docs_url=None,
++        redoc_url=None,
++        openapi_url=None,
+         lifespan=lifespan,
+     )
+-
+-    @app.middleware("http")
+-    async def request_context(request: Request, call_next):
+-        request.state.request_id = request.headers.get("X-Request-ID") or _request_id()
+-        started = time_module.monotonic()
+-        if BLOCKED_PROBE_PATH.search(request.url.path):
+-            response = JSONResponse(status_code=404, content={"error": "Not found"})
+-        else:
+-            try:
+-                response = await call_next(request)
+-            except Exception:
+-                LOGGER.exception("Unhandled request error", extra={"request_id": request.state.request_id})
+-                raise
+-        response.headers["X-Request-ID"] = request.state.request_id
+-        response.headers["X-Content-Type-Options"] = "nosniff"
+-        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+-        response.headers["Referrer-Policy"] = "same-origin"
+-        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+-        if request.url.path.startswith("/api/"):
+-            response.headers["Cache-Control"] = "no-store"
+-        response.headers["Content-Security-Policy"] = (
+-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+-            "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'"
+-        )
+-        response.headers["Server-Timing"] = f"app;dur={(time_module.monotonic() - started) * 1000:.1f}"
+-        return response
+-
+-    @app.exception_handler(TimerError)
+-    async def timer_error(_: Request, error: TimerError):
+-        return JSONResponse(status_code=error.status, content={"error": str(error)})
+-
+-    @app.exception_handler(UpdaterError)
+-    async def updater_error(_: Request, error: UpdaterError):
+-        return JSONResponse(status_code=error.status, content={"error": str(error)})
+-
+-    @app.exception_handler(NeptuneError)
+-    async def neptune_error(_: Request, error: NeptuneError):
+-        return JSONResponse(status_code=error.status, content={"error": str(error)})
+-
+-    @app.exception_handler(GryphonError)
+-    async def gryphon_error(_: Request, error: GryphonError):
+-        return JSONResponse(status_code=error.status, content={"error": str(error)})
+-
+-    @app.get("/robots.txt", include_in_schema=False)
+-    async def robots_txt():
+-        return Response(content=ROBOTS_POLICY, media_type="text/plain")
+-
+-    @app.get("/api/health", include_in_schema=False)
+-    async def health(request: Request):
+-        if _is_proxied_request(request):
+-            raise HTTPException(status_code=404, detail="Not found")
+-        runtime: RuntimeState = request.app.state.runtime
+-        try:
+-            await request.app.state.pool.fetchval("select 1")
+-            database = "available"
+-        except Exception:
+-            database = "unavailable"
+-        status = "available" if database == "available" and runtime.register_ready else "unavailable"
+-        return JSONResponse(status_code=200 if status == "available" else 503, content={
+-            "status": status,
+-            "service": "chronos",
+-            "version": runtime.config.version,
+-            "database": database,
+-            "register_revision": runtime.config.register_revision or None,
+-            "level": "core-readiness",
+-        })
+-
+-    @app.get("/api/ready")
+-    async def deployment_readiness(request: Request, _: dict[str, Any] = Depends(operator)):
+-        await _load_register_once(request.app)
+-        agents = await asyncio.gather(request.app.state.updater.status(), request.app.state.neptune.availability(), request.app.state.gryphon_client.status(), return_exceptions=True)
+-        checks = {"kernel": request.app.state.runtime.register_ready and bool(request.app.state.runtime.config.register_revision),
+-            "updater": isinstance(agents[0], dict) and bool(agents[0].get("available")),
+-            "neptune": isinstance(agents[1], dict) and bool(agents[1].get("linked")),
+-            "gryphon": isinstance(agents[2], dict) and bool(agents[2].get("connected")) and bool(agents[2].get("binding"))}
+-        try:
+-            await request.app.state.pool.fetchval("select 1")
+-            checks["database"] = True
+-        except Exception:
+-            checks["database"] = False
+-        ready = all(checks.values())
+-        return JSONResponse(status_code=200 if ready else 503, content={"ready": ready, "checks": checks, "external_delivery_verified": False})
+-
+-    @app.get("/api/public/theme")
+-    async def public_theme(request: Request):
+-        settings = await request.app.state.store.settings()
+-        return {"accent": settings["theme_accent"]}
+-
+-    @app.get("/api/public/reachability")
+-    async def public_reachability(request: Request):
+-        try:
+-            await request.app.state.pool.fetchval("select 1")
+-        except Exception:
+-            return JSONResponse(status_code=503, content={"status": "unavailable"})
+-        if not request.app.state.runtime.register_ready:
+-            return JSONResponse(status_code=503, content={"status": "unavailable"})
+-        return {"status": "available"}
+-
+-    @app.get("/api/auth/status")
+-    async def auth_status(request: Request):
+-        try:
+-            await operator(request)
+-        except HTTPException:
+-            return {"authenticated": False}
+-        security = await request.app.state.store.security()
+-        return {"authenticated": True}
+-
+-    @app.post("/api/auth/login")
+-    async def login(request: Request, body: LoginInput):
+-        _check_login_rate(request)
+-        store: Store = request.app.state.store
+-        runtime: RuntimeState = request.app.state.runtime
+-        security = await store.security()
+-        valid = verify_password(body.access_key, str(security["password_hash"]))
+-        if not valid:
+-            await store.audit(
+-                status="denied",
+-                action="auth.login",
+-                target="operator",
+-                actor="anonymous",
+-                message="Invalid operator credentials",
+-                request_id=request.state.request_id,
+-            )
+-            raise HTTPException(status_code=401, detail="Invalid Access Key")
+-        _clear_login_rate(request)
+-        csrf = new_csrf_token()
+-        token = create_session_token(
+-            runtime.config.session_secret, int(security["session_generation"]), csrf
+-        )
+-        response = JSONResponse({"authenticated": True})
+-        _set_session_cookies(response, runtime.config, token, csrf)
+-        await store.audit(
+-            status="success",
+-            action="auth.login",
+-            target=str(security["username"]),
+-            actor="operator",
+-            message="Operator signed in",
+-            request_id=request.state.request_id,
+-        )
+-        return response
+-
+-    @app.post("/api/auth/logout")
+-    async def logout(request: Request, _: dict[str, Any] = Depends(mutation_operator)):
+-        await request.app.state.store.revoke_session(
+-            request.cookies.get(COOKIE_NAME, ""), int(_["expires_at"])
+-        )
+-        response = JSONResponse({"authenticated": False})
+-        _clear_session_cookies(response, request.app.state.runtime.config)
+-        await request.app.state.store.audit(
+-            status="success",
+-            action="auth.logout",
+-            actor="operator",
+-            message="Operator signed out",
+-            request_id=request.state.request_id,
+-        )
+-        return response
+-
+-    @app.get("/api/dashboard")
+-    async def dashboard(request: Request, _: dict[str, Any] = Depends(operator)):
+-        store: Store = request.app.state.store
+-        timers: TimerService = request.app.state.timers
+-        settings = await store.settings()
+-        zone = timezone_for(str(settings["timezone"]))
+-        now = datetime.now(zone)
+-        start = datetime.combine(now.date(), time.min, tzinfo=zone)
+-        end = datetime.combine(now.date() + timedelta(days=1), time.min, tzinfo=zone)
+-        analytics = await timers.analytics(start, end, now=now)
+-        recent = await timers.history(
+-            start=start,
+-            end=now + timedelta(seconds=1),
+-            category=None,
+-            query="",
+-            limit=6,
+-            offset=0,
+-        )
+-        active = await timers.active(now=now)
+-        return {
+-            "now": now.isoformat(),
+-            "profile_name": settings["profile_name"],
+-            "timezone": settings["timezone"],
+-            "categories": [
+-                {"key": key, "label": CATEGORY_LABELS[key]} for key in CATEGORIES
+-            ],
+-            "active": active,
+-            "today": analytics,
+-            "recent": recent["items"],
+-            "telemetry": request.app.state.telemetry.sample(),
+-        }
+-
+-    @app.post("/api/timer/press")
+-    async def timer_press(
+-        request: Request,
+-        body: TimerInput,
+-        _: dict[str, Any] = Depends(mutation_operator),
+-    ):
+-        return await request.app.state.timers.press(
+-            body.category, actor="operator", source="web"
+-        )
+-
+-    @app.post("/api/timer/stop")
+-    async def timer_stop(request: Request, _: dict[str, Any] = Depends(mutation_operator)):
+-        result = await request.app.state.timers.stop(actor="operator")
+-        return {"stopped": result}
+-
+-    @app.post("/api/actions/undo")
+-    async def undo(request: Request, _: dict[str, Any] = Depends(mutation_operator)):
+-        return await request.app.state.timers.undo(actor="operator")
+-
+-    @app.get("/api/sessions")
+-    async def sessions(
+-        request: Request,
+-        start: datetime | None = None,
+-        end: datetime | None = None,
+-        category: str | None = None,
+-        q: str = "",
+-        limit: int = 100,
+-        offset: int = 0,
+-        _: dict[str, Any] = Depends(operator),
+-    ):
+-        return await request.app.state.timers.history(
+-            start=start,
+-            end=end,
+-            category=category,
+-            query=q,
+-            limit=limit,
+-            offset=offset,
+-        )
+-
+-    @app.post("/api/sessions", status_code=201)
+-    async def create_session(
+-        request: Request,
+-        body: SessionInput,
+-        _: dict[str, Any] = Depends(mutation_operator),
+-    ):
+-        return await request.app.state.timers.create_manual(
+-            category=body.category,
+-            started_at=body.started_at,
+-            stopped_at=body.stopped_at,
+-            note=body.note,
+-            actor="operator",
+-        )
+-
+-    @app.put("/api/sessions/{session_id}")
+-    async def update_session(
+-        request: Request,
+-        session_id: int,
+-        body: SessionUpdate,
+-        _: dict[str, Any] = Depends(mutation_operator),
+-    ):
+-        return await request.app.state.timers.update_session(
+-            session_id,
+-            category=body.category,
+-            started_at=body.started_at,
+-            stopped_at=body.stopped_at,
+-            note=body.note,
+-            actor="operator",
+-        )
+-
+-    @app.delete("/api/sessions/{session_id}", status_code=204)
+-    async def delete_session(
+-        request: Request,
+-        session_id: int,
+-        _: dict[str, Any] = Depends(mutation_operator),
+-    ):
+-        await request.app.state.timers.delete_session(session_id, actor="operator")
+-        return Response(status_code=204)
+-
+-    @app.get("/api/analytics")
+-    async def analytics(
+-        request: Request,
+-        start: date,
+-        end: date,
+-        _: dict[str, Any] = Depends(operator),
+-    ):
+-        settings = await request.app.state.store.settings()
+-        period = await request.app.state.timers.period_for_dates(
+-            start, end, str(settings["timezone"])
+-        )
+-        return await request.app.state.timers.analytics(*period)
+-
+-    @app.get("/api/export.csv")
+-    async def export_csv(request: Request, _: dict[str, Any] = Depends(operator)):
+-        rows = await request.app.state.store.sessions_for_export()
+-        output = StringIO(newline="")
+-        writer = csv.writer(output)
+-        writer.writerow(
+-            [
+-                "id",
+-                "public_id",
+-                "category",
+-                "started_at",
+-                "stopped_at",
+-                "duration_seconds",
+-                "note",
+-                "source",
+-            ]
+-        )
+-        for row in rows:
+-            writer.writerow(
+-                [
+-                    row["id"],
+-                    row["public_id"],
+-                    row["category"],
+-                    row["started_at"].isoformat(),
+-                    row["stopped_at"].isoformat() if row["stopped_at"] else "",
+-                    row["duration_seconds"] or "",
+-                    row["note"],
+-                    row["source"],
+-                ]
+-            )
+-        filename = f"chronos-sessions-{datetime.now(timezone.utc):%Y%m%d%H%M%S}.csv"
+-        return Response(
+-            output.getvalue(),
+-            media_type="text/csv; charset=utf-8",
+-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+-        )
+-
+-    @app.get("/api/settings")
+-    async def get_settings(request: Request, _: dict[str, Any] = Depends(operator)):
+-        runtime: RuntimeState = request.app.state.runtime
+-        stored_kernel = await request.app.state.store.kernel_credentials()
+-        return {
+-            "values": await request.app.state.store.settings(),
+-            "runtime": {
+-                "version": runtime.config.version,
+-                "public_url": runtime.config.public_url,
+-                "repository_url": runtime.config.repository_url,
+-                "register_revision": runtime.config.register_revision or None,
+-                "kernel_url": runtime.config.kernel_url or None,
+-                "kernel_reachable": runtime.register_ready and bool(runtime.config.register_revision),
+-                "register_error": runtime.register_error,
+-                "kernel_configured": bool(stored_kernel["kernel_token_ciphertext"]),
+-            },
+-        }
+-
+-    @app.put("/api/settings")
+-    @app.patch("/api/settings")
+-    async def save_settings(
+-        request: Request,
+-        body: SettingsInput,
+-        _: dict[str, Any] = Depends(mutation_operator),
+-    ):
+-        changed = _validate_settings(body)
+-        values = await request.app.state.store.update_settings(changed)
+-        await request.app.state.store.audit(
+-            status="success",
+-            action="settings.updated",
+-            target="operator",
+-            actor="operator",
+-            message="Chronos setting updated",
+-            details={"keys": sorted(changed)},
+-            request_id=request.state.request_id,
+-        )
+-        return {"values": values}
+-
+-    @app.post("/api/settings/reset-appearance")
+-    async def reset_appearance(
+-        request: Request, _: dict[str, Any] = Depends(mutation_operator)
+-    ):
+-        values = await request.app.state.store.update_settings(
+-            {"theme_accent": DEFAULT_SETTINGS["theme_accent"]}
+-        )
+-        await request.app.state.store.audit(
+-            status="success",
+-            action="appearance.reset",
+-            target="theme",
+-            actor="operator",
+-            message="Appearance reset to defaults",
+-        )
+-        return {"values": values}
+-
+-    @app.post("/api/security/access-key")
+-    async def change_access_key(
+-        request: Request,
+-        body: AccessKeyInput,
+-        _: dict[str, Any] = Depends(mutation_operator),
+-    ):
+-        _check_sensitive_rate(request, "access-key")
+-        store: Store = request.app.state.store
+-        security = await store.security()
+-        if not verify_password(body.current_access_key, str(security["password_hash"])):
+-            await store.audit(
+-                status="denied",
+-                action="security.access_key_change",
+-                actor="operator",
+-                message="Current Access Key verification failed",
+-            )
+-            raise HTTPException(status_code=400, detail="Current Access Key is incorrect")
+-        if not hmac.compare_digest(body.new_access_key, body.confirm_access_key):
+-            raise HTTPException(status_code=400, detail="New Access Key entries do not match")
+-        try:
+-            validate_new_access_key(body.new_access_key)
+-        except ValueError as error:
+-            raise HTTPException(status_code=400, detail=str(error)) from error
+-        generation = await store.update_password(hash_password(body.new_access_key))
+-        csrf = new_csrf_token()
+-        token = create_session_token(
+-            request.app.state.runtime.config.session_secret, generation, csrf
+-        )
+-        response = JSONResponse({"changed": True})
+-        _set_session_cookies(response, request.app.state.runtime.config, token, csrf)
+-        await store.audit(
+-            status="success",
+-            action="security.access_key_change",
+-            target="operator",
+-            actor="operator",
+-            message="Operator Access Key changed",
+-        )
+-        _clear_sensitive_rate(request, "access-key")
+-        return response
+-
+-    @app.put("/api/security/kernel-url")
+-    async def change_kernel_url(
+-        request: Request,
+-        body: KernelUrlInput,
+-        _: dict[str, Any] = Depends(mutation_operator),
+-    ):
+-        _check_sensitive_rate(request, "kernel-url")
+-        store: Store = request.app.state.store
+-        runtime: RuntimeState = request.app.state.runtime
+-        kernel_url = _normalize_kernel_url(body.kernel_url)
+-        if not runtime.config.kernel_service_token:
+-            raise HTTPException(
+-                status_code=409,
+-                detail="Rotate the Kernel token to validate and activate this URL",
+-            )
+-        try:
+-            updated = await _validated_kernel_config(
+-                runtime,
+-                kernel_url=kernel_url,
+-                kernel_token=runtime.config.kernel_service_token,
+-            )
+-        except HTTPException:
+-            await store.audit(
+-                status="error",
+-                action="security.kernel_url_change",
+-                target=kernel_url,
+-                actor="operator",
+-                message="Candidate Kernel URL validation failed",
+-                request_id=request.state.request_id,
+-            )
+-            raise
+-        await store.update_kernel_credentials(kernel_url=kernel_url)
+-        await runtime.replace(updated)
+-        await store.audit(
+-            status="success",
+-            action="security.kernel_url_change",
+-            target=kernel_url,
+-            actor="operator",
+-            message="Kernel URL validated and activated",
+-            request_id=request.state.request_id,
+-        )
+-        _clear_sensitive_rate(request, "kernel-url")
+-        return {"kernel_url": updated.kernel_url, "kernel_reachable": True}
+-
+-    @app.post("/api/security/kernel-token")
+-    async def rotate_kernel_token(
+-        request: Request,
+-        body: KernelTokenInput,
+-        _: dict[str, Any] = Depends(mutation_operator),
+-    ):
+-        _check_sensitive_rate(request, "kernel-token")
+-        store: Store = request.app.state.store
+-        runtime: RuntimeState = request.app.state.runtime
+-        kernel_url = _normalize_kernel_url(body.kernel_url)
+-        if not hmac.compare_digest(body.new_token, body.confirm_token):
+-            await store.audit(
+-                status="denied",
+-                action="security.kernel_token_rotation",
+-                target=kernel_url,
+-                actor="operator",
+-                message="Kernel token confirmation did not match",
+-                request_id=request.state.request_id,
+-            )
+-            raise HTTPException(status_code=400, detail="Kernel token entries do not match")
+-        try:
+-            updated = await _validated_kernel_config(
+-                runtime, kernel_url=kernel_url, kernel_token=body.new_token
+-            )
+-        except HTTPException:
+-            await store.audit(
+-                status="error",
+-                action="security.kernel_token_rotation",
+-                target=kernel_url,
+-                actor="operator",
+-                message="Replacement Kernel token validation failed",
+-                request_id=request.state.request_id,
+-            )
+-            raise
+-        ciphertext = encrypt_service_secret(body.new_token, runtime.config.session_secret)
+-        await store.update_kernel_credentials(
+-            kernel_url=kernel_url, kernel_token_ciphertext=ciphertext
+-        )
+-        await runtime.replace(updated)
+-        await store.audit(
+-            status="success",
+-            action="security.kernel_token_rotation",
+-            target=kernel_url,
+-            actor="operator",
+-            message="Kernel token validated and rotated",
+-            request_id=request.state.request_id,
+-        )
+-        _clear_sensitive_rate(request, "kernel-token")
+-        return {"changed": True, "kernel_url": updated.kernel_url, "kernel_reachable": True}
+-
+-    @app.post("/internal/gryphon/command")
+-    @app.post("/api/internal/gryphon/command", include_in_schema=False)
+-    async def gryphon_command(
+-        request: Request,
+-        body: dict[str, Any],
+-        authorization: str | None = Header(default=None),
+-    ):
+-        token_file = request.app.state.runtime.config.gryphon_service_token_file
+-        expected = (
+-            token_file.read_text(encoding="utf-8").strip()
+-            if token_file.is_file()
+-            else ""
+-        )
+-        supplied = (authorization or "").removeprefix("Bearer ")
+-        if not expected or not hmac.compare_digest(supplied, expected):
+-            raise HTTPException(status_code=401, detail="Gryphon token is required")
+-        return await request.app.state.gryphon.handle(body)
+-
+-    @app.get("/api/backup/export")
+-    async def export_backup(request: Request, _: dict[str, Any] = Depends(operator)):
+-        backup = await request.app.state.store.logical_backup()
+-        archive = _backup_zip(backup, request.app.state.runtime.config.version)
+-        filename = f"chronos-backup-{datetime.now(timezone.utc):%Y%m%d%H%M%S}.zip"
+-        await request.app.state.store.audit(
+-            status="success",
+-            action="backup.exported",
+-            target=filename,
+-            actor="operator",
+-            message="Chronos backup prepared",
+-        )
+-        return Response(
+-            archive,
+-            media_type="application/zip",
+-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+-        )
+-
+-    @app.post("/api/internal/neptune/backup")
+-    async def export_neptune_backup(request: Request, authorization: str | None = Header(default=None)):
+-        token_file = request.app.state.runtime.config.neptune_export_token_file
+-        expected = token_file.read_text(encoding="utf-8").strip() if token_file.is_file() else ""
+-        supplied = (authorization or "").removeprefix("Bearer ")
+-        if not expected or not hmac.compare_digest(supplied, expected):
+-            raise HTTPException(status_code=401, detail="Neptune export token is required")
+-        backup = await request.app.state.store.logical_backup()
+-        archive = _backup_zip(backup, request.app.state.runtime.config.version)
+-        checksum = hashlib.sha256(archive).hexdigest()
+-        return Response(
+-            archive,
+-            media_type="application/zip",
+-            headers={
+-                "Content-Disposition": 'attachment; filename="chronos-neptune-backup.zip"',
+-                "X-Neptune-Archive-Schema": "exocortex-chronos-backup-archive",
+-                "X-Neptune-Archive-Sha256": checksum,
+-                "X-Neptune-Source-Version": request.app.state.runtime.config.version,
+-            },
+-        )
+-
+-    @app.get("/api/neptune/status")
+-    async def neptune_status(request: Request, _: dict[str, Any] = Depends(operator)):
+-        return await request.app.state.neptune.status()
+-
+-    @app.get("/api/neptune/availability")
+-    async def neptune_availability(request: Request, _: dict[str, Any] = Depends(operator)):
+-        return await request.app.state.neptune.availability()
+-
+-    @app.post("/api/neptune/initialize", status_code=202)
+-    async def neptune_initialize(request: Request, body: NeptuneInitializationInput, _: dict[str, Any] = Depends(mutation_operator)):
+-        config = request.app.state.runtime.config
+-        result = await request.app.state.updater.initialize_neptune(
+-            body.enrollment_code,
+-            f"http://127.0.0.1:{config.listen_port}/api/internal/neptune/backup",
+-        )
+-        await request.app.state.store.audit(
+-            status="success", action="neptune.initialize", target=str(result.get("id") or "accepted"),
+-            actor="operator", message="Neptune initialization handed to local Updater",
+-        )
+-        return result
+-
+-    @app.put("/api/neptune/schedule", status_code=204)
+-    async def neptune_schedule(request: Request, body: NeptuneScheduleInput, _: dict[str, Any] = Depends(mutation_operator)):
+-        raise HTTPException(status_code=409, detail="Backup schedules are owned by Saturn → Synchronization")
+-
+-    @app.post("/api/neptune/runs", status_code=202)
+-    async def neptune_run(request: Request, _: dict[str, Any] = Depends(mutation_operator)):
+-        raise HTTPException(status_code=409, detail="Remote backup runs are owned by Saturn → Synchronization")
+-
+-    @app.post("/api/neptune/update/check")
+-    async def neptune_update_check(request: Request, _: dict[str, Any] = Depends(mutation_operator)):
+-        status = await request.app.state.neptune.status()
+-        return await request.app.state.updater.check_neptune(str(status["version"]))
+-
+-    @app.post("/api/neptune/update/install")
+-    async def neptune_update_install(request: Request, body: dict[str, Any], _: dict[str, Any] = Depends(mutation_operator)):
+-        requested_version = str(body.get("version") or "")
+-        status = await request.app.state.neptune.status()
+-        update = await request.app.state.updater.check_neptune(str(status["version"]))
+-        if not update["update_available"] or update["available_version"] != requested_version:
+-            raise HTTPException(status_code=409, detail="Requested Neptune version is not the current upgrade candidate")
+-        return await request.app.state.updater.update_neptune(requested_version)
+-
+-    @app.post("/api/gryphon/initialize", status_code=202)
+-    async def gryphon_initialize(request: Request, _: dict[str, Any] = Depends(mutation_operator)):
+-        return await request.app.state.updater.lifecycle("gryphon-initialization")
+-
+-    @app.post("/api/updates/agent/install", status_code=202)
+-    async def updater_self_update(request: Request, _: dict[str, Any] = Depends(mutation_operator)):
+-        return await request.app.state.updater.lifecycle("updater-self-update")
+-
+-    @app.get("/api/gryphon/status")
+-    async def gryphon_status(request: Request, _: dict[str, Any] = Depends(operator)):
+-        return await request.app.state.gryphon_client.status()
+-
+-    @app.get("/api/gryphon/bots")
+-    async def gryphon_bots(request: Request, _: dict[str, Any] = Depends(operator)):
+-        return await request.app.state.gryphon_client.bots()
+-
+-    @app.put("/api/gryphon/connection")
+-    async def gryphon_connect(request: Request, body: dict[str, Any], _: dict[str, Any] = Depends(mutation_operator)):
+-        bot_id = str(body.get("botId") or "")
+-        await _load_register_once(request.app)
+-        config = request.app.state.runtime.config
+-        if not request.app.state.runtime.register_ready or not config.register_revision or not config.public_url.startswith("https://"):
+-            raise HTTPException(status_code=503, detail="Canonical Chronos HTTPS origin is unavailable in Kernel")
+-        result = await request.app.state.gryphon_client.connect(
+-            bot_id, config.public_url.rstrip("/") + "/internal/gryphon/command"
+-        )
+-        await request.app.state.store.audit(
+-            status="success",
+-            action="gryphon.connection.created",
+-            target=bot_id,
+-            actor="operator",
+-            message="Chronos function linked to a Gryphon bot",
+-        )
+-        return result
+-
+-    @app.delete("/api/gryphon/connection")
+-    async def gryphon_disconnect(request: Request, _: dict[str, Any] = Depends(mutation_operator)):
+-        result = await request.app.state.gryphon_client.disconnect()
+-        await request.app.state.store.audit(
+-            status="success",
+-            action="gryphon.connection.removed",
+-            target="chronos",
+-            actor="operator",
+-            message="Chronos function unlinked from Gryphon",
+-        )
+-        return result
+-
+-    @app.post("/api/gryphon/link-challenge", status_code=201)
+-    async def gryphon_link_challenge(request: Request, _: dict[str, Any] = Depends(mutation_operator)):
+-        result = await request.app.state.gryphon_client.issue_link_challenge()
+-        await request.app.state.store.audit(
+-            status="success", action="gryphon.binding.challenge.created", target="chronos",
+-            actor="operator", message="One-time Gryphon link challenge created",
+-        )
+-        return result
+-
+-    @app.post("/api/gryphon/update/check")
+-    async def gryphon_update_check(request: Request, _: dict[str, Any] = Depends(mutation_operator)):
+-        status = await request.app.state.gryphon_client.status()
+-        return await request.app.state.updater.check_gryphon(str(status["version"]))
+-
+-    @app.post("/api/gryphon/update/install")
+-    async def gryphon_update_install(request: Request, body: dict[str, Any], _: dict[str, Any] = Depends(mutation_operator)):
+-        requested_version = str(body.get("version") or "")
+-        status = await request.app.state.gryphon_client.status()
+-        update = await request.app.state.updater.check_gryphon(str(status["version"]))
+-        if not update["update_available"] or update["available_version"] != requested_version:
+-            raise HTTPException(status_code=409, detail="Requested Gryphon version is not the current upgrade candidate")
+-        return await request.app.state.updater.update_gryphon(requested_version)
+-
+-    async def parse_backup_upload(file: UploadFile) -> dict[str, Any]:
+-        body = await file.read(64 * 1024 * 1024 + 1)
+-        if len(body) > 64 * 1024 * 1024:
+-            raise HTTPException(status_code=413, detail="Backup exceeds 64 MB")
+-        try:
+-            if body.startswith(b"PK"):
+-                with zipfile.ZipFile(BytesIO(body)) as archive:
+-                    names = archive.namelist()
+-                    if len(names) > 16 or len(names) != len(set(names)):
+-                        raise ValueError("Archive member list is invalid")
+-                    if "chronos-backup.json" not in names:
+-                        raise ValueError("Archive does not contain chronos-backup.json")
+-                    if any(name.startswith("/") or ".." in Path(name).parts for name in names):
+-                        raise ValueError("Archive contains an unsafe path")
+-                    allowed = {"chronos-backup.json", "manifest.json", "README.txt"}
+-                    if any(name not in allowed for name in names):
+-                        raise ValueError("Archive contains an unknown member")
+-                    total_size = sum(item.file_size for item in archive.infolist())
+-                    if total_size > 128 * 1024 * 1024:
+-                        raise ValueError("Archive expands beyond 128 MB")
+-                    if any(item.file_size > 64 * 1024 * 1024 for item in archive.infolist()):
+-                        raise ValueError("Archive member exceeds 64 MB")
+-                    if any(item.flag_bits & 1 or (item.external_attr >> 16) & 0o170000 == 0o120000 for item in archive.infolist()):
+-                        raise ValueError("Encrypted or symlink archive member")
+-                    if any(item.file_size > max(1, item.compress_size) * 120 for item in archive.infolist()):
+-                        raise ValueError("Archive compression ratio exceeds limit")
+-                    raw = archive.read("chronos-backup.json")
+-                    if "manifest.json" in names:
+-                        manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+-                        entry = manifest.get("files", {}).get("chronos-backup.json", {})
+-                        if entry.get("sha256") != hashlib.sha256(raw).hexdigest():
+-                            raise ValueError("Backup checksum does not match the manifest")
+-                        if manifest.get("service") != "chronos" or entry.get("uncompressed_bytes") != len(raw):
+-                            raise ValueError("Backup manifest identity or size mismatch")
+-                        if entry.get("records") != len(json.loads(raw).get("sessions", [])):
+-                            raise ValueError("Backup manifest record count mismatch")
+-            else:
+-                raw = body
+-            return json.loads(raw.decode("utf-8"))
+-        except (ValueError, UnicodeDecodeError, json.JSONDecodeError, zipfile.BadZipFile) as error:
+-            raise HTTPException(status_code=400, detail=f"Invalid Chronos backup: {error}") from error
+-
+-    @app.post("/api/backup/inspect")
+-    async def inspect_backup(
+-        file: UploadFile = File(...),
+-        _: dict[str, Any] = Depends(mutation_operator),
+-    ):
+-        backup = await parse_backup_upload(file)
+-        sessions = backup.get("sessions")
+-        if backup.get("schema") != "exocortex.chronos.backup.v1" or not isinstance(sessions, list):
+-            raise HTTPException(status_code=400, detail="Unsupported or incomplete Chronos backup")
+-        return {
+-            "schema": backup["schema"],
+-            "created_at": backup.get("created_at"),
+-            "session_count": len(sessions),
+-            "restore_mode": "replace",
+-        }
+-
+-    @app.post("/api/backup/restore")
+-    async def restore_backup(
+-        request: Request,
+-        file: UploadFile = File(...),
+-        _: dict[str, Any] = Depends(mutation_operator),
+-    ):
+-        backup = await parse_backup_upload(file)
+-        try:
+-            count = await request.app.state.store.restore_backup(backup)
+-        except ValueError as error:
+-            raise HTTPException(status_code=400, detail=str(error)) from error
+-        await request.app.state.store.audit(
+-            status="success",
+-            action="backup.restored",
+-            target=file.filename or "backup",
+-            actor="operator",
+-            message=f"Restored {count} sessions",
+-        )
+-        response = JSONResponse({"restored_sessions": count, "reauthenticate": True,
+-            "access_policy": "archive-verifier" if backup.get("recovery", {}).get("security") else "retain-target-key-legacy-backup"})
+-        _clear_session_cookies(response, request.app.state.runtime.config)
+-        return response
+-
+-    @app.post("/api/internal/updater/restore")
+-    async def updater_restore(
+-        request: Request,
+-        file: UploadFile = File(...),
+-        x_updater_token: str = Header(default=""),
+-    ):
+-        expected = request.app.state.runtime.config.updater_control_token
+-        if not expected or not hmac.compare_digest(x_updater_token, expected):
+-            raise HTTPException(status_code=401, detail="Invalid Updater token")
+-        backup = await parse_backup_upload(file)
+-        try:
+-            count = await request.app.state.store.restore_backup(backup)
+-        except ValueError as error:
+-            raise HTTPException(status_code=400, detail=str(error)) from error
+-        await request.app.state.store.audit(
+-            status="success",
+-            action="updater.backup_restored",
+-            target=file.filename or "backup",
+-            actor="updater",
+-            message=f"Updater restored {count} sessions",
+-        )
+-        return {"restored_sessions": count}
+-
+-    @app.get("/api/logs")
+-    async def logs(
+-        request: Request,
+-        limit: int = 200,
+-        after_id: int | None = None,
+-        _: dict[str, Any] = Depends(operator),
+-    ):
+-        events = await request.app.state.store.audit_events(min(limit, 1000), after_id=after_id)
+-        return {"events": events, "cursor": max((event["id"] for event in events), default=after_id or 0)}
+-
+-    @app.get("/api/logs/download")
+-    async def download_logs(request: Request, _: dict[str, Any] = Depends(operator)):
+-        events = await request.app.state.store.audit_events(10000)
+-        errors = [event for event in events if event["status"] in {"error", "denied"}]
+-        output = BytesIO()
+-        created = datetime.now(timezone.utc)
+-        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+-            archive.writestr(
+-                "events.jsonl",
+-                "".join(json.dumps(event, ensure_ascii=False) + "\n" for event in reversed(events)),
+-            )
+-            archive.writestr("errors.json", json.dumps(errors, ensure_ascii=False, indent=2) + "\n")
+-            archive.writestr(
+-                "manifest.json",
+-                json.dumps(
+-                    {
+-                        "schema": "exocortex.chronos.logs.v1",
+-                        "created_at": created.isoformat(),
+-                        "event_count": len(events),
+-                        "error_count": len(errors),
+-                    },
+-                    indent=2,
+-                )
+-                + "\n",
+-            )
+-            archive.writestr(
+-                "README.txt",
+-                "Chronos retained audit events. Secret values are never included.\n",
+-            )
+-        filename = f"chronos-logs-{created:%Y%m%d%H%M%S}.zip"
+-        return Response(
+-            output.getvalue(),
+-            media_type="application/zip",
+-            headers={
+-                "Content-Disposition": f'attachment; filename="{filename}"',
+-                "Cache-Control": "no-store, private",
+-            },
+-        )
+-
+-    @app.get("/api/updates/status")
+-    async def update_status(request: Request, _: dict[str, Any] = Depends(operator)):
+-        runtime: RuntimeState = request.app.state.runtime
+-        return {
+-            "service": "chronos",
+-            "installed_version": runtime.config.version,
+-            "repository_url": runtime.config.repository_url or None,
+-            "register_revision": runtime.config.register_revision or None,
+-            "updater": await request.app.state.updater.status(),
+-        }
+-
+-    @app.post("/api/updates/check")
+-    async def update_check(
+-        request: Request, _: dict[str, Any] = Depends(mutation_operator)
+-    ):
+-        config = request.app.state.runtime.config
+-        if not config.repository_url:
+-            raise HTTPException(status_code=503, detail="Chronos repository is not configured")
+-        result = await check_github_release(
+-            config.repository_url, config.version, config.update_check_timeout_seconds
+-        )
+-        await request.app.state.store.audit(
+-            status="success",
+-            action="update.checked",
+-            target=result.get("available_version") or config.version,
+-            actor="operator",
+-            message="Chronos release check completed",
+-        )
+-        return result
+-
+-    @app.post("/api/updates/apply")
+-    async def update_apply(
+-        request: Request,
+-        body: UpdateInput,
+-        _: dict[str, Any] = Depends(mutation_operator),
+-    ):
+-        backup = await request.app.state.store.logical_backup()
+-        backup_data = _backup_zip(backup, request.app.state.runtime.config.version)
+-        result = await request.app.state.updater.create_update(
+-            version=body.version,
+-            backup_name=f"chronos-backup-{datetime.now(timezone.utc):%Y%m%d%H%M%S}.zip",
+-            backup_data=backup_data,
+-        )
+-        await request.app.state.store.audit(
+-            status="success",
+-            action="update.started",
+-            target=body.version,
+-            actor="operator",
+-            message="Chronos update handed to local Updater",
+-        )
+-        return result
+-
+-    @app.get("/api/updates/jobs/{job_id}")
+-    async def update_job(
+-        request: Request, job_id: str, _: dict[str, Any] = Depends(operator)
+-    ):
+-        return await request.app.state.updater.job(job_id)
+-
+-    @app.post("/api/updates/jobs/{job_id}/rollback")
+-    async def update_rollback(
+-        request: Request,
+-        job_id: str,
+-        _: dict[str, Any] = Depends(mutation_operator),
+-    ):
+-        result = await request.app.state.updater.rollback(job_id)
+-        await request.app.state.store.audit(
+-            status="success",
+-            action="update.rollback_started",
+-            target=job_id,
+-            actor="operator",
+-            message="Chronos rollback handed to local Updater",
+-        )
+-        return result
+-
+-    web_dir = Path(__file__).resolve().parents[1] / "web" / "dist"
+-    assets_dir = web_dir / "assets"
+-    if assets_dir.exists():
+-        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+-
+-    @app.get("/{path:path}", include_in_schema=False)
+-    async def frontend(path: str):
+-        if path.startswith("api/"):
+-            return JSONResponse(status_code=404, content={"error": "API route not found"})
+-        requested = (web_dir / path).resolve()
+-        if web_dir.exists() and requested.is_relative_to(web_dir) and requested.is_file():
+-            return FileResponse(requested)
+-        index = web_dir / "index.html"
+-        if not path and index.exists():
+-            return FileResponse(index)
+-        if not path:
+-            return JSONResponse(
+-                status_code=503,
+-                content={"error": "Chronos web interface has not been built"},
+-            )
+-        return JSONResponse(status_code=404, content={"error": "Not found"})
+-
+-    return app
+-
+-
+-app = create_app()
++    install_mastermind_reader(app)
++
++    @app.middleware("http")
++    async def request_context(request: Request, call_next):
++        request.state.request_id = request.headers.get("X-Request-ID") or _request_id()
++        started = time_module.monotonic()
++        if BLOCKED_PROBE_PATH.search(request.url.path):
++            response = JSONResponse(status_code=404, content={"error": "Not found"})
++        else:
++            try:
++                response = await call_next(request)
++            except Exception:
++                LOGGER.exception("Unhandled request error", extra={"request_id": request.state.request_id})
++                raise
++        response.headers["X-Request-ID"] = request.state.request_id
++        response.headers["X-Content-Type-Options"] = "nosniff"
++        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
++        response.headers["Referrer-Policy"] = "same-origin"
++        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
++        if request.url.path.startswith("/api/"):
++            response.headers["Cache-Control"] = "no-store"
++        response.headers["Content-Security-Policy"] = (
++            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
++            "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'"
++        )
++        response.headers["Server-Timing"] = f"app;dur={(time_module.monotonic() - started) * 1000:.1f}"
++        return response
++
++    @app.exception_handler(TimerError)
++    async def timer_error(_: Request, error: TimerError):
++        return JSONResponse(status_code=error.status, content={"error": str(error)})
++
++    @app.exception_handler(UpdaterError)
++    async def updater_error(_: Request, error: UpdaterError):
++        return JSONResponse(status_code=error.status, content={"error": str(error)})
++
++    @app.exception_handler(NeptuneError)
++    async def neptune_error(_: Request, error: NeptuneError):
++        return JSONResponse(status_code=error.status, content={"error": str(error)})
++
++    @app.exception_handler(GryphonError)
++    async def gryphon_error(_: Request, error: GryphonError):
++        return JSONResponse(status_code=error.status, content={"error": str(error)})
++
++    @app.get("/robots.txt", include_in_schema=False)
++    async def robots_txt():
++        return Response(content=ROBOTS_POLICY, media_type="text/plain")
++
++    @app.get("/api/health", include_in_schema=False)
++    async def health(request: Request):
++        if _is_proxied_request(request):
++            raise HTTPException(status_code=404, detail="Not found")
++        runtime: RuntimeState = request.app.state.runtime
++        try:
++            await request.app.state.pool.fetchval("select 1")
++            database = "available"
++        except Exception:
++            database = "unavailable"
++        status = "available" if database == "available" and runtime.register_ready else "unavailable"
++        return JSONResponse(status_code=200 if status == "available" else 503, content={
++            "status": status,
++            "service": "chronos",
++            "version": runtime.config.version,
++            "database": database,
++            "register_revision": runtime.config.register_revision or None,
++            "level": "core-readiness",
++        })
++
++    @app.get("/api/ready")
++    async def deployment_readiness(request: Request, _: dict[str, Any] = Depends(operator)):
++        await _load_register_once(request.app)
++        agents = await asyncio.gather(request.app.state.updater.status(), request.app.state.neptune.availability(), request.app.state.gryphon_client.status(), return_exceptions=True)
++        checks = {"kernel": request.app.state.runtime.register_ready and bool(request.app.state.runtime.config.register_revision),
++            "updater": isinstance(agents[0], dict) and bool(agents[0].get("available")),
++            "neptune": isinstance(agents[1], dict) and bool(agents[1].get("linked")),
++            "gryphon": isinstance(agents[2], dict) and bool(agents[2].get("connected")) and bool(agents[2].get("binding"))}
++        try:
++            await request.app.state.pool.fetchval("select 1")
++            checks["database"] = True
++        except Exception:
++            checks["database"] = False
++        ready = all(checks.values())
++        return JSONResponse(status_code=200 if ready else 503, content={"ready": ready, "checks": checks, "external_delivery_verified": False})
++
++    @app.get("/api/public/theme")
++    async def public_theme(request: Request):
++        settings = await request.app.state.store.settings()
++        return {"accent": settings["theme_accent"]}
++
++    @app.get("/api/public/reachability")
++    async def public_reachability(request: Request):
++        try:
++            await request.app.state.pool.fetchval("select 1")
++        except Exception:
++            return JSONResponse(status_code=503, content={"status": "unavailable"})
++        if not request.app.state.runtime.register_ready:
++            return JSONResponse(status_code=503, content={"status": "unavailable"})
++        return {"status": "available"}
++
++    @app.get("/api/auth/status")
++    async def auth_status(request: Request):
++        try:
++            await operator(request)
++        except HTTPException:
++            return {"authenticated": False}
++        security = await request.app.state.store.security()
++        return {"authenticated": True}
++
++    @app.post("/api/auth/login")
++    async def login(request: Request, body: LoginInput):
++        _check_login_rate(request)
++        store: Store = request.app.state.store
++        runtime: RuntimeState = request.app.state.runtime
++        security = await store.security()
++        valid = verify_password(body.access_key, str(security["password_hash"]))
++        if not valid:
++            await store.audit(
++                status="denied",
++                action="auth.login",
++                target="operator",
++                actor="anonymous",
++                message="Invalid operator credentials",
++                request_id=request.state.request_id,
++            )
++            raise HTTPException(status_code=401, detail="Invalid Access Key")
++        _clear_login_rate(request)
++        csrf = new_csrf_token()
++        token = create_session_token(
++            runtime.config.session_secret, int(security["session_generation"]), csrf
++        )
++        response = JSONResponse({"authenticated": True})
++        _set_session_cookies(response, runtime.config, token, csrf)
++        await store.audit(
++            status="success",
++            action="auth.login",
++            target=str(security["username"]),
++            actor="operator",
++            message="Operator signed in",
++            request_id=request.state.request_id,
++        )
++        return response
++
++    @app.post("/api/auth/logout")
++    async def logout(request: Request, _: dict[str, Any] = Depends(mutation_operator)):
++        await request.app.state.store.revoke_session(
++            request.cookies.get(COOKIE_NAME, ""), int(_["expires_at"])
++        )
++        response = JSONResponse({"authenticated": False})
++        _clear_session_cookies(response, request.app.state.runtime.config)
++        await request.app.state.store.audit(
++            status="success",
++            action="auth.logout",
++            actor="operator",
++            message="Operator signed out",
++            request_id=request.state.request_id,
++        )
++        return response
++
++    @app.get("/api/dashboard")
++    async def dashboard(request: Request, _: dict[str, Any] = Depends(operator)):
++        store: Store = request.app.state.store
++        timers: TimerService = request.app.state.timers
++        settings = await store.settings()
++        zone = timezone_for(str(settings["timezone"]))
++        now = datetime.now(zone)
++        start = datetime.combine(now.date(), time.min, tzinfo=zone)
++        end = datetime.combine(now.date() + timedelta(days=1), time.min, tzinfo=zone)
++        analytics = await timers.analytics(start, end, now=now)
++        recent = await timers.history(
++            start=start,
++            end=now + timedelta(seconds=1),
++            category=None,
++            query="",
++            limit=6,
++            offset=0,
++        )
++        active = await timers.active(now=now)
++        return {
++            "now": now.isoformat(),
++            "profile_name": settings["profile_name"],
++            "timezone": settings["timezone"],
++            "categories": [
++                {"key": key, "label": CATEGORY_LABELS[key]} for key in CATEGORIES
++            ],
++            "active": active,
++            "today": analytics,
++            "recent": recent["items"],
++            "telemetry": request.app.state.telemetry.sample(),
++        }
++
++    @app.post("/api/timer/press")
++    async def timer_press(
++        request: Request,
++        body: TimerInput,
++        _: dict[str, Any] = Depends(mutation_operator),
++    ):
++        return await request.app.state.timers.press(
++            body.category, actor="operator", source="web"
++        )
++
++    @app.post("/api/timer/stop")
++    async def timer_stop(request: Request, _: dict[str, Any] = Depends(mutation_operator)):
++        result = await request.app.state.timers.stop(actor="operator")
++        return {"stopped": result}
++
++    @app.post("/api/actions/undo")
++    async def undo(request: Request, _: dict[str, Any] = Depends(mutation_operator)):
++        return await request.app.state.timers.undo(actor="operator")
++
++    @app.get("/api/sessions")
++    async def sessions(
++        request: Request,
++        start: datetime | None = None,
++        end: datetime | None = None,
++        category: str | None = None,
++        q: str = "",
++        limit: int = 100,
++        offset: int = 0,
++        _: dict[str, Any] = Depends(operator),
++    ):
++        return await request.app.state.timers.history(
++            start=start,
++            end=end,
++            category=category,
++            query=q,
++            limit=limit,
++            offset=offset,
++        )
++
++    @app.post("/api/sessions", status_code=201)
++    async def create_session(
++        request: Request,
++        body: SessionInput,
++        _: dict[str, Any] = Depends(mutation_operator),
++    ):
++        return await request.app.state.timers.create_manual(
++            category=body.category,
++            started_at=body.started_at,
++            stopped_at=body.stopped_at,
++            note=body.note,
++            actor="operator",
++        )
++
++    @app.put("/api/sessions/{session_id}")
++    async def update_session(
++        request: Request,
++        session_id: int,
++        body: SessionUpdate,
++        _: dict[str, Any] = Depends(mutation_operator),
++    ):
++        return await request.app.state.timers.update_session(
++            session_id,
++            category=body.category,
++            started_at=body.started_at,
++            stopped_at=body.stopped_at,
++            note=body.note,
++            actor="operator",
++        )
++
++    @app.delete("/api/sessions/{session_id}", status_code=204)
++    async def delete_session(
++        request: Request,
++        session_id: int,
++        _: dict[str, Any] = Depends(mutation_operator),
++    ):
++        await request.app.state.timers.delete_session(session_id, actor="operator")
++        return Response(status_code=204)
++
++    @app.get("/api/analytics")
++    async def analytics(
++        request: Request,
++        start: date,
++        end: date,
++        _: dict[str, Any] = Depends(operator),
++    ):
++        settings = await request.app.state.store.settings()
++        period = await request.app.state.timers.period_for_dates(
++            start, end, str(settings["timezone"])
++        )
++        return await request.app.state.timers.analytics(*period)
++
++    @app.get("/api/export.csv")
++    async def export_csv(request: Request, _: dict[str, Any] = Depends(operator)):
++        rows = await request.app.state.store.sessions_for_export()
++        output = StringIO(newline="")
++        writer = csv.writer(output)
++        writer.writerow(
++            [
++                "id",
++                "public_id",
++                "category",
++                "started_at",
++                "stopped_at",
++                "duration_seconds",
++                "note",
++                "source",
++            ]
++        )
++        for row in rows:
++            writer.writerow(
++                [
++                    row["id"],
++                    row["public_id"],
++                    row["category"],
++                    row["started_at"].isoformat(),
++                    row["stopped_at"].isoformat() if row["stopped_at"] else "",
++                    row["duration_seconds"] or "",
++                    row["note"],
++                    row["source"],
++                ]
++            )
++        filename = f"chronos-sessions-{datetime.now(timezone.utc):%Y%m%d%H%M%S}.csv"
++        return Response(
++            output.getvalue(),
++            media_type="text/csv; charset=utf-8",
++            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
++        )
++
++    @app.get("/api/settings")
++    async def get_settings(request: Request, _: dict[str, Any] = Depends(operator)):
++        runtime: RuntimeState = request.app.state.runtime
++        stored_kernel = await request.app.state.store.kernel_credentials()
++        return {
++            "values": await request.app.state.store.settings(),
++            "runtime": {
++                "version": runtime.config.version,
++                "public_url": runtime.config.public_url,
++                "repository_url": runtime.config.repository_url,
++                "register_revision": runtime.config.register_revision or None,
++                "kernel_url": runtime.config.kernel_url or None,
++                "kernel_reachable": runtime.register_ready and bool(runtime.config.register_revision),
++                "register_error": runtime.register_error,
++                "kernel_configured": bool(stored_kernel["kernel_token_ciphertext"]),
++            },
++        }
++
++    @app.put("/api/settings")
++    @app.patch("/api/settings")
++    async def save_settings(
++        request: Request,
++        body: SettingsInput,
++        _: dict[str, Any] = Depends(mutation_operator),
++    ):
++        changed = _validate_settings(body)
++        values = await request.app.state.store.update_settings(changed)
++        await request.app.state.store.audit(
++            status="success",
++            action="settings.updated",
++            target="operator",
++            actor="operator",
++            message="Chronos setting updated",
++            details={"keys": sorted(changed)},
++            request_id=request.state.request_id,
++        )
++        return {"values": values}
++
++    @app.post("/api/settings/reset-appearance")
++    async def reset_appearance(
++        request: Request, _: dict[str, Any] = Depends(mutation_operator)
++    ):
++        values = await request.app.state.store.update_settings(
++            {"theme_accent": DEFAULT_SETTINGS["theme_accent"]}
++        )
++        await request.app.state.store.audit(
++            status="success",
++            action="appearance.reset",
++            target="theme",
++            actor="operator",
++            message="Appearance reset to defaults",
++        )
++        return {"values": values}
++
++    @app.post("/api/security/access-key")
++    async def change_access_key(
++        request: Request,
++        body: AccessKeyInput,
++        _: dict[str, Any] = Depends(mutation_operator),
++    ):
++        _check_sensitive_rate(request, "access-key")
++        store: Store = request.app.state.store
++        security = await store.security()
++        if not verify_password(body.current_access_key, str(security["password_hash"])):
++            await store.audit(
++                status="denied",
++                action="security.access_key_change",
++                actor="operator",
++                message="Current Access Key verification failed",
++            )
++            raise HTTPException(status_code=400, detail="Current Access Key is incorrect")
++        if not hmac.compare_digest(body.new_access_key, body.confirm_access_key):
++            raise HTTPException(status_code=400, detail="New Access Key entries do not match")
++        try:
++            validate_new_access_key(body.new_access_key)
++        except ValueError as error:
++            raise HTTPException(status_code=400, detail=str(error)) from error
++        generation = await store.update_password(hash_password(body.new_access_key))
++        csrf = new_csrf_token()
++        token = create_session_token(
++            request.app.state.runtime.config.session_secret, generation, csrf
++        )
++        response = JSONResponse({"changed": True})
++        _set_session_cookies(response, request.app.state.runtime.config, token, csrf)
++        await store.audit(
++            status="success",
++            action="security.access_key_change",
++            target="operator",
++            actor="operator",
++            message="Operator Access Key changed",
++        )
++        _clear_sensitive_rate(request, "access-key")
++        return response
++
++    @app.put("/api/security/kernel-url")
++    async def change_kernel_url(
++        request: Request,
++        body: KernelUrlInput,
++        _: dict[str, Any] = Depends(mutation_operator),
++    ):
++        _check_sensitive_rate(request, "kernel-url")
++        store: Store = request.app.state.store
++        runtime: RuntimeState = request.app.state.runtime
++        kernel_url = _normalize_kernel_url(body.kernel_url)
++        if not runtime.config.kernel_service_token:
++            raise HTTPException(
++                status_code=409,
++                detail="Rotate the Kernel token to validate and activate this URL",
++            )
++        try:
++            updated = await _validated_kernel_config(
++                runtime,
++                kernel_url=kernel_url,
++                kernel_token=runtime.config.kernel_service_token,
++            )
++        except HTTPException:
++            await store.audit(
++                status="error",
++                action="security.kernel_url_change",
++                target=kernel_url,
++                actor="operator",
++                message="Candidate Kernel URL validation failed",
++                request_id=request.state.request_id,
++            )
++            raise
++        await store.update_kernel_credentials(kernel_url=kernel_url)
++        await runtime.replace(updated)
++        await store.audit(
++            status="success",
++            action="security.kernel_url_change",
++            target=kernel_url,
++            actor="operator",
++            message="Kernel URL validated and activated",
++            request_id=request.state.request_id,
++        )
++        _clear_sensitive_rate(request, "kernel-url")
++        return {"kernel_url": updated.kernel_url, "kernel_reachable": True}
++
++    @app.post("/api/security/kernel-token")
++    async def rotate_kernel_token(
++        request: Request,
++        body: KernelTokenInput,
++        _: dict[str, Any] = Depends(mutation_operator),
++    ):
++        _check_sensitive_rate(request, "kernel-token")
++        store: Store = request.app.state.store
++        runtime: RuntimeState = request.app.state.runtime
++        kernel_url = _normalize_kernel_url(body.kernel_url)
++        if not hmac.compare_digest(body.new_token, body.confirm_token):
++            await store.audit(
++                status="denied",
++                action="security.kernel_token_rotation",
++                target=kernel_url,
++                actor="operator",
++                message="Kernel token confirmation did not match",
++                request_id=request.state.request_id,
++            )
++            raise HTTPException(status_code=400, detail="Kernel token entries do not match")
++        try:
++            updated = await _validated_kernel_config(
++                runtime, kernel_url=kernel_url, kernel_token=body.new_token
++            )
++        except HTTPException:
++            await store.audit(
++                status="error",
++                action="security.kernel_token_rotation",
++                target=kernel_url,
++                actor="operator",
++                message="Replacement Kernel token validation failed",
++                request_id=request.state.request_id,
++            )
++            raise
++        ciphertext = encrypt_service_secret(body.new_token, runtime.config.session_secret)
++        await store.update_kernel_credentials(
++            kernel_url=kernel_url, kernel_token_ciphertext=ciphertext
++        )
++        await runtime.replace(updated)
++        await store.audit(
++            status="success",
++            action="security.kernel_token_rotation",
++            target=kernel_url,
++            actor="operator",
++            message="Kernel token validated and rotated",
++            request_id=request.state.request_id,
++        )
++        _clear_sensitive_rate(request, "kernel-token")
++        return {"changed": True, "kernel_url": updated.kernel_url, "kernel_reachable": True}
++
++    @app.post("/internal/gryphon/command")
++    @app.post("/api/internal/gryphon/command", include_in_schema=False)
++    async def gryphon_command(
++        request: Request,
++        body: dict[str, Any],
++        authorization: str | None = Header(default=None),
++    ):
++        token_file = request.app.state.runtime.config.gryphon_service_token_file
++        expected = (
++            token_file.read_text(encoding="utf-8").strip()
++            if token_file.is_file()
++            else ""
++        )
++        supplied = (authorization or "").removeprefix("Bearer ")
++        if not expected or not hmac.compare_digest(supplied, expected):
++            raise HTTPException(status_code=401, detail="Gryphon token is required")
++        return await request.app.state.gryphon.handle(body)
++
++    @app.get("/api/backup/export")
++    async def export_backup(request: Request, _: dict[str, Any] = Depends(operator)):
++        backup = await request.app.state.store.logical_backup()
++        archive = _backup_zip(backup, request.app.state.runtime.config.version)
++        filename = f"chronos-backup-{datetime.now(timezone.utc):%Y%m%d%H%M%S}.zip"
++        await request.app.state.store.audit(
++            status="success",
++            action="backup.exported",
++            target=filename,
++            actor="operator",
++            message="Chronos backup prepared",
++        )
++        return Response(
++            archive,
++            media_type="application/zip",
++            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
++        )
++
++    @app.post("/api/internal/neptune/backup")
++    async def export_neptune_backup(request: Request, authorization: str | None = Header(default=None)):
++        token_file = request.app.state.runtime.config.neptune_export_token_file
++        expected = token_file.read_text(encoding="utf-8").strip() if token_file.is_file() else ""
++        supplied = (authorization or "").removeprefix("Bearer ")
++        if not expected or not hmac.compare_digest(supplied, expected):
++            raise HTTPException(status_code=401, detail="Neptune export token is required")
++        backup = await request.app.state.store.logical_backup()
++        archive = _backup_zip(backup, request.app.state.runtime.config.version)
++        checksum = hashlib.sha256(archive).hexdigest()
++        return Response(
++            archive,
++            media_type="application/zip",
++            headers={
++                "Content-Disposition": 'attachment; filename="chronos-neptune-backup.zip"',
++                "X-Neptune-Archive-Schema": "exocortex-chronos-backup-archive",
++                "X-Neptune-Archive-Sha256": checksum,
++                "X-Neptune-Source-Version": request.app.state.runtime.config.version,
++            },
++        )
++
++    @app.get("/api/neptune/status")
++    async def neptune_status(request: Request, _: dict[str, Any] = Depends(operator)):
++        return await request.app.state.neptune.status()
++
++    @app.get("/api/neptune/availability")
++    async def neptune_availability(request: Request, _: dict[str, Any] = Depends(operator)):
++        return await request.app.state.neptune.availability()
++
++    @app.post("/api/neptune/initialize", status_code=202)
++    async def neptune_initialize(request: Request, body: NeptuneInitializationInput, _: dict[str, Any] = Depends(mutation_operator)):
++        config = request.app.state.runtime.config
++        result = await request.app.state.updater.initialize_neptune(
++            body.enrollment_code,
++            f"http://127.0.0.1:{config.listen_port}/api/internal/neptune/backup",
++        )
++        await request.app.state.store.audit(
++            status="success", action="neptune.initialize", target=str(result.get("id") or "accepted"),
++            actor="operator", message="Neptune initialization handed to local Updater",
++        )
++        return result
++
++    @app.put("/api/neptune/schedule", status_code=204)
++    async def neptune_schedule(request: Request, body: NeptuneScheduleInput, _: dict[str, Any] = Depends(mutation_operator)):
++        raise HTTPException(status_code=409, detail="Backup schedules are owned by Saturn → Synchronization")
++
++    @app.post("/api/neptune/runs", status_code=202)
++    async def neptune_run(request: Request, _: dict[str, Any] = Depends(mutation_operator)):
++        raise HTTPException(status_code=409, detail="Remote backup runs are owned by Saturn → Synchronization")
++
++    @app.post("/api/neptune/update/check")
++    async def neptune_update_check(request: Request, _: dict[str, Any] = Depends(mutation_operator)):
++        status = await request.app.state.neptune.status()
++        return await request.app.state.updater.check_neptune(str(status["version"]))
++
++    @app.post("/api/neptune/update/install")
++    async def neptune_update_install(request: Request, body: dict[str, Any], _: dict[str, Any] = Depends(mutation_operator)):
++        requested_version = str(body.get("version") or "")
++        status = await request.app.state.neptune.status()
++        update = await request.app.state.updater.check_neptune(str(status["version"]))
++        if not update["update_available"] or update["available_version"] != requested_version:
++            raise HTTPException(status_code=409, detail="Requested Neptune version is not the current upgrade candidate")
++        return await request.app.state.updater.update_neptune(requested_version)
++
++    @app.post("/api/gryphon/initialize", status_code=202)
++    async def gryphon_initialize(request: Request, _: dict[str, Any] = Depends(mutation_operator)):
++        return await request.app.state.updater.lifecycle("gryphon-initialization")
++
++    @app.post("/api/updates/agent/install", status_code=202)
++    async def updater_self_update(request: Request, _: dict[str, Any] = Depends(mutation_operator)):
++        return await request.app.state.updater.lifecycle("updater-self-update")
++
++    @app.get("/api/gryphon/status")
++    async def gryphon_status(request: Request, _: dict[str, Any] = Depends(operator)):
++        return await request.app.state.gryphon_client.status()
++
++    @app.get("/api/gryphon/bots")
++    async def gryphon_bots(request: Request, _: dict[str, Any] = Depends(operator)):
++        return await request.app.state.gryphon_client.bots()
++
++    @app.put("/api/gryphon/connection")
++    async def gryphon_connect(request: Request, body: dict[str, Any], _: dict[str, Any] = Depends(mutation_operator)):
++        bot_id = str(body.get("botId") or "")
++        await _load_register_once(request.app)
++        config = request.app.state.runtime.config
++        if not request.app.state.runtime.register_ready or not config.register_revision or not config.public_url.startswith("https://"):
++            raise HTTPException(status_code=503, detail="Canonical Chronos HTTPS origin is unavailable in Kernel")
++        result = await request.app.state.gryphon_client.connect(
++            bot_id, config.public_url.rstrip("/") + "/internal/gryphon/command"
++        )
++        await request.app.state.store.audit(
++            status="success",
++            action="gryphon.connection.created",
++            target=bot_id,
++            actor="operator",
++            message="Chronos function linked to a Gryphon bot",
++        )
++        return result
++
++    @app.delete("/api/gryphon/connection")
++    async def gryphon_disconnect(request: Request, _: dict[str, Any] = Depends(mutation_operator)):
++        result = await request.app.state.gryphon_client.disconnect()
++        await request.app.state.store.audit(
++            status="success",
++            action="gryphon.connection.removed",
++            target="chronos",
++            actor="operator",
++            message="Chronos function unlinked from Gryphon",
++        )
++        return result
++
++    @app.post("/api/gryphon/link-challenge", status_code=201)
++    async def gryphon_link_challenge(request: Request, _: dict[str, Any] = Depends(mutation_operator)):
++        result = await request.app.state.gryphon_client.issue_link_challenge()
++        await request.app.state.store.audit(
++            status="success", action="gryphon.binding.challenge.created", target="chronos",
++            actor="operator", message="One-time Gryphon link challenge created",
++        )
++        return result
++
++    @app.post("/api/gryphon/update/check")
++    async def gryphon_update_check(request: Request, _: dict[str, Any] = Depends(mutation_operator)):
++        status = await request.app.state.gryphon_client.status()
++        return await request.app.state.updater.check_gryphon(str(status["version"]))
++
++    @app.post("/api/gryphon/update/install")
++    async def gryphon_update_install(request: Request, body: dict[str, Any], _: dict[str, Any] = Depends(mutation_operator)):
++        requested_version = str(body.get("version") or "")
++        status = await request.app.state.gryphon_client.status()
++        update = await request.app.state.updater.check_gryphon(str(status["version"]))
++        if not update["update_available"] or update["available_version"] != requested_version:
++            raise HTTPException(status_code=409, detail="Requested Gryphon version is not the current upgrade candidate")
++        return await request.app.state.updater.update_gryphon(requested_version)
++
++    async def parse_backup_upload(file: UploadFile) -> dict[str, Any]:
++        body = await file.read(64 * 1024 * 1024 + 1)
++        if len(body) > 64 * 1024 * 1024:
++            raise HTTPException(status_code=413, detail="Backup exceeds 64 MB")
++        try:
++            if body.startswith(b"PK"):
++                with zipfile.ZipFile(BytesIO(body)) as archive:
++                    names = archive.namelist()
++                    if len(names) > 16 or len(names) != len(set(names)):
++                        raise ValueError("Archive member list is invalid")
++                    if "chronos-backup.json" not in names:
++                        raise ValueError("Archive does not contain chronos-backup.json")
++                    if any(name.startswith("/") or ".." in Path(name).parts for name in names):
++                        raise ValueError("Archive contains an unsafe path")
++                    allowed = {"chronos-backup.json", "manifest.json", "README.txt"}
++                    if any(name not in allowed for name in names):
++                        raise ValueError("Archive contains an unknown member")
++                    total_size = sum(item.file_size for item in archive.infolist())
++                    if total_size > 128 * 1024 * 1024:
++                        raise ValueError("Archive expands beyond 128 MB")
++                    if any(item.file_size > 64 * 1024 * 1024 for item in archive.infolist()):
++                        raise ValueError("Archive member exceeds 64 MB")
++                    if any(item.flag_bits & 1 or (item.external_attr >> 16) & 0o170000 == 0o120000 for item in archive.infolist()):
++                        raise ValueError("Encrypted or symlink archive member")
++                    if any(item.file_size > max(1, item.compress_size) * 120 for item in archive.infolist()):
++                        raise ValueError("Archive compression ratio exceeds limit")
++                    raw = archive.read("chronos-backup.json")
++                    if "manifest.json" in names:
++                        manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
++                        entry = manifest.get("files", {}).get("chronos-backup.json", {})
++                        if entry.get("sha256") != hashlib.sha256(raw).hexdigest():
++                            raise ValueError("Backup checksum does not match the manifest")
++                        if manifest.get("service") != "chronos" or entry.get("uncompressed_bytes") != len(raw):
++                            raise ValueError("Backup manifest identity or size mismatch")
++                        if entry.get("records") != len(json.loads(raw).get("sessions", [])):
++                            raise ValueError("Backup manifest record count mismatch")
++            else:
++                raw = body
++            return json.loads(raw.decode("utf-8"))
++        except (ValueError, UnicodeDecodeError, json.JSONDecodeError, zipfile.BadZipFile) as error:
++            raise HTTPException(status_code=400, detail=f"Invalid Chronos backup: {error}") from error
++
++    @app.post("/api/backup/inspect")
++    async def inspect_backup(
++        file: UploadFile = File(...),
++        _: dict[str, Any] = Depends(mutation_operator),
++    ):
++        backup = await parse_backup_upload(file)
++        sessions = backup.get("sessions")
++        if backup.get("schema") != "exocortex.chronos.backup.v1" or not isinstance(sessions, list):
++            raise HTTPException(status_code=400, detail="Unsupported or incomplete Chronos backup")
++        return {
++            "schema": backup["schema"],
++            "created_at": backup.get("created_at"),
++            "session_count": len(sessions),
++            "restore_mode": "replace",
++        }
++
++    @app.post("/api/backup/restore")
++    async def restore_backup(
++        request: Request,
++        file: UploadFile = File(...),
++        _: dict[str, Any] = Depends(mutation_operator),
++    ):
++        backup = await parse_backup_upload(file)
++        try:
++            count = await request.app.state.store.restore_backup(backup)
++        except ValueError as error:
++            raise HTTPException(status_code=400, detail=str(error)) from error
++        await request.app.state.store.audit(
++            status="success",
++            action="backup.restored",
++            target=file.filename or "backup",
++            actor="operator",
++            message=f"Restored {count} sessions",
++        )
++        response = JSONResponse({"restored_sessions": count, "reauthenticate": True,
++            "access_policy": "archive-verifier" if backup.get("recovery", {}).get("security") else "retain-target-key-legacy-backup"})
++        _clear_session_cookies(response, request.app.state.runtime.config)
++        return response
++
++    @app.post("/api/internal/updater/restore")
++    async def updater_restore(
++        request: Request,
++        file: UploadFile = File(...),
++        x_updater_token: str = Header(default=""),
++    ):
++        expected = request.app.state.runtime.config.updater_control_token
++        if not expected or not hmac.compare_digest(x_updater_token, expected):
++            raise HTTPException(status_code=401, detail="Invalid Updater token")
++        backup = await parse_backup_upload(file)
++        try:
++            count = await request.app.state.store.restore_backup(backup)
++        except ValueError as error:
++            raise HTTPException(status_code=400, detail=str(error)) from error
++        await request.app.state.store.audit(
++            status="success",
++            action="updater.backup_restored",
++            target=file.filename or "backup",
++            actor="updater",
++            message=f"Updater restored {count} sessions",
++        )
++        return {"restored_sessions": count}
++
++    @app.get("/api/logs")
++    async def logs(
++        request: Request,
++        limit: int = 200,
++        after_id: int | None = None,
++        _: dict[str, Any] = Depends(operator),
++    ):
++        events = await request.app.state.store.audit_events(min(limit, 1000), after_id=after_id)
++        return {"events": events, "cursor": max((event["id"] for event in events), default=after_id or 0)}
++
++    @app.get("/api/logs/download")
++    async def download_logs(request: Request, _: dict[str, Any] = Depends(operator)):
++        events = await request.app.state.store.audit_events(10000)
++        errors = [event for event in events if event["status"] in {"error", "denied"}]
++        output = BytesIO()
++        created = datetime.now(timezone.utc)
++        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
++            archive.writestr(
++                "events.jsonl",
++                "".join(json.dumps(event, ensure_ascii=False) + "\n" for event in reversed(events)),
++            )
++            archive.writestr("errors.json", json.dumps(errors, ensure_ascii=False, indent=2) + "\n")
++            archive.writestr(
++                "manifest.json",
++                json.dumps(
++                    {
++                        "schema": "exocortex.chronos.logs.v1",
++                        "created_at": created.isoformat(),
++                        "event_count": len(events),
++                        "error_count": len(errors),
++                    },
++                    indent=2,
++                )
++                + "\n",
++            )
++            archive.writestr(
++                "README.txt",
++                "Chronos retained audit events. Secret values are never included.\n",
++            )
++        filename = f"chronos-logs-{created:%Y%m%d%H%M%S}.zip"
++        return Response(
++            output.getvalue(),
++            media_type="application/zip",
++            headers={
++                "Content-Disposition": f'attachment; filename="{filename}"',
++                "Cache-Control": "no-store, private",
++            },
++        )
++
++    @app.get("/api/updates/status")
++    async def update_status(request: Request, _: dict[str, Any] = Depends(operator)):
++        runtime: RuntimeState = request.app.state.runtime
++        return {
++            "service": "chronos",
++            "installed_version": runtime.config.version,
++            "repository_url": runtime.config.repository_url or None,
++            "register_revision": runtime.config.register_revision or None,
++            "updater": await request.app.state.updater.status(),
++        }
++
++    @app.post("/api/updates/check")
++    async def update_check(
++        request: Request, _: dict[str, Any] = Depends(mutation_operator)
++    ):
++        config = request.app.state.runtime.config
++        if not config.repository_url:
++            raise HTTPException(status_code=503, detail="Chronos repository is not configured")
++        result = await check_github_release(
++            config.repository_url, config.version, config.update_check_timeout_seconds
++        )
++        await request.app.state.store.audit(
++            status="success",
++            action="update.checked",
++            target=result.get("available_version") or config.version,
++            actor="operator",
++            message="Chronos release check completed",
++        )
++        return result
++
++    @app.post("/api/updates/apply")
++    async def update_apply(
++        request: Request,
++        body: UpdateInput,
++        _: dict[str, Any] = Depends(mutation_operator),
++    ):
++        backup = await request.app.state.store.logical_backup()
++        backup_data = _backup_zip(backup, request.app.state.runtime.config.version)
++        result = await request.app.state.updater.create_update(
++            version=body.version,
++            backup_name=f"chronos-backup-{datetime.now(timezone.utc):%Y%m%d%H%M%S}.zip",
++            backup_data=backup_data,
++        )
++        await request.app.state.store.audit(
++            status="success",
++            action="update.started",
++            target=body.version,
++            actor="operator",
++            message="Chronos update handed to local Updater",
++        )
++        return result
++
++    @app.get("/api/updates/jobs/{job_id}")
++    async def update_job(
++        request: Request, job_id: str, _: dict[str, Any] = Depends(operator)
++    ):
++        return await request.app.state.updater.job(job_id)
++
++    @app.post("/api/updates/jobs/{job_id}/rollback")
++    async def update_rollback(
++        request: Request,
++        job_id: str,
++        _: dict[str, Any] = Depends(mutation_operator),
++    ):
++        result = await request.app.state.updater.rollback(job_id)
++        await request.app.state.store.audit(
++            status="success",
++            action="update.rollback_started",
++            target=job_id,
++            actor="operator",
++            message="Chronos rollback handed to local Updater",
++        )
++        return result
++
++    web_dir = Path(__file__).resolve().parents[1] / "web" / "dist"
++    assets_dir = web_dir / "assets"
++    if assets_dir.exists():
++        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
++
++    @app.get("/{path:path}", include_in_schema=False)
++    async def frontend(path: str):
++        if path.startswith("api/"):
++            return JSONResponse(status_code=404, content={"error": "API route not found"})
++        requested = (web_dir / path).resolve()
++        if web_dir.exists() and requested.is_relative_to(web_dir) and requested.is_file():
++            return FileResponse(requested)
++        index = web_dir / "index.html"
++        if not path and index.exists():
++            return FileResponse(index)
++        if not path:
++            return JSONResponse(
++                status_code=503,
++                content={"error": "Chronos web interface has not been built"},
++            )
++        return JSONResponse(status_code=404, content={"error": "Not found"})
++
++    return app
++
++
++app = create_app()
+diff --git a/app/config.py b/app/config.py
+index 9f28d0a..7089209 100644
+--- a/app/config.py
++++ b/app/config.py
+@@ -1,164 +1,166 @@
+-from __future__ import annotations
+-
+-from dataclasses import dataclass, replace
+-import os
+-from pathlib import Path
+-
+-
+-def _boolean(name: str, default: bool) -> bool:
+-    value = os.getenv(name)
+-    if value is None:
+-        return default
+-    return value.strip().lower() in {"1", "true", "yes", "on"}
+-
+-
+-def _integer(name: str, default: int, minimum: int = 1) -> int:
+-    try:
+-        value = int(os.getenv(name, str(default)))
+-    except ValueError:
+-        return default
+-    return value if value >= minimum else default
+-
+-
+-@dataclass(frozen=True)
+-class RuntimeConfig:
+-    listen_port: int
+-    database_url: str
+-    admin_username: str
+-    admin_password: str
+-    session_secret: str
+-    cookie_secure: bool
+-    trust_proxy: bool
+-    version: str
+-    data_dir: Path
+-    default_timezone: str
+-    kernel_url: str
+-    kernel_service_token: str
+-    kernel_cache_path: Path
+-    kernel_timeout_seconds: float
+-    kernel_refresh_seconds: int
+-    repository_url: str
+-    public_url: str
+-    register_revision: str
+-    updater_socket_path: str
+-    updater_head_id: str
+-    updater_control_token: str
+-    update_check_timeout_seconds: float
+-    audit_max_entries: int
+-    audit_retention_days: int
+-    neptune_socket_path: str
+-    neptune_project_id: str
+-    neptune_control_token_file: Path
+-    neptune_export_token_file: Path
+-    gryphon_service_token_file: Path
+-    gryphon_socket_path: str
+-    gryphon_adapter_url: str
+-    gryphon_timeout_seconds: float
++from __future__ import annotations
++
++from dataclasses import dataclass, replace
++import os
++from pathlib import Path
++
++
++def _boolean(name: str, default: bool) -> bool:
++    value = os.getenv(name)
++    if value is None:
++        return default
++    return value.strip().lower() in {"1", "true", "yes", "on"}
++
++
++def _integer(name: str, default: int, minimum: int = 1) -> int:
++    try:
++        value = int(os.getenv(name, str(default)))
++    except ValueError:
++        return default
++    return value if value >= minimum else default
++
++
++@dataclass(frozen=True)
++class RuntimeConfig:
++    listen_port: int
++    database_url: str
++    admin_username: str
++    admin_password: str
++    session_secret: str
++    cookie_secure: bool
++    trust_proxy: bool
++    version: str
++    data_dir: Path
++    default_timezone: str
++    kernel_url: str
++    kernel_service_token: str
++    kernel_cache_path: Path
++    kernel_timeout_seconds: float
++    kernel_refresh_seconds: int
++    repository_url: str
++    public_url: str
++    register_revision: str
++    updater_socket_path: str
++    updater_head_id: str
++    updater_control_token: str
++    update_check_timeout_seconds: float
++    audit_max_entries: int
++    audit_retention_days: int
++    neptune_socket_path: str
++    neptune_project_id: str
++    neptune_control_token_file: Path
++    neptune_export_token_file: Path
++    gryphon_service_token_file: Path
++    gryphon_socket_path: str
++    gryphon_adapter_url: str
++    gryphon_timeout_seconds: float
+     storage_path: Path | None = None
+-
+-    def with_register(
+-        self,
+-        *,
+-        repository_url: str,
+-        public_url: str,
+-        register_revision: str,
+-        kernel_refresh_seconds: int | None = None,
+-    ) -> "RuntimeConfig":
+-        return replace(
+-            self,
+-            repository_url=repository_url,
+-            public_url=public_url,
+-            register_revision=register_revision,
+-            kernel_refresh_seconds=kernel_refresh_seconds or self.kernel_refresh_seconds,
+-        )
+-
+-    def with_kernel_credentials(
+-        self, *, kernel_url: str, kernel_service_token: str
+-    ) -> "RuntimeConfig":
+-        return replace(
+-            self,
+-            kernel_url=kernel_url,
+-            kernel_service_token=kernel_service_token,
+-            register_revision="",
+-        )
+-
+-
+-def load_config() -> RuntimeConfig:
+-    data_dir = Path(os.getenv("CHRONOS_DATA_DIR", ".data")).resolve()
+-    database_url = os.getenv("DATABASE_URL", "").strip()
+-    if not database_url:
+-        user = os.getenv("DB_USER", "chronos")
+-        password = os.getenv("DB_PASSWORD", "")
+-        host = os.getenv("DB_HOST", "localhost")
+-        port = os.getenv("DB_PORT", "5432")
+-        name = os.getenv("DB_NAME", "chronos")
+-        database_url = f"postgresql://{user}:{password}@{host}:{port}/{name}"
+-    return RuntimeConfig(
+-        storage_path=Path(os.getenv("CHRONOS_STORAGE_PATH", str(data_dir))).resolve(),
+-        listen_port=_integer("CHRONOS_LISTEN_PORT", 18280),
+-        database_url=database_url,
+-        admin_username=os.getenv("CHRONOS_ADMIN_USERNAME", "operator") or "operator",
+-        admin_password=(
+-            os.getenv("CHRONOS_ACCESS_KEY", "").strip()
+-            or os.getenv("CHRONOS_ADMIN_PASSWORD", "")
+-        ),
+-        session_secret=os.getenv("CHRONOS_SESSION_SECRET", ""),
+-        cookie_secure=_boolean("CHRONOS_COOKIE_SECURE", True),
+-        trust_proxy=_boolean("CHRONOS_TRUST_PROXY", True),
+-        version=os.getenv("CHRONOS_VERSION", "0.1.1"),
+-        data_dir=data_dir,
+-        default_timezone=os.getenv("TZ", "UTC"),
+-        kernel_url=os.getenv("KERNEL_URL", "").strip(),
+-        kernel_service_token=os.getenv("KERNEL_SERVICE_TOKEN", "").strip(),
+-        kernel_cache_path=Path(
+-            os.getenv(
+-                "KERNEL_CACHE_PATH",
+-                str(data_dir / "kernel-cache" / "register.snapshot.json"),
+-            )
+-        ),
+-        kernel_timeout_seconds=float(os.getenv("KERNEL_TIMEOUT_SEC", "3")),
++    mastermind_reader_token_file: Path | None = None
++
++    def with_register(
++        self,
++        *,
++        repository_url: str,
++        public_url: str,
++        register_revision: str,
++        kernel_refresh_seconds: int | None = None,
++    ) -> "RuntimeConfig":
++        return replace(
++            self,
++            repository_url=repository_url,
++            public_url=public_url,
++            register_revision=register_revision,
++            kernel_refresh_seconds=kernel_refresh_seconds or self.kernel_refresh_seconds,
++        )
++
++    def with_kernel_credentials(
++        self, *, kernel_url: str, kernel_service_token: str
++    ) -> "RuntimeConfig":
++        return replace(
++            self,
++            kernel_url=kernel_url,
++            kernel_service_token=kernel_service_token,
++            register_revision="",
++        )
++
++
++def load_config() -> RuntimeConfig:
++    data_dir = Path(os.getenv("CHRONOS_DATA_DIR", ".data")).resolve()
++    database_url = os.getenv("DATABASE_URL", "").strip()
++    if not database_url:
++        user = os.getenv("DB_USER", "chronos")
++        password = os.getenv("DB_PASSWORD", "")
++        host = os.getenv("DB_HOST", "localhost")
++        port = os.getenv("DB_PORT", "5432")
++        name = os.getenv("DB_NAME", "chronos")
++        database_url = f"postgresql://{user}:{password}@{host}:{port}/{name}"
++    return RuntimeConfig(
++        storage_path=Path(os.getenv("CHRONOS_STORAGE_PATH", str(data_dir))).resolve(),
++        listen_port=_integer("CHRONOS_LISTEN_PORT", 18280),
++        database_url=database_url,
++        admin_username=os.getenv("CHRONOS_ADMIN_USERNAME", "operator") or "operator",
++        admin_password=(
++            os.getenv("CHRONOS_ACCESS_KEY", "").strip()
++            or os.getenv("CHRONOS_ADMIN_PASSWORD", "")
++        ),
++        session_secret=os.getenv("CHRONOS_SESSION_SECRET", ""),
++        cookie_secure=_boolean("CHRONOS_COOKIE_SECURE", True),
++        trust_proxy=_boolean("CHRONOS_TRUST_PROXY", True),
++        version=os.getenv("CHRONOS_VERSION", "0.1.1"),
++        data_dir=data_dir,
++        default_timezone=os.getenv("TZ", "UTC"),
++        kernel_url=os.getenv("KERNEL_URL", "").strip(),
++        kernel_service_token=os.getenv("KERNEL_SERVICE_TOKEN", "").strip(),
++        kernel_cache_path=Path(
++            os.getenv(
++                "KERNEL_CACHE_PATH",
++                str(data_dir / "kernel-cache" / "register.snapshot.json"),
++            )
++        ),
++        kernel_timeout_seconds=float(os.getenv("KERNEL_TIMEOUT_SEC", "3")),
+         kernel_refresh_seconds=_integer("KERNEL_REFRESH_SEC", 60, 5),
+-        repository_url=os.getenv("CHRONOS_REPOSITORY_URL", "").strip(),
+-        public_url=os.getenv("CHRONOS_PUBLIC_URL", "").strip(),
+-        register_revision="",
+-        updater_socket_path=os.getenv(
+-            "UPDATER_SOCKET_PATH", "/run/exocortex/updater.sock"
+-        ),
+-        updater_head_id=os.getenv("UPDATER_HEAD_ID", "chronos"),
+-        updater_control_token=os.getenv("UPDATER_CONTROL_TOKEN", ""),
+-        update_check_timeout_seconds=float(
+-            os.getenv("CHRONOS_UPDATE_CHECK_TIMEOUT_SEC", "5")
+-        ),
+-        audit_max_entries=_integer("CHRONOS_AUDIT_MAX_ENTRIES", 10000),
+-        audit_retention_days=_integer("CHRONOS_AUDIT_RETENTION_DAYS", 30),
+-        neptune_socket_path=os.getenv("NEPTUNE_SOCKET_PATH", "/run/neptune/neptuned.sock"),
+-        neptune_project_id=os.getenv("NEPTUNE_PROJECT_ID", "chronos"),
+-        neptune_control_token_file=Path(os.getenv("NEPTUNE_CONTROL_TOKEN_FILE", "/run/secrets/neptune/control.token")),
+-        neptune_export_token_file=Path(os.getenv("NEPTUNE_EXPORT_TOKEN_FILE", "/run/secrets/neptune/export.token")),
+-        gryphon_service_token_file=Path(
+-            os.getenv(
+-                "GRYPHON_SERVICE_TOKEN_FILE",
+-                "/run/secrets/gryphon/chronos.token",
+-            )
+-        ),
+-        gryphon_socket_path=os.getenv("GRYPHON_SOCKET_PATH", "/run/gryphon/client.sock"),
+-        gryphon_adapter_url=os.getenv(
+-            "GRYPHON_ADAPTER_URL",
+-            "",
+-        ),
+-        gryphon_timeout_seconds=float(os.getenv("GRYPHON_TIMEOUT_SEC", "5")),
+-    )
+-
+-
+-def validate_runtime_config(config: RuntimeConfig) -> None:
+-    issues: list[str] = []
+-    if len(config.admin_password) < 12 or config.admin_password == "CHANGE_ME":
+-        issues.append("CHRONOS_ACCESS_KEY must contain at least 12 characters")
+-    if len(config.session_secret) < 32 or config.session_secret.startswith("replace-"):
+-        issues.append("CHRONOS_SESSION_SECRET must contain at least 32 characters")
+-    if not config.database_url.startswith(("postgresql://", "postgres://")):
+-        issues.append("DATABASE_URL must be a PostgreSQL URL")
+-    if bool(config.kernel_url) != bool(config.kernel_service_token):
+-        issues.append("KERNEL_URL and KERNEL_SERVICE_TOKEN must be configured together")
+-    if issues:
+-        raise RuntimeError("; ".join(issues))
++        mastermind_reader_token_file=Path(os.environ["MASTERMIND_READER_TOKEN_FILE"]) if os.getenv("MASTERMIND_READER_TOKEN_FILE") else None,
++        repository_url=os.getenv("CHRONOS_REPOSITORY_URL", "").strip(),
++        public_url=os.getenv("CHRONOS_PUBLIC_URL", "").strip(),
++        register_revision="",
++        updater_socket_path=os.getenv(
++            "UPDATER_SOCKET_PATH", "/run/exocortex/updater.sock"
++        ),
++        updater_head_id=os.getenv("UPDATER_HEAD_ID", "chronos"),
++        updater_control_token=os.getenv("UPDATER_CONTROL_TOKEN", ""),
++        update_check_timeout_seconds=float(
++            os.getenv("CHRONOS_UPDATE_CHECK_TIMEOUT_SEC", "5")
++        ),
++        audit_max_entries=_integer("CHRONOS_AUDIT_MAX_ENTRIES", 10000),
++        audit_retention_days=_integer("CHRONOS_AUDIT_RETENTION_DAYS", 30),
++        neptune_socket_path=os.getenv("NEPTUNE_SOCKET_PATH", "/run/neptune/neptuned.sock"),
++        neptune_project_id=os.getenv("NEPTUNE_PROJECT_ID", "chronos"),
++        neptune_control_token_file=Path(os.getenv("NEPTUNE_CONTROL_TOKEN_FILE", "/run/secrets/neptune/control.token")),
++        neptune_export_token_file=Path(os.getenv("NEPTUNE_EXPORT_TOKEN_FILE", "/run/secrets/neptune/export.token")),
++        gryphon_service_token_file=Path(
++            os.getenv(
++                "GRYPHON_SERVICE_TOKEN_FILE",
++                "/run/secrets/gryphon/chronos.token",
++            )
++        ),
++        gryphon_socket_path=os.getenv("GRYPHON_SOCKET_PATH", "/run/gryphon/client.sock"),
++        gryphon_adapter_url=os.getenv(
++            "GRYPHON_ADAPTER_URL",
++            "",
++        ),
++        gryphon_timeout_seconds=float(os.getenv("GRYPHON_TIMEOUT_SEC", "5")),
++    )
++
++
++def validate_runtime_config(config: RuntimeConfig) -> None:
++    issues: list[str] = []
++    if len(config.admin_password) < 12 or config.admin_password == "CHANGE_ME":
++        issues.append("CHRONOS_ACCESS_KEY must contain at least 12 characters")
++    if len(config.session_secret) < 32 or config.session_secret.startswith("replace-"):
++        issues.append("CHRONOS_SESSION_SECRET must contain at least 32 characters")
++    if not config.database_url.startswith(("postgresql://", "postgres://")):
++        issues.append("DATABASE_URL must be a PostgreSQL URL")
++    if bool(config.kernel_url) != bool(config.kernel_service_token):
++        issues.append("KERNEL_URL and KERNEL_SERVICE_TOKEN must be configured together")
++    if issues:
++        raise RuntimeError("; ".join(issues))
+diff --git a/app/store.py b/app/store.py
+index e3293f6..f84e64a 100644
+--- a/app/store.py
++++ b/app/store.py
+@@ -1,564 +1,571 @@
+-from __future__ import annotations
+-
+-from datetime import datetime, timezone
+-import hashlib
+-import copy
+-import json
+-import re
+-from typing import Any, Iterable
+-
+-import asyncpg
+-
+-from .constants import DEFAULT_SETTINGS
+-from .security import hash_password
+-from .validation import validate_settings, validate_session
+-from .transactions import TransactionPool
+-
+-
+-def _json_value(value: Any) -> Any:
+-    if isinstance(value, str):
+-        try:
+-            return json.loads(value)
+-        except json.JSONDecodeError:
+-            return value
+-    return value
+-
+-
+-def _redact_audit(value: Any) -> Any:
+-    if isinstance(value, dict):
+-        return {str(k)[:120]: "[redacted]" if re.search(r"token|secret|password|authorization|cookie|access.?key", str(k), re.I) else _redact_audit(v) for k, v in list(value.items())[:64]}
+-    if isinstance(value, (list, tuple)): return [_redact_audit(v) for v in value[:64]]
+-    if isinstance(value, str): return re.sub(r"(?i)(bearer\s+|volt://)\S+", "[redacted]", value)[:2048]
+-    return value
+-
+-
+-def serialize_session(row: asyncpg.Record | dict[str, Any]) -> dict[str, Any]:
+-    return {
+-        "id": int(row["id"]),
+-        "public_id": str(row["public_id"]),
+-        "user_id": int(row["user_id"]),
+-        "category": str(row["category"]),
+-        "started_at": row["started_at"].isoformat(),
+-        "stopped_at": row["stopped_at"].isoformat() if row["stopped_at"] else None,
+-        "duration_seconds": row["duration_seconds"],
+-        "carried_seconds": int(row.get("carried_seconds", 0) or 0),
+-        "timer_group_key": row.get("timer_group_key"),
+-        "note": str(row.get("note", "")),
+-        "source": str(row.get("source", "web")),
+-        "deleted_at": row["deleted_at"].isoformat() if row.get("deleted_at") else None,
+-    }
+-
+-
+-class Store:
+-    def __init__(
+-        self,
+-        pool: asyncpg.Pool,
+-        *,
+-        audit_max_entries: int,
+-        audit_retention_days: int,
+-    ) -> None:
+-        self.pool = TransactionPool(pool)
+-        self.audit_max_entries = audit_max_entries
+-        self.audit_retention_days = audit_retention_days
+-
+-    async def initialize(
+-        self,
+-        *,
+-        admin_username: str,
+-        admin_password: str,
+-        default_timezone: str,
+-        kernel_url_seed: str = "",
+-        kernel_token_ciphertext_seed: str = "",
+-    ) -> None:
+-        async with self.pool.acquire() as connection:
+-            async with connection.transaction():
+-                owner = await connection.fetchrow("select id from users order by id limit 1")
+-                if owner is None:
+-                    await connection.execute(
+-                        "insert into users default values"
+-                    )
+-                security = await connection.fetchval(
+-                    "select 1 from operator_security where id = 1"
+-                )
+-                if not security:
+-                    await connection.execute(
+-                        """
+-                        insert into operator_security (id, username, password_hash)
+-                        values (1, $1, $2)
+-                        """,
+-                        admin_username,
+-                        hash_password(admin_password),
+-                    )
+-                defaults = {**DEFAULT_SETTINGS, "timezone": default_timezone}
+-                for key, value in defaults.items():
+-                    await connection.execute(
+-                        """
+-                        insert into app_settings (key, value)
+-                        values ($1, $2::jsonb)
+-                        on conflict (key) do nothing
+-                        """,
+-                        key,
+-                        json.dumps(value),
+-                    )
+-                await connection.execute(
+-                    """
+-                    insert into service_credentials (
+-                        id, kernel_url, kernel_token_ciphertext
+-                    ) values (1, $1, $2)
+-                    on conflict (id) do nothing
+-                    """,
+-                    kernel_url_seed,
+-                    kernel_token_ciphertext_seed,
+-                )
+-
+-    async def owner(self, connection: asyncpg.Connection | None = None) -> asyncpg.Record:
+-        if connection is not None:
+-            row = await connection.fetchrow(
+-                "select id, created_at from users order by id limit 1"
+-            )
+-            if row is None:
+-                raise RuntimeError("Chronos owner is not initialized")
+-            return row
+-        async with self.pool.acquire() as acquired:
+-            return await self.owner(acquired)
+-
+-    async def security(self) -> asyncpg.Record:
+-        async with self.pool.acquire() as connection:
+-            row = await connection.fetchrow(
+-                """
+-                select username, password_hash, session_generation, updated_at
+-                from operator_security where id = 1
+-                """
+-            )
+-            if row is None:
+-                raise RuntimeError("Chronos operator security is not initialized")
+-            return row
+-
+-    async def update_password(self, password_hash: str) -> int:
+-        async with self.pool.acquire() as connection:
+-            generation = await connection.fetchval(
+-                """
+-                update operator_security
+-                set password_hash = $1,
+-                    session_generation = session_generation + 1,
+-                    updated_at = now()
+-                where id = 1
+-                returning session_generation
+-                """,
+-                password_hash,
+-            )
+-        return int(generation)
+-
+-    async def session_revoked(self, token: str) -> bool:
+-        digest = hashlib.sha256(token.encode()).hexdigest()
+-        async with self.pool.acquire() as connection:
+-            return bool(await connection.fetchval(
+-                "select 1 from revoked_sessions where token_hash = $1 and expires_at > now()", digest
+-            ))
+-
+-    async def revoke_session(self, token: str, expires_at: int) -> None:
+-        digest = hashlib.sha256(token.encode()).hexdigest()
+-        async with self.pool.acquire() as connection:
+-            async with connection.transaction():
+-                await connection.execute("delete from revoked_sessions where expires_at <= now()")
+-                await connection.execute(
+-                    "insert into revoked_sessions(token_hash, expires_at) values ($1, $2) on conflict do nothing",
+-                    digest, datetime.fromtimestamp(expires_at, timezone.utc),
+-                )
+-
+-    async def kernel_credentials(self) -> asyncpg.Record:
+-        async with self.pool.acquire() as connection:
+-            row = await connection.fetchrow(
+-                """
+-                select kernel_url, kernel_token_ciphertext, updated_at
+-                from service_credentials where id = 1
+-                """
+-            )
+-            if row is None:
+-                raise RuntimeError("Chronos service credentials are not initialized")
+-            return row
+-
+-    async def update_kernel_credentials(
+-        self, *, kernel_url: str, kernel_token_ciphertext: str | None = None
+-    ) -> None:
+-        async with self.pool.acquire() as connection:
+-            if kernel_token_ciphertext is None:
+-                await connection.execute(
+-                    """
+-                    update service_credentials
+-                    set kernel_url = $1, updated_at = now()
+-                    where id = 1
+-                    """,
+-                    kernel_url,
+-                )
+-            else:
+-                await connection.execute(
+-                    """
+-                    update service_credentials
+-                    set kernel_url = $1,
+-                        kernel_token_ciphertext = $2,
+-                        updated_at = now()
+-                    where id = 1
+-                    """,
+-                    kernel_url,
+-                    kernel_token_ciphertext,
+-                )
+-
+-    async def settings(self) -> dict[str, Any]:
+-        async with self.pool.acquire() as connection:
+-            rows = await connection.fetch("select key, value from app_settings")
+-        result = dict(DEFAULT_SETTINGS)
+-        for row in rows:
+-            key = str(row["key"])
+-            if key in DEFAULT_SETTINGS:
+-                result[key] = _json_value(row["value"])
+-        return result
+-
+-    async def update_settings(self, values: dict[str, Any]) -> dict[str, Any]:
+-        async with self.pool.acquire() as connection:
+-            async with connection.transaction():
+-                for key, value in values.items():
+-                    await connection.execute(
+-                        """
+-                        insert into app_settings (key, value, updated_at)
+-                        values ($1, $2::jsonb, now())
+-                        on conflict (key) do update
+-                        set value = excluded.value, updated_at = now()
+-                        """,
+-                        key,
+-                        json.dumps(value),
+-                    )
+-        return await self.settings()
+-
+-    async def begin_gryphon_event(self, event_id: str) -> dict[str, Any] | None:
+-        async with self.pool.acquire() as connection:
+-            async with connection.transaction():
+-                if await connection.fetchval("select count(*) >= 100000 and not exists (select 1 from gryphon_events where event_id=$1) from gryphon_events", event_id):
+-                    raise RuntimeError("Command replay journal capacity reached; retry after retention pruning")
+-                inserted = await connection.fetchval(
+-                    """
+-                    insert into gryphon_events (event_id, state)
+-                    values ($1, 'processing')
+-                    on conflict do nothing
+-                    returning event_id
+-                    """,
+-                    event_id,
+-                )
+-                if inserted:
+-                    return None
+-                existing = await connection.fetchrow(
+-                    "select state, response from gryphon_events where event_id = $1 for update",
+-                    event_id,
+-                )
+-                if existing and existing["state"] == "completed":
+-                    return _json_value(existing["response"])
+-                if existing and existing["state"] == "failed":
+-                    await connection.execute(
+-                        """
+-                        update gryphon_events
+-                        set state = 'processing', response = null,
+-                            started_at = now(), completed_at = null
+-                        where event_id = $1
+-                        """,
+-                        event_id,
+-                    )
+-                    return None
+-                recovered = await connection.fetchval(
+-                    """
+-                    update gryphon_events
+-                    set started_at = now()
+-                    where event_id = $1 and state = 'processing'
+-                      and started_at < now() - interval '5 minutes'
+-                    returning event_id
+-                    """,
+-                    event_id,
+-                )
+-                if recovered:
+-                    return None
+-                raise RuntimeError("Gryphon event is already being processed")
+-
+-    async def complete_gryphon_event(
+-        self, event_id: str, response: dict[str, Any]
+-    ) -> None:
+-        async with self.pool.acquire() as connection:
+-            await connection.execute(
+-                """
+-                update gryphon_events
+-                set state = 'completed', response = $2::jsonb, completed_at = now()
+-                where event_id = $1 and state = 'processing'
+-                """,
+-                event_id,
+-                json.dumps(response),
+-            )
+-
+-    async def fail_gryphon_event(self, event_id: str) -> None:
+-        async with self.pool.acquire() as connection:
+-            await connection.execute(
+-                """
+-                update gryphon_events set state = 'failed', completed_at = now()
+-                where event_id = $1 and state = 'processing'
+-                """,
+-                event_id,
+-            )
+-
+-    async def audit(
+-        self,
+-        *,
+-        status: str,
+-        action: str,
+-        target: str = "",
+-        actor: str = "system",
+-        message: str = "",
+-        details: dict[str, Any] | None = None,
+-        request_id: str | None = None,
+-    ) -> None:
+-        async with self.pool.acquire() as connection:
+-            await connection.execute(
+-                """
+-                insert into audit_events
+-                    (status, action, target, actor, message, details, request_id)
+-                values ($1, $2, $3, $4, $5, $6::jsonb, $7)
+-                """,
+-                status,
+-                action,
+-                target,
+-                actor,
+-                message,
+-                json.dumps(_redact_audit(details or {})),
+-                request_id,
+-            )
+-            await connection.execute(
+-                "delete from audit_events where created_at < now() - ($1 * interval '1 day')",
+-                self.audit_retention_days,
+-            )
+-            await connection.execute(
+-                """
+-                delete from audit_events where id in (
+-                    select id from audit_events
+-                    order by created_at desc
+-                    offset $1
+-                )
+-                """,
+-                self.audit_max_entries,
+-            )
+-            await connection.execute("""
+-                delete from audit_events where id in (
+-                    select id from (select id, sum(pg_column_size(audit_events)) over(order by id desc) as bytes from audit_events) bounded where bytes > 67108864
+-                )
+-            """)
+-            # Undo and command replay retention have the same declared 30-day window.
+-            await connection.execute("delete from undo_actions where created_at < now() - interval '30 days'")
+-            await connection.execute("delete from gryphon_events where state != 'processing' and created_at < now() - interval '30 days'")
+-            await connection.execute("delete from undo_actions where id not in (select id from undo_actions order by id desc limit 10000)")
+-
+-    async def audit_events(
+-        self, limit: int = 200, *, after_id: int | None = None
+-    ) -> list[dict[str, Any]]:
+-        async with self.pool.acquire() as connection:
+-            if after_id is None:
+-                rows = await connection.fetch(
+-                    """
+-                    select id, status, action, target, actor, message, details,
+-                           request_id, created_at
+-                    from audit_events
+-                    order by id desc
+-                    limit $1
+-                    """,
+-                    max(1, min(limit, 10000)),
+-                )
+-            else:
+-                rows = await connection.fetch(
+-                    """
+-                    select id, status, action, target, actor, message, details,
+-                           request_id, created_at
+-                    from audit_events
+-                    where id > $1
+-                    order by id desc
+-                    limit $2
+-                    """,
+-                    max(0, after_id),
+-                    max(1, min(limit, 10000)),
+-                )
+-        return [
+-            {
+-                "id": int(row["id"]),
+-                "status": row["status"],
+-                "action": row["action"],
+-                "target": row["target"],
+-                "actor": row["actor"],
+-                "message": row["message"],
+-                "details": _json_value(row["details"]),
+-                "request_id": row["request_id"],
+-                "created_at": row["created_at"].isoformat(),
+-            }
+-            for row in rows
+-        ]
+-
+-    async def logical_backup(self) -> dict[str, Any]:
+-        async with self.pool.acquire() as connection:
+-            async with connection.transaction(isolation="repeatable_read", readonly=True):
+-                owner = await self.owner(connection)
+-                rows = await connection.fetch("select * from time_sessions where user_id=$1 order by id", owner["id"])
+-                settings = {row["key"]: _json_value(row["value"]) for row in await connection.fetch("select key,value from app_settings")}
+-                security = dict(await connection.fetchrow("select password_hash, session_generation from operator_security where id=1"))
+-                kernel_url = await connection.fetchval("select kernel_url from service_credentials where id=1")
+-                undo = [dict(row) for row in await connection.fetch(
+-                    "select action,before_state,after_ids,used_at,created_at from undo_actions where user_id=$1 order by id", owner["id"]
+-                )]
+-                events = [dict(row) for row in await connection.fetch("select * from gryphon_events order by created_at")]
+-        def portable(value):
+-            if isinstance(value, datetime): return value.isoformat()
+-            if isinstance(value, dict): return {key: portable(item) for key, item in value.items()}
+-            if isinstance(value, list): return [portable(item) for item in value]
+-            return value
+-        return {
+-            "schema": "exocortex.chronos.backup.v1",
+-            "created_at": datetime.now(timezone.utc).isoformat(),
+-            "settings": settings,
+-            "sessions": [serialize_session(row) for row in rows],
+-            "recovery": {
+-                "version": 1,
+-                "security": security,
+-                "kernel_url": kernel_url,
+-                "credentials_policy": "retain-target-enrollment",
+-                "sessions_policy": "revoke-all",
+-                "undo_actions": portable(undo),
+-                "gryphon_events": portable(events),
+-            },
+-        }
+-
+-    async def restore_backup(self, backup: dict[str, Any]) -> int:
+-        if backup.get("schema") != "exocortex.chronos.backup.v1":
+-            raise ValueError("Unsupported Chronos backup schema")
+-        sessions = backup.get("sessions")
+-        raw_settings = backup.get("settings")
+-        if not isinstance(sessions, list) or not isinstance(raw_settings, dict):
+-            raise ValueError("Chronos backup is incomplete")
+-        if len(sessions) > 1_000_000:
+-            raise ValueError("Chronos backup contains too many sessions")
+-        settings = {**DEFAULT_SETTINGS, **validate_settings(raw_settings)}
+-        sessions = [validate_session(item) for item in sessions]
+-        if len({item["id"] for item in sessions}) != len(sessions) or len({item["public_id"] for item in sessions}) != len(sessions):
+-            raise ValueError("Duplicate backup session identity")
+-        if sum(item["stopped_at"] is None and item["deleted_at"] is None for item in sessions) > 1:
+-            raise ValueError("Backup has more than one active timer")
+-        recovery = copy.deepcopy(backup.get("recovery") or {})
+-        if not isinstance(recovery, dict) or (recovery and recovery.get("version") != 1):
+-            raise ValueError("Unsupported recovery metadata")
+-        security = recovery.get("security")
+-        if security is not None and (
+-            not isinstance(security, dict)
+-            or not re.fullmatch(r"scrypt\$[A-Za-z0-9_-]{22}\$[A-Za-z0-9_-]{86}", str(security.get("password_hash", "")))
+-            or type(security.get("session_generation")) is not int
+-            or not 0 < security["session_generation"] < 2**30
+-        ):
+-            raise ValueError("Invalid recovery access verifier")
+-        undo = recovery.get("undo_actions", [])
+-        events = recovery.get("gryphon_events", [])
+-        if not isinstance(undo, list) or not isinstance(events, list) or len(undo) > 10000 or len(events) > 100000:
+-            raise ValueError("Invalid recovery event inventory")
+-        def stamp(value):
+-            if value is None: return None
+-            try: parsed = datetime.fromisoformat(value)
+-            except (ValueError, TypeError) as error: raise ValueError("Invalid recovery timestamp") from error
+-            if parsed.tzinfo is None: raise ValueError("Recovery timestamps require timezone")
+-            return parsed
+-        for item in undo:
+-            if not isinstance(item, dict) or not isinstance(item.get("action"), str) or len(item["action"]) > 100:
+-                raise ValueError("Invalid undo action")
+-            before, after = _json_value(item.get("before_state")), _json_value(item.get("after_ids"))
+-            if not isinstance(before, list) or not isinstance(after, list) or len(before) > 10000 or len(after) > 10000:
+-                raise ValueError("Invalid undo references")
+-            for session in before: validate_session(session)
+-            if any(type(identifier) is not int or identifier <= 0 or identifier >= 2**63-1 for identifier in after):
+-                raise ValueError("Invalid undo ID")
+-            item["before_state"], item["after_ids"] = before, after
+-            item["created_at"], item["used_at"] = stamp(item.get("created_at")), stamp(item.get("used_at"))
+-            if item["created_at"] is None: raise ValueError("Missing undo timestamp")
+-        event_ids = set()
+-        for event in events:
+-            if not isinstance(event, dict) or not isinstance(event.get("event_id"), str) or not 0 < len(event["event_id"]) <= 200 or event["event_id"] in event_ids:
+-                raise ValueError("Invalid Gryphon event identity")
+-            event_ids.add(event["event_id"])
+-            if event.get("state") not in {"processing", "completed", "failed"}: raise ValueError("Invalid Gryphon event state")
+-            if event["state"] == "processing":
+-                # Old releases could commit a timer separately from their journal.
+-                # An uncertain restored command must never mutate that timer twice.
+-                event["state"] = "completed"
+-                event["response"] = {"schema": "exocortex.telegram.response.v1", "actions": [{"type": "send_message", "text": "This command was interrupted before recovery. Check the timer state and submit a new command if needed."}]}
+-            for key in ("created_at", "started_at", "completed_at"): event[key] = stamp(event.get(key))
+-            if event["created_at"] is None or event["started_at"] is None: raise ValueError("Missing Gryphon event timestamp")
++from __future__ import annotations
++
++from datetime import datetime, timezone
++import hashlib
++import copy
++import json
++import re
++from typing import Any, Iterable
++
++import asyncpg
++
++from .constants import DEFAULT_SETTINGS
++from .security import hash_password
++from .validation import validate_settings, validate_session
++from .transactions import TransactionPool
++
++
++def _json_value(value: Any) -> Any:
++    if isinstance(value, str):
++        try:
++            return json.loads(value)
++        except json.JSONDecodeError:
++            return value
++    return value
++
++
++def _redact_audit(value: Any) -> Any:
++    if isinstance(value, dict):
++        return {str(k)[:120]: "[redacted]" if re.search(r"token|secret|password|authorization|cookie|access.?key", str(k), re.I) else _redact_audit(v) for k, v in list(value.items())[:64]}
++    if isinstance(value, (list, tuple)): return [_redact_audit(v) for v in value[:64]]
++    if isinstance(value, str): return re.sub(r"(?i)(bearer\s+|volt://)\S+", "[redacted]", value)[:2048]
++    return value
++
++
++def serialize_session(row: asyncpg.Record | dict[str, Any]) -> dict[str, Any]:
++    return {
++        "id": int(row["id"]),
++        "public_id": str(row["public_id"]),
++        "user_id": int(row["user_id"]),
++        "category": str(row["category"]),
++        "started_at": row["started_at"].isoformat(),
++        "stopped_at": row["stopped_at"].isoformat() if row["stopped_at"] else None,
++        "duration_seconds": row["duration_seconds"],
++        "carried_seconds": int(row.get("carried_seconds", 0) or 0),
++        "timer_group_key": row.get("timer_group_key"),
++        "note": str(row.get("note", "")),
++        "source": str(row.get("source", "web")),
++        "deleted_at": row["deleted_at"].isoformat() if row.get("deleted_at") else None,
++    }
++
++
++class Store:
++    def __init__(
++        self,
++        pool: asyncpg.Pool,
++        *,
++        audit_max_entries: int,
++        audit_retention_days: int,
++    ) -> None:
++        self.pool = TransactionPool(pool)
++        self.audit_max_entries = audit_max_entries
++        self.audit_retention_days = audit_retention_days
++
++    async def initialize(
++        self,
++        *,
++        admin_username: str,
++        admin_password: str,
++        default_timezone: str,
++        kernel_url_seed: str = "",
++        kernel_token_ciphertext_seed: str = "",
++    ) -> None:
++        async with self.pool.acquire() as connection:
++            async with connection.transaction():
++                owner = await connection.fetchrow("select id from users order by id limit 1")
++                if owner is None:
++                    await connection.execute(
++                        "insert into users default values"
++                    )
++                security = await connection.fetchval(
++                    "select 1 from operator_security where id = 1"
++                )
++                if not security:
++                    await connection.execute(
++                        """
++                        insert into operator_security (id, username, password_hash)
++                        values (1, $1, $2)
++                        """,
++                        admin_username,
++                        hash_password(admin_password),
++                    )
++                defaults = {**DEFAULT_SETTINGS, "timezone": default_timezone}
++                for key, value in defaults.items():
++                    await connection.execute(
++                        """
++                        insert into app_settings (key, value)
++                        values ($1, $2::jsonb)
++                        on conflict (key) do nothing
++                        """,
++                        key,
++                        json.dumps(value),
++                    )
++                await connection.execute(
++                    """
++                    insert into service_credentials (
++                        id, kernel_url, kernel_token_ciphertext
++                    ) values (1, $1, $2)
++                    on conflict (id) do nothing
++                    """,
++                    kernel_url_seed,
++                    kernel_token_ciphertext_seed,
++                )
++
++    async def owner(self, connection: asyncpg.Connection | None = None) -> asyncpg.Record:
++        if connection is not None:
++            row = await connection.fetchrow(
++                "select id, created_at from users order by id limit 1"
++            )
++            if row is None:
++                raise RuntimeError("Chronos owner is not initialized")
++            return row
++        async with self.pool.acquire() as acquired:
++            return await self.owner(acquired)
++
++    async def security(self) -> asyncpg.Record:
++        async with self.pool.acquire() as connection:
++            row = await connection.fetchrow(
++                """
++                select username, password_hash, session_generation, updated_at
++                from operator_security where id = 1
++                """
++            )
++            if row is None:
++                raise RuntimeError("Chronos operator security is not initialized")
++            return row
++
++    async def update_password(self, password_hash: str) -> int:
++        async with self.pool.acquire() as connection:
++            generation = await connection.fetchval(
++                """
++                update operator_security
++                set password_hash = $1,
++                    session_generation = session_generation + 1,
++                    updated_at = now()
++                where id = 1
++                returning session_generation
++                """,
++                password_hash,
++            )
++        return int(generation)
++
++    async def session_revoked(self, token: str) -> bool:
++        digest = hashlib.sha256(token.encode()).hexdigest()
++        async with self.pool.acquire() as connection:
++            return bool(await connection.fetchval(
++                "select 1 from revoked_sessions where token_hash = $1 and expires_at > now()", digest
++            ))
++
++    async def revoke_session(self, token: str, expires_at: int) -> None:
++        digest = hashlib.sha256(token.encode()).hexdigest()
++        async with self.pool.acquire() as connection:
++            async with connection.transaction():
++                await connection.execute("delete from revoked_sessions where expires_at <= now()")
++                await connection.execute(
++                    "insert into revoked_sessions(token_hash, expires_at) values ($1, $2) on conflict do nothing",
++                    digest, datetime.fromtimestamp(expires_at, timezone.utc),
++                )
++
++    async def kernel_credentials(self) -> asyncpg.Record:
++        async with self.pool.acquire() as connection:
++            row = await connection.fetchrow(
++                """
++                select kernel_url, kernel_token_ciphertext, updated_at
++                from service_credentials where id = 1
++                """
++            )
++            if row is None:
++                raise RuntimeError("Chronos service credentials are not initialized")
++            return row
++
++    async def update_kernel_credentials(
++        self, *, kernel_url: str, kernel_token_ciphertext: str | None = None
++    ) -> None:
++        async with self.pool.acquire() as connection:
++            if kernel_token_ciphertext is None:
++                await connection.execute(
++                    """
++                    update service_credentials
++                    set kernel_url = $1, updated_at = now()
++                    where id = 1
++                    """,
++                    kernel_url,
++                )
++            else:
++                await connection.execute(
++                    """
++                    update service_credentials
++                    set kernel_url = $1,
++                        kernel_token_ciphertext = $2,
++                        updated_at = now()
++                    where id = 1
++                    """,
++                    kernel_url,
++                    kernel_token_ciphertext,
++                )
++
++    async def settings(self) -> dict[str, Any]:
++        async with self.pool.acquire() as connection:
++            rows = await connection.fetch("select key, value from app_settings")
++        result = dict(DEFAULT_SETTINGS)
++        for row in rows:
++            key = str(row["key"])
++            if key in DEFAULT_SETTINGS:
++                result[key] = _json_value(row["value"])
++        return result
++
++    async def update_settings(self, values: dict[str, Any]) -> dict[str, Any]:
++        async with self.pool.acquire() as connection:
++            async with connection.transaction():
++                for key, value in values.items():
++                    await connection.execute(
++                        """
++                        insert into app_settings (key, value, updated_at)
++                        values ($1, $2::jsonb, now())
++                        on conflict (key) do update
++                        set value = excluded.value, updated_at = now()
++                        """,
++                        key,
++                        json.dumps(value),
++                    )
++        return await self.settings()
++
++    async def begin_gryphon_event(self, event_id: str) -> dict[str, Any] | None:
++        async with self.pool.acquire() as connection:
++            async with connection.transaction():
++                if await connection.fetchval("select count(*) >= 100000 and not exists (select 1 from gryphon_events where event_id=$1) from gryphon_events", event_id):
++                    raise RuntimeError("Command replay journal capacity reached; retry after retention pruning")
++                inserted = await connection.fetchval(
++                    """
++                    insert into gryphon_events (event_id, state)
++                    values ($1, 'processing')
++                    on conflict do nothing
++                    returning event_id
++                    """,
++                    event_id,
++                )
++                if inserted:
++                    return None
++                existing = await connection.fetchrow(
++                    "select state, response from gryphon_events where event_id = $1 for update",
++                    event_id,
++                )
++                if existing and existing["state"] == "completed":
++                    return _json_value(existing["response"])
++                if existing and existing["state"] == "failed":
++                    await connection.execute(
++                        """
++                        update gryphon_events
++                        set state = 'processing', response = null,
++                            started_at = now(), completed_at = null
++                        where event_id = $1
++                        """,
++                        event_id,
++                    )
++                    return None
++                recovered = await connection.fetchval(
++                    """
++                    update gryphon_events
++                    set started_at = now()
++                    where event_id = $1 and state = 'processing'
++                      and started_at < now() - interval '5 minutes'
++                    returning event_id
++                    """,
++                    event_id,
++                )
++                if recovered:
++                    return None
++                raise RuntimeError("Gryphon event is already being processed")
++
++    async def complete_gryphon_event(
++        self, event_id: str, response: dict[str, Any]
++    ) -> None:
++        async with self.pool.acquire() as connection:
++            await connection.execute(
++                """
++                update gryphon_events
++                set state = 'completed', response = $2::jsonb, completed_at = now()
++                where event_id = $1 and state = 'processing'
++                """,
++                event_id,
++                json.dumps(response),
++            )
++
++    async def fail_gryphon_event(self, event_id: str) -> None:
++        async with self.pool.acquire() as connection:
++            await connection.execute(
++                """
++                update gryphon_events set state = 'failed', completed_at = now()
++                where event_id = $1 and state = 'processing'
++                """,
++                event_id,
++            )
++
++    async def audit(
++        self,
++        *,
++        status: str,
++        action: str,
++        target: str = "",
++        actor: str = "system",
++        message: str = "",
++        details: dict[str, Any] | None = None,
++        request_id: str | None = None,
++    ) -> None:
++        async with self.pool.acquire() as connection:
++            await connection.execute(
++                """
++                insert into audit_events
++                    (status, action, target, actor, message, details, request_id)
++                values ($1, $2, $3, $4, $5, $6::jsonb, $7)
++                """,
++                status,
++                action,
++                target,
++                actor,
++                message,
++                json.dumps(_redact_audit(details or {})),
++                request_id,
++            )
++            await connection.execute(
++                "delete from audit_events where created_at < now() - ($1 * interval '1 day')",
++                self.audit_retention_days,
++            )
++            await connection.execute(
++                """
++                delete from audit_events where id in (
++                    select id from audit_events
++                    order by created_at desc
++                    offset $1
++                )
++                """,
++                self.audit_max_entries,
++            )
++            await connection.execute("""
++                delete from audit_events where id in (
++                    select id from (select id, sum(pg_column_size(audit_events)) over(order by id desc) as bytes from audit_events) bounded where bytes > 67108864
++                )
++            """)
++            # Undo and command replay retention have the same declared 30-day window.
++            await connection.execute("delete from undo_actions where created_at < now() - interval '30 days'")
++            await connection.execute("delete from gryphon_events where state != 'processing' and created_at < now() - interval '30 days'")
++            await connection.execute("delete from undo_actions where id not in (select id from undo_actions order by id desc limit 10000)")
++
++    async def audit_events(
++        self, limit: int = 200, *, after_id: int | None = None
++    ) -> list[dict[str, Any]]:
++        async with self.pool.acquire() as connection:
++            if after_id is None:
++                rows = await connection.fetch(
++                    """
++                    select id, status, action, target, actor, message, details,
++                           request_id, created_at
++                    from audit_events
++                    order by id desc
++                    limit $1
++                    """,
++                    max(1, min(limit, 10000)),
++                )
++            else:
++                rows = await connection.fetch(
++                    """
++                    select id, status, action, target, actor, message, details,
++                           request_id, created_at
++                    from audit_events
++                    where id > $1
++                    order by id desc
++                    limit $2
++                    """,
++                    max(0, after_id),
++                    max(1, min(limit, 10000)),
++                )
++        return [
++            {
++                "id": int(row["id"]),
++                "status": row["status"],
++                "action": row["action"],
++                "target": row["target"],
++                "actor": row["actor"],
++                "message": row["message"],
++                "details": _json_value(row["details"]),
++                "request_id": row["request_id"],
++                "created_at": row["created_at"].isoformat(),
++            }
++            for row in rows
++        ]
++
++    async def logical_backup(self) -> dict[str, Any]:
++        async with self.pool.acquire() as connection:
++            async with connection.transaction(isolation="repeatable_read", readonly=True):
++                owner = await self.owner(connection)
++                rows = await connection.fetch("select * from time_sessions where user_id=$1 order by id", owner["id"])
++                settings = {row["key"]: _json_value(row["value"]) for row in await connection.fetch("select key,value from app_settings")}
++                security = dict(await connection.fetchrow("select password_hash, session_generation from operator_security where id=1"))
++                kernel_url = await connection.fetchval("select kernel_url from service_credentials where id=1")
++                undo = [dict(row) for row in await connection.fetch(
++                    "select action,before_state,after_ids,used_at,created_at from undo_actions where user_id=$1 order by id", owner["id"]
++                )]
++                events = [dict(row) for row in await connection.fetch("select * from gryphon_events order by created_at")]
++        def portable(value):
++            if isinstance(value, datetime): return value.isoformat()
++            if isinstance(value, dict): return {key: portable(item) for key, item in value.items()}
++            if isinstance(value, list): return [portable(item) for item in value]
++            return value
++        return {
++            "schema": "exocortex.chronos.backup.v1",
++            "created_at": datetime.now(timezone.utc).isoformat(),
++            "settings": settings,
++            "sessions": [serialize_session(row) for row in rows],
++            "recovery": {
++                "version": 1,
++                "security": security,
++                "kernel_url": kernel_url,
++                "credentials_policy": "retain-target-enrollment",
++                "sessions_policy": "revoke-all",
++                "undo_actions": portable(undo),
++                "gryphon_events": portable(events),
++            },
++        }
++
++    async def restore_backup(self, backup: dict[str, Any]) -> int:
++        if backup.get("schema") != "exocortex.chronos.backup.v1":
++            raise ValueError("Unsupported Chronos backup schema")
++        sessions = backup.get("sessions")
++        raw_settings = backup.get("settings")
++        if not isinstance(sessions, list) or not isinstance(raw_settings, dict):
++            raise ValueError("Chronos backup is incomplete")
++        if len(sessions) > 1_000_000:
++            raise ValueError("Chronos backup contains too many sessions")
++        settings = {**DEFAULT_SETTINGS, **validate_settings(raw_settings)}
++        sessions = [validate_session(item) for item in sessions]
++        if len({item["id"] for item in sessions}) != len(sessions) or len({item["public_id"] for item in sessions}) != len(sessions):
++            raise ValueError("Duplicate backup session identity")
++        if sum(item["stopped_at"] is None and item["deleted_at"] is None for item in sessions) > 1:
++            raise ValueError("Backup has more than one active timer")
++        recovery = copy.deepcopy(backup.get("recovery") or {})
++        if not isinstance(recovery, dict) or (recovery and recovery.get("version") != 1):
++            raise ValueError("Unsupported recovery metadata")
++        security = recovery.get("security")
++        if security is not None and (
++            not isinstance(security, dict)
++            or not re.fullmatch(r"scrypt\$[A-Za-z0-9_-]{22}\$[A-Za-z0-9_-]{86}", str(security.get("password_hash", "")))
++            or type(security.get("session_generation")) is not int
++            or not 0 < security["session_generation"] < 2**30
++        ):
++            raise ValueError("Invalid recovery access verifier")
++        undo = recovery.get("undo_actions", [])
++        events = recovery.get("gryphon_events", [])
++        if not isinstance(undo, list) or not isinstance(events, list) or len(undo) > 10000 or len(events) > 100000:
++            raise ValueError("Invalid recovery event inventory")
++        def stamp(value):
++            if value is None: return None
++            try: parsed = datetime.fromisoformat(value)
++            except (ValueError, TypeError) as error: raise ValueError("Invalid recovery timestamp") from error
++            if parsed.tzinfo is None: raise ValueError("Recovery timestamps require timezone")
++            return parsed
++        for item in undo:
++            if not isinstance(item, dict) or not isinstance(item.get("action"), str) or len(item["action"]) > 100:
++                raise ValueError("Invalid undo action")
++            before, after = _json_value(item.get("before_state")), _json_value(item.get("after_ids"))
++            if not isinstance(before, list) or not isinstance(after, list) or len(before) > 10000 or len(after) > 10000:
++                raise ValueError("Invalid undo references")
++            for session in before: validate_session(session)
++            if any(type(identifier) is not int or identifier <= 0 or identifier >= 2**63-1 for identifier in after):
++                raise ValueError("Invalid undo ID")
++            item["before_state"], item["after_ids"] = before, after
++            item["created_at"], item["used_at"] = stamp(item.get("created_at")), stamp(item.get("used_at"))
++            if item["created_at"] is None: raise ValueError("Missing undo timestamp")
++        event_ids = set()
++        for event in events:
++            if not isinstance(event, dict) or not isinstance(event.get("event_id"), str) or not 0 < len(event["event_id"]) <= 200 or event["event_id"] in event_ids:
++                raise ValueError("Invalid Gryphon event identity")
++            event_ids.add(event["event_id"])
++            if event.get("state") not in {"processing", "completed", "failed"}: raise ValueError("Invalid Gryphon event state")
++            if event["state"] == "processing":
++                # Old releases could commit a timer separately from their journal.
++                # An uncertain restored command must never mutate that timer twice.
++                event["state"] = "completed"
++                event["response"] = {"schema": "exocortex.telegram.response.v1", "actions": [{"type": "send_message", "text": "This command was interrupted before recovery. Check the timer state and submit a new command if needed."}]}
++            for key in ("created_at", "started_at", "completed_at"): event[key] = stamp(event.get(key))
++            if event["created_at"] is None or event["started_at"] is None: raise ValueError("Missing Gryphon event timestamp")
++        async with self.pool.acquire() as connection:
++            async with connection.transaction():
++                owner = await self.owner(connection)
++                await connection.execute("select pg_advisory_xact_lock($1)", owner["id"])
++                await connection.execute("delete from undo_actions where user_id=$1", owner["id"])
++                await connection.execute(
++                    "delete from time_sessions where user_id = $1", owner["id"]
++                )
++                for item in sessions:
++                    await connection.execute(
++                        """
++                        insert into time_sessions
++                            (id, public_id, user_id, category, started_at, stopped_at,
++                             duration_seconds, carried_seconds, timer_group_key,
++                             note, source, deleted_at)
++                        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
++                        """,
++                        item["id"], item["public_id"],
++                        owner["id"],
++                        item["category"],
++                        item["started_at"],
++                        item["stopped_at"],
++                        item.get("duration_seconds"),
++                        max(0, int(item.get("carried_seconds") or 0)),
++                        item.get("timer_group_key"),
++                        item.get("note", ""), item.get("source", "restore"), item["deleted_at"],
++                    )
++                for key, value in settings.items():
++                    await connection.execute(
++                        """
++                        insert into app_settings (key, value, updated_at)
++                        values ($1, $2::jsonb, now())
++                        on conflict (key) do update
++                        set value = excluded.value, updated_at = now()
++                        """,
++                        key,
++                        json.dumps(value),
++                    )
++                for item in undo:
++                    for row in item["before_state"]: row["user_id"] = owner["id"]
++                    await connection.execute(
++                        "insert into undo_actions(user_id,action,before_state,after_ids,used_at,created_at) values($1,$2,$3::jsonb,$4::jsonb,$5,$6)",
++                        owner["id"],item["action"],json.dumps(item["before_state"]),json.dumps(item["after_ids"]),item["used_at"],item["created_at"],
++                    )
++                await connection.execute("delete from gryphon_events")
++                for event in events:
++                    await connection.execute(
++                        "insert into gryphon_events(event_id,state,response,created_at,started_at,completed_at) values($1,$2,$3::jsonb,$4,$5,$6)",
++                        event["event_id"], event["state"],
++                        json.dumps(_json_value(event.get("response"))), event["created_at"], event["started_at"], event["completed_at"],
++                    )
++                await connection.execute(
++                    "update operator_security set password_hash=coalesce($1,password_hash), session_generation=greatest(session_generation,$2)+1, updated_at=now() where id=1",
++                    security["password_hash"] if security else None, security["session_generation"] if security else 0,
++                )
++                await connection.execute("delete from revoked_sessions")
++                # Explicit restored IDs and legacy public IDs must both be below the next allocation.
++                maximum = max([item["id"] for item in sessions] + [int(item["public_id"][2:]) for item in sessions] + [0])
++                await connection.execute("select setval(pg_get_serial_sequence('time_sessions','id'), $1, $2)", max(1, maximum), maximum > 0)
++        return len(sessions)
++
++    async def mastermind_event(self, public_id: str):
++        owner = await self.owner()
+         async with self.pool.acquire() as connection:
+-            async with connection.transaction():
+-                owner = await self.owner(connection)
+-                await connection.execute("select pg_advisory_xact_lock($1)", owner["id"])
+-                await connection.execute("delete from undo_actions where user_id=$1", owner["id"])
+-                await connection.execute(
+-                    "delete from time_sessions where user_id = $1", owner["id"]
+-                )
+-                for item in sessions:
+-                    await connection.execute(
+-                        """
+-                        insert into time_sessions
+-                            (id, public_id, user_id, category, started_at, stopped_at,
+-                             duration_seconds, carried_seconds, timer_group_key,
+-                             note, source, deleted_at)
+-                        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+-                        """,
+-                        item["id"], item["public_id"],
+-                        owner["id"],
+-                        item["category"],
+-                        item["started_at"],
+-                        item["stopped_at"],
+-                        item.get("duration_seconds"),
+-                        max(0, int(item.get("carried_seconds") or 0)),
+-                        item.get("timer_group_key"),
+-                        item.get("note", ""), item.get("source", "restore"), item["deleted_at"],
+-                    )
+-                for key, value in settings.items():
+-                    await connection.execute(
+-                        """
+-                        insert into app_settings (key, value, updated_at)
+-                        values ($1, $2::jsonb, now())
+-                        on conflict (key) do update
+-                        set value = excluded.value, updated_at = now()
+-                        """,
+-                        key,
+-                        json.dumps(value),
+-                    )
+-                for item in undo:
+-                    for row in item["before_state"]: row["user_id"] = owner["id"]
+-                    await connection.execute(
+-                        "insert into undo_actions(user_id,action,before_state,after_ids,used_at,created_at) values($1,$2,$3::jsonb,$4::jsonb,$5,$6)",
+-                        owner["id"],item["action"],json.dumps(item["before_state"]),json.dumps(item["after_ids"]),item["used_at"],item["created_at"],
+-                    )
+-                await connection.execute("delete from gryphon_events")
+-                for event in events:
+-                    await connection.execute(
+-                        "insert into gryphon_events(event_id,state,response,created_at,started_at,completed_at) values($1,$2,$3::jsonb,$4,$5,$6)",
+-                        event["event_id"], event["state"],
+-                        json.dumps(_json_value(event.get("response"))), event["created_at"], event["started_at"], event["completed_at"],
+-                    )
+-                await connection.execute(
+-                    "update operator_security set password_hash=coalesce($1,password_hash), session_generation=greatest(session_generation,$2)+1, updated_at=now() where id=1",
+-                    security["password_hash"] if security else None, security["session_generation"] if security else 0,
+-                )
+-                await connection.execute("delete from revoked_sessions")
+-                # Explicit restored IDs and legacy public IDs must both be below the next allocation.
+-                maximum = max([item["id"] for item in sessions] + [int(item["public_id"][2:]) for item in sessions] + [0])
+-                await connection.execute("select setval(pg_get_serial_sequence('time_sessions','id'), $1, $2)", max(1, maximum), maximum > 0)
+-        return len(sessions)
++            return await connection.fetchrow(
++                "select started_at, stopped_at from time_sessions "
++                "where user_id=$1 and public_id=$2 and deleted_at is null", owner["id"], public_id)
+ 
+     async def sessions_for_export(self) -> Iterable[asyncpg.Record]:
+-        owner = await self.owner()
+-        async with self.pool.acquire() as connection:
+-            return await connection.fetch(
+-                """
+-                select id, public_id, category, started_at, stopped_at, duration_seconds,
+-                       note, source
+-                from time_sessions
+-                where user_id = $1 and deleted_at is null
+-                order by started_at asc
+-                """,
+-                owner["id"],
+-            )
++        owner = await self.owner()
++        async with self.pool.acquire() as connection:
++            return await connection.fetch(
++                """
++                select id, public_id, category, started_at, stopped_at, duration_seconds,
++                       note, source
++                from time_sessions
++                where user_id = $1 and deleted_at is null
++                order by started_at asc
++                """,
++                owner["id"],
++            )
+diff --git a/app/mastermind_reader.py b/app/mastermind_reader.py
+new file mode 100644
+index 0000000..afdd9bd
+--- /dev/null
++++ b/app/mastermind_reader.py
+@@ -0,0 +1,42 @@
++"""Read-only, one-event Mastermind contract. No operator session or timer control rights."""
++import hmac
++import os
++import re
++import stat
++
++from fastapi import HTTPException, Request
++
++
++def reader_credential(configured):
++    if configured is None:
++        return b""
++    descriptor = os.open(configured, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
++    with os.fdopen(descriptor, "rb") as source:
++        info = os.fstat(source.fileno())
++        if not stat.S_ISREG(info.st_mode) or info.st_size > 512 or info.st_nlink != 1:
++            return b""
++        value = source.read(513)
++        return value if len(value) <= 512 else b""
++
++
++def install_mastermind_reader(app):
++    @app.get("/api/v1/internal/mastermind/events/{public_id}")
++    async def event(public_id: str, request: Request):
++        configured = request.app.state.runtime.config.mastermind_reader_token_file
++        try:
++            expected = reader_credential(configured)
++        except OSError:
++            expected = b""
++        supplied = request.headers.get("authorization", "").encode()
++        if not expected or len(expected) > 512 or not hmac.compare_digest(supplied, b"Bearer " + expected):
++            raise HTTPException(401, "Mastermind reader identity is required")
++        if request.headers.get("x-mastermind-purpose") != "owner-reference":
++            raise HTTPException(403, "Reader purpose is not allowed")
++        if not re.fullmatch(r"t-[0-9]{8,18}", public_id):
++            raise HTTPException(422, "Invalid event identifier")
++        record = await request.app.state.store.mastermind_event(public_id)
++        if record is None:
++            raise HTTPException(404, "Event was not found")
++        return {"schema": "chronos.mastermind-event.v1", "audience": "mastermind", "id": public_id,
++                "started_at": record["started_at"].isoformat(),
++                "ended_at": record["stopped_at"].isoformat() if record["stopped_at"] else None}
+diff --git a/tests/test_mastermind_reader.py b/tests/test_mastermind_reader.py
+new file mode 100644
+index 0000000..9d29b6e
+--- /dev/null
++++ b/tests/test_mastermind_reader.py
+@@ -0,0 +1,37 @@
++import os
++from types import SimpleNamespace
++
++import pytest
++from fastapi import FastAPI
++from fastapi.testclient import TestClient
++
++from app.mastermind_reader import install_mastermind_reader
++
++
++def test_reader_bounds_credentials_before_read_and_authorizes_only_scoped_events(tmp_path):
++    token = tmp_path / "credential"
++    token.write_bytes(b"fixture")
++    app = FastAPI()
++    app.state.runtime = SimpleNamespace(config=SimpleNamespace(mastermind_reader_token_file=token))
++    class Store:
++        async def mastermind_event(self, identifier):
++            return None
++    app.state.store = Store()
++    install_mastermind_reader(app)
++    with TestClient(app) as client:
++        url = "/api/v1/internal/mastermind/events/t-00000000"
++        headers = {"Authorization": "Bearer fixture", "X-Mastermind-Purpose": "owner-reference"}
++        assert client.get(url).status_code == 401
++        assert client.get(url, headers={"Authorization": "Bearer fixture"}).status_code == 403
++        assert client.get(url, headers=headers).status_code == 404
++        with token.open("wb") as output:
++            output.truncate(10*1024**2)
++        assert client.get(url, headers=headers).status_code == 401
++
++
++@pytest.mark.skipif(os.name != "posix", reason="Production Unix credential boundary")
++def test_fifo_credential_never_blocks_request(tmp_path):
++    from app.mastermind_reader import reader_credential
++    token = tmp_path / "fifo"
++    os.mkfifo(token)
++    assert reader_credential(token) == b""

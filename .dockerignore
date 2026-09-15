@@ -1,0 +1,11 @@
+.git
+.venv
+.local
+artifacts
+node_modules
+**/node_modules
+**/__pycache__
+.env
+*.sqlite3*
+mastermind_service_requirements*.md
+mastermind_open_questions.md

@@ -1,0 +1,4 @@
+#!/usr/local/bin/python
+from mastermind.cli import main
+
+raise SystemExit(main())

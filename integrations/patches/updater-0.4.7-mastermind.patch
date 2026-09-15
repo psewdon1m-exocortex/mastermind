@@ -1,0 +1,2761 @@
+diff --git a/cmd/updater/main.go b/cmd/updater/main.go
+index a304020..e29cd68 100644
+--- a/cmd/updater/main.go
++++ b/cmd/updater/main.go
+@@ -43,11 +43,12 @@ func main() {
+ 		exitIf(store.ReconcileInterrupted(activeSupervisor))
+ 		exitIf(store.CleanupRecoveryStaging())
+ 		repairer := socketmount.New(runtime)
++		updateEngine := engine.New(runtime, store, nil)
+ 		server := api.Server{
+ 			Version: version,
+ 			Runtime: runtime,
+ 			Store:   store,
+-			Engine:  engine.New(runtime, store, nil),
++			Engine:  updateEngine,
+ 			OnReady: func() {
+ 				go func() {
+ 					// Reconcile after the socket is available and allow manual jobs
+@@ -55,6 +56,7 @@ func main() {
+ 					// helper socket mounts are retried.
+ 					time.Sleep(5 * time.Second)
+ 					for {
++						updateEngine.ResumeMastermindRecovery()
+ 						component.ReconcileHostHelpers(runtime, store)
+ 						if release, lockErr := store.BeginOperation(""); lockErr == nil {
+ 							ctx, cancel := context.WithTimeout(
+diff --git a/internal/api/server.go b/internal/api/server.go
+index e57326c..77fb9d7 100644
+--- a/internal/api/server.go
++++ b/internal/api/server.go
+@@ -32,6 +32,8 @@ func (s Server) Handler() http.Handler {
+ 	mux := http.NewServeMux()
+ 	s.lifecycle(mux)
+ 	s.recovery(mux)
++	s.backupSpools(mux)
++	s.mastermind(mux)
+ 	mux.HandleFunc("POST /v1/releases/check", func(w http.ResponseWriter, r *http.Request) {
+ 		r.Body = http.MaxBytesReader(w, r.Body, 4096)
+ 		var input struct {
+@@ -57,6 +59,7 @@ func (s Server) Handler() http.Handler {
+ 	mux.HandleFunc("GET /v1/health", func(w http.ResponseWriter, _ *http.Request) {
+ 		writeJSON(w, http.StatusOK, map[string]interface{}{
+ 			"status": "ok", "service": "updater", "version": s.Version, "busy": s.Engine.Busy() || s.Store.HasActiveOperation(),
++			"capabilities": []string{"mastermind.components.v1", "mastermind.spool.v1", "mastermind.enrollment.v1"},
+ 		})
+ 	})
+ 	mux.HandleFunc("GET /v1/version", func(w http.ResponseWriter, _ *http.Request) {
+diff --git a/internal/component/capabilities.go b/internal/component/capabilities.go
+index ab947c3..87dcf26 100644
+--- a/internal/component/capabilities.go
++++ b/internal/component/capabilities.go
+@@ -1,15 +1,15 @@
+-package component
+-
+-// ConsumesHelper is shared by bootstrap reconciliation and protected lifecycle APIs.
+-func ConsumesHelper(service, helper string) bool {
+-	if helper == "gryphon" {
+-		return service == "saturn" || service == "chronos"
+-	}
+-	if helper == "neptune" {
+-		switch service {
+-		case "kernel", "volt", "saturn", "chronos", "laboratory":
+-			return true
+-		}
+-	}
+-	return false
+-}
++package component
++
++// ConsumesHelper is shared by bootstrap reconciliation and protected lifecycle APIs.
++func ConsumesHelper(service, helper string) bool {
++	if helper == "gryphon" {
++		return service == "saturn" || service == "chronos"
++	}
++	if helper == "neptune" {
++		switch service {
++		case "kernel", "volt", "saturn", "chronos", "laboratory", "mastermind":
++			return true
++		}
++	}
++	return false
++}
+diff --git a/internal/component/capabilities_test.go b/internal/component/capabilities_test.go
+index b65850a..ebd4564 100644
+--- a/internal/component/capabilities_test.go
++++ b/internal/component/capabilities_test.go
+@@ -1,17 +1,17 @@
+-package component
+-
+-import "testing"
+-
+-func TestHeadHelperCapabilities(t *testing.T) {
+-	for _, service := range []string{"kernel", "volt", "saturn", "chronos", "laboratory", "unknown"} {
+-		if ConsumesHelper(service, "neptune") != (service != "unknown") {
+-			t.Fatalf("Neptune capability: %s", service)
+-		}
+-		if ConsumesHelper(service, "gryphon") != (service == "saturn" || service == "chronos") {
+-			t.Fatalf("Gryphon capability: %s", service)
+-		}
+-		if ConsumesHelper(service, "arbitrary") {
+-			t.Fatal("unknown helper accepted")
+-		}
+-	}
+-}
++package component
++
++import "testing"
++
++func TestHeadHelperCapabilities(t *testing.T) {
++	for _, service := range []string{"kernel", "volt", "saturn", "chronos", "laboratory", "mastermind", "unknown"} {
++		if ConsumesHelper(service, "neptune") != (service != "unknown") {
++			t.Fatalf("Neptune capability: %s", service)
++		}
++		if ConsumesHelper(service, "gryphon") != (service == "saturn" || service == "chronos") {
++			t.Fatalf("Gryphon capability: %s", service)
++		}
++		if ConsumesHelper(service, "arbitrary") {
++			t.Fatal("unknown helper accepted")
++		}
++	}
++}
+diff --git a/internal/component/neptune_enrollment.go b/internal/component/neptune_enrollment.go
+index db9044f..916645a 100644
+--- a/internal/component/neptune_enrollment.go
++++ b/internal/component/neptune_enrollment.go
+@@ -49,6 +49,13 @@ func StartNeptuneInitialization(runtimeConfig config.Runtime, store *state.Store
+ 	if head.Service != request.ProjectID {
+ 		return model.Job{}, errors.New("Neptune project must match the registered service")
+ 	}
++	if request.ProjectID == "mastermind" {
++		local, localErr := url.Parse(head.LocalHealthURL)
++		if localErr != nil || local.Scheme != "http" || local.Host == "" || head.ComposeService != "core" ||
++			request.ExportURL != "http://"+local.Host+"/api/internal/neptune/backup" {
++			return model.Job{}, errors.New("Mastermind enrollment must use its registered loopback export endpoint")
++		}
++	}
+ 	if !safeNeptuneID.MatchString(request.ProjectID) || !regexpEnrollmentCode.MatchString(strings.TrimSpace(request.EnrollmentCode)) {
+ 		return model.Job{}, errors.New("Neptune initialization input is invalid")
+ 	}
+@@ -126,6 +133,9 @@ type saturnEnrollment struct {
+ 	MirrorToken          string `json:"mirrorToken"`
+ 	MirrorMode           string `json:"mirrorMode"`
+ 	MirrorTargetFilename string `json:"mirrorTargetFilename"`
++	ReaderToken          string `json:"readerToken"`
++	ReaderRoot           string `json:"readerRoot"`
++	ReaderCapability     string `json:"readerCapability"`
+ }
+ 
+ func EnrollNeptuneProject(runtimeConfig config.Runtime, headID, projectID, exportURL, code string) (NeptuneEnrollmentResult, error) {
+@@ -210,20 +220,45 @@ func EnrollNeptuneProject(runtimeConfig config.Runtime, headID, projectID, expor
+ 	exportPath := filepath.Join(clientsDir, projectID+".export.token")
+ 	saturnPath := filepath.Join(clientsDir, projectID+".saturn.token")
+ 	mirrorPath := filepath.Join(clientsDir, projectID+".mirror.token")
++	readerPath := filepath.Join(clientsDir, projectID+".reader.token")
+ 	secrets := map[string]string{controlPath: controlToken, exportPath: exportToken, saturnPath: redeemed.Token}
+ 	if redeemed.MirrorToken != "" {
+ 		secrets[mirrorPath] = redeemed.MirrorToken
+ 	}
++	if redeemed.ReaderToken != "" {
++		secrets[readerPath] = redeemed.ReaderToken
++	}
+ 	for path, value := range secrets {
+ 		if err := writeSecret(path, value, gid); err != nil {
+ 			return NeptuneEnrollmentResult{}, err
+ 		}
+ 	}
++	// Mastermind mounts only its own component credential directory. It must
++	// never mount the host-wide Neptune clients directory (archive/reader tokens
++	// and other projects). Atomic replacement is visible through the directory.
++	if projectID == "mastermind" {
++		clientDirectory := filepath.Join(head.ProjectDir, "secrets", "core")
++		info, statErr := os.Lstat(clientDirectory)
++		if statErr != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
++			return NeptuneEnrollmentResult{}, errors.New("Mastermind component credential directory is unavailable")
++		}
++		controlPathForCore := filepath.Join(clientDirectory, "neptune_control_token")
++		exportPathForCore := filepath.Join(clientDirectory, "neptune_export_token")
++		if err := writeSecret(controlPathForCore, controlToken, 10001); err != nil {
++			return NeptuneEnrollmentResult{}, err
++		}
++		if err := writeSecret(exportPathForCore, exportToken, 10001); err != nil {
++			return NeptuneEnrollmentResult{}, err
++		}
++	}
+ 	projectEnv := filepath.Join(projectsDir, projectID+".env")
+ 	content := fmt.Sprintf("NEPTUNE_BACKUP_EXPORT_URL=%s\nNEPTUNE_CONTROL_TOKEN_FILE=%s\nNEPTUNE_EXPORT_TOKEN_FILE=%s\nNEPTUNE_SATURN_TOKEN_FILE=%s\nNEPTUNE_SATURN_SLUG=%s\nNEPTUNE_BACKUP_ENABLED=false\nNEPTUNE_BACKUP_INTERVAL_HOURS=24\n", exportURL, controlPath, exportPath, saturnPath, redeemed.Slug)
+ 	if redeemed.MirrorRoot != "" {
+ 		content += fmt.Sprintf("NEPTUNE_MIRROR_ROOT=%s\nNEPTUNE_MIRROR_TOKEN_FILE=%s\nNEPTUNE_MIRROR_EXPORT_URL=%s\nNEPTUNE_MIRROR_MODE=%s\nNEPTUNE_MIRROR_TARGET_FILENAME=%s\nNEPTUNE_MIRROR_ENABLED=false\nNEPTUNE_MIRROR_INTERVAL_MINUTES=5\n", redeemed.MirrorRoot, mirrorPath, strings.TrimSuffix(exportURL, "/backup")+"/mirror", redeemed.MirrorMode, redeemed.MirrorTargetFilename)
+ 	}
++	if redeemed.ReaderToken != "" {
++		content += fmt.Sprintf("NEPTUNE_READER_TOKEN_FILE=%s\nNEPTUNE_READER_ROOT=%s\n", readerPath, redeemed.ReaderRoot)
++	}
+ 	if err := os.WriteFile(projectEnv+".tmp", []byte(content), 0o640); err != nil {
+ 		return NeptuneEnrollmentResult{}, err
+ 	}
+@@ -248,13 +283,17 @@ func EnrollNeptuneProject(runtimeConfig config.Runtime, headID, projectID, expor
+ 	if uidErr != nil || primaryGIDErr != nil {
+ 		return NeptuneEnrollmentResult{}, errors.New("Neptune service account IDs are invalid")
+ 	}
+-	registration := exec.Command(neptuneBinary, "register-project", projectID, projectEnv)
++	registrationContext, cancelRegistration := context.WithTimeout(context.Background(), 60*time.Second)
++	defer cancelRegistration()
++	registration := exec.CommandContext(registrationContext, neptuneBinary, "register-project", projectID, projectEnv)
++	registration.WaitDelay = 5 * time.Second
+ 	registration.Env = append(os.Environ(), "HOME=/var/lib/neptune", "DOTNET_BUNDLE_EXTRACT_BASE_DIR=/var/cache/neptune")
+ 	registration.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{
+ 		Uid: uint32(uid), Gid: uint32(primaryGID), Groups: []uint32{uint32(gid)},
+ 	}}
+-	if output, commandErr := registration.CombinedOutput(); commandErr != nil {
+-		return NeptuneEnrollmentResult{}, fmt.Errorf("Neptune project registration failed: %s", strings.TrimSpace(string(output)))
++	registration.Stdout, registration.Stderr = io.Discard, io.Discard
++	if commandErr := registration.Run(); commandErr != nil {
++		return NeptuneEnrollmentResult{}, errors.New("Neptune project registration failed or exceeded its 60-second deadline")
+ 	}
+ 	if err := updateEnvFile(head.EnvFile, map[string]string{
+ 		"NEPTUNE_PROJECT_ID": projectID, "NEPTUNE_SOCKET_DIR": "/run/neptune", "NEPTUNE_SOCKET_GID": strconv.Itoa(gid),
+@@ -268,10 +307,14 @@ func EnrollNeptuneProject(runtimeConfig config.Runtime, headID, projectID, expor
+ 	// leaves the service able to reach Neptune but unable to authenticate.
+ 	// Recreate only the enrolled service to bind the new token files without
+ 	// disturbing any of the other services on the host.
+-	command := exec.Command("docker", "compose", "--env-file", head.EnvFile, "-f", head.ComposeFile, "up", "-d", "--no-deps", "--force-recreate", head.ComposeService)
++	restartContext, cancelRestart := context.WithTimeout(context.Background(), 120*time.Second)
++	defer cancelRestart()
++	command := exec.CommandContext(restartContext, "docker", "compose", "--env-file", head.EnvFile, "-f", head.ComposeFile, "up", "-d", "--no-deps", "--force-recreate", head.ComposeService)
+ 	command.Dir = head.ProjectDir
+-	if output, commandErr := command.CombinedOutput(); commandErr != nil {
+-		return NeptuneEnrollmentResult{}, fmt.Errorf("service restart after Neptune enrollment failed: %s", strings.TrimSpace(string(output)))
++	command.WaitDelay = 5 * time.Second
++	command.Stdout, command.Stderr = io.Discard, io.Discard
++	if commandErr := command.Run(); commandErr != nil {
++		return NeptuneEnrollmentResult{}, errors.New("service restart after Neptune enrollment failed or exceeded its 120-second deadline")
+ 	}
+ 	healthContext, cancelHealth := context.WithTimeout(context.Background(), 30*time.Second)
+ 	defer cancelHealth()
+@@ -315,6 +358,27 @@ func checkNeptuneProject(ctx context.Context, projectID, token string) error {
+ 	if response.StatusCode != 200 {
+ 		return errors.New("Neptune project authentication or readiness failed")
+ 	}
++	if projectID == "mastermind" {
++		var observed struct {
++			Project struct {
++				Mirror struct {
++					Root string `json:"root"`
++					Mode string `json:"mode"`
++				} `json:"mirror"`
++				Reader struct {
++					Root            string `json:"root"`
++					Capability      string `json:"capability"`
++					CredentialReady bool   `json:"credential_ready"`
++				} `json:"reader"`
++			} `json:"project"`
++		}
++		if err := json.NewDecoder(io.LimitReader(response.Body, 1024*1024)).Decode(&observed); err != nil ||
++			observed.Project.Mirror.Root != "mastermind" || observed.Project.Mirror.Mode != "zip-tree" ||
++			observed.Project.Reader.Root != "root" || observed.Project.Reader.Capability != "neptune.resource-reader.v1" ||
++			!observed.Project.Reader.CredentialReady {
++			return errors.New("Mastermind archive, mirror and resource reader are not fully configured")
++		}
++	}
+ 	return nil
+ }
+ 
+@@ -330,6 +394,17 @@ func validateNeptuneEnrollmentProfile(projectID string, redeemed saturnEnrollmen
+ 			return errors.New("Volt requires a 'Volt ZIP + personal.volt mirror' setup code")
+ 		}
+ 	}
++	if projectID == "mastermind" {
++		validToken := regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
++		if redeemed.MirrorRoot != "mastermind" || redeemed.MirrorMode != "zip-tree" || redeemed.MirrorTargetFilename != "" ||
++			redeemed.ReaderRoot != "root" || redeemed.ReaderCapability != "neptune.resource-reader.v1" ||
++			!validToken.MatchString(redeemed.Token) || !validToken.MatchString(redeemed.MirrorToken) || !validToken.MatchString(redeemed.ReaderToken) ||
++			redeemed.Token == redeemed.MirrorToken || redeemed.ReaderToken == redeemed.Token || redeemed.ReaderToken == redeemed.MirrorToken {
++			return errors.New("Mastermind requires independent archive, zip-tree mirror and read-only resource credentials")
++		}
++	} else if redeemed.ReaderToken != "" {
++		return errors.New("This service profile does not permit a resource-reader credential")
++	}
+ 	return nil
+ }
+ 
+@@ -343,15 +418,24 @@ func redeemSaturnEnrollment(origin, code string) (saturnEnrollment, error) {
+ 	request, _ := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(origin, "/")+"/api/v1/backup-enrollments/redeem", bytes.NewReader(body))
+ 	request.Header.Set("Content-Type", "application/json")
+ 	request.Header.Set("User-Agent", "exocortex-updater")
+-	response, err := (&http.Client{Timeout: 15 * time.Second}).Do(request)
++	transport := http.DefaultTransport.(*http.Transport).Clone()
++	transport.Proxy = nil
++	transport.DisableCompression = true
++	transport.ResponseHeaderTimeout = 5 * time.Second
++	defer transport.CloseIdleConnections()
++	response, err := (&http.Client{Timeout: 15 * time.Second, Transport: transport,
++		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(request)
+ 	if err != nil {
+ 		return saturnEnrollment{}, err
+ 	}
+ 	defer response.Body.Close()
+-	payload, readErr := io.ReadAll(io.LimitReader(response.Body, 1024*1024))
++	payload, readErr := io.ReadAll(io.LimitReader(response.Body, 1024*1024+1))
+ 	if readErr != nil {
+ 		return saturnEnrollment{}, readErr
+ 	}
++	if len(payload) > 1024*1024 {
++		return saturnEnrollment{}, errors.New("Saturn enrollment response exceeds its metadata limit")
++	}
+ 	if response.StatusCode != http.StatusCreated && response.StatusCode != http.StatusOK {
+ 		return saturnEnrollment{}, fmt.Errorf("Saturn enrollment returned HTTP %d", response.StatusCode)
+ 	}
+@@ -359,6 +443,12 @@ func redeemSaturnEnrollment(origin, code string) (saturnEnrollment, error) {
+ 	if json.Unmarshal(payload, &result) != nil || result.Token == "" || result.Slug == "" {
+ 		return saturnEnrollment{}, errors.New("Saturn returned an invalid enrollment response")
+ 	}
++	// These values enter an EnvironmentFile. Do not let a producer response
++	// introduce a second assignment or shell-sensitive path spelling.
++	if !safeNeptuneID.MatchString(result.Slug) || !safeNeptuneID.MatchString(result.NamespaceSlug) ||
++		!regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`).MatchString(result.DeploymentID) {
++		return saturnEnrollment{}, errors.New("Saturn returned invalid enrollment identifiers")
++	}
+ 	return result, nil
+ }
+ 
+@@ -370,8 +460,21 @@ func randomToken() (string, error) {
+ 	return base64.RawURLEncoding.EncodeToString(value), nil
+ }
+ func writeSecret(path, value string, gid int) error {
+-	temporary := path + ".tmp"
+-	if err := os.WriteFile(temporary, []byte(value+"\n"), 0o640); err != nil {
++	file, err := os.CreateTemp(filepath.Dir(path), ".credential-")
++	if err != nil {
++		return err
++	}
++	temporary := file.Name()
++	defer os.Remove(temporary)
++	if _, err := file.Write([]byte(value)); err != nil {
++		file.Close()
++		return err
++	}
++	if err := file.Sync(); err != nil {
++		file.Close()
++		return err
++	}
++	if err := file.Close(); err != nil {
+ 		return err
+ 	}
+ 	if err := os.Chown(temporary, 0, gid); err != nil {
+@@ -382,7 +485,15 @@ func writeSecret(path, value string, gid int) error {
+ 	if err := os.Chmod(temporary, 0o640); err != nil {
+ 		return err
+ 	}
+-	return os.Rename(temporary, path)
++	if err := os.Rename(temporary, path); err != nil {
++		return err
++	}
++	directory, err := os.Open(filepath.Dir(path))
++	if err != nil {
++		return err
++	}
++	defer directory.Close()
++	return directory.Sync()
+ }
+ 
+ func updateEnvFile(path string, replacements map[string]string) error {
+diff --git a/internal/component/neptune_enrollment_test.go b/internal/component/neptune_enrollment_test.go
+index d7f3cd7..e2d4862 100644
+--- a/internal/component/neptune_enrollment_test.go
++++ b/internal/component/neptune_enrollment_test.go
+@@ -39,3 +39,26 @@ func TestValidateNeptuneEnrollmentProfileRejectsCrossServiceCode(t *testing.T) {
+ 		t.Fatalf("unexpected validation result: %v", err)
+ 	}
+ }
++
++func TestMastermindRequiresIndependentArchiveMirrorAndReader(t *testing.T) {
++	valid := saturnEnrollment{NamespaceSlug: "mastermind", MirrorRoot: "mastermind", MirrorMode: "zip-tree",
++		Token: strings.Repeat("a", 43), MirrorToken: strings.Repeat("b", 43), ReaderToken: strings.Repeat("c", 43),
++		ReaderRoot: "root", ReaderCapability: "neptune.resource-reader.v1"}
++	if err := validateNeptuneEnrollmentProfile("mastermind", valid); err != nil {
++		t.Fatal(err)
++	}
++	for _, change := range []func(*saturnEnrollment){
++		func(v *saturnEnrollment) { v.ReaderToken = "" },
++		func(v *saturnEnrollment) { v.ReaderToken = v.MirrorToken },
++		func(v *saturnEnrollment) { v.MirrorMode = "single-file" },
++		func(v *saturnEnrollment) { v.MirrorRoot = "volt" },
++		func(v *saturnEnrollment) { v.ReaderRoot = "root/../private" },
++		func(v *saturnEnrollment) { v.ReaderCapability = "unknown" },
++	} {
++		value := valid
++		change(&value)
++		if validateNeptuneEnrollmentProfile("mastermind", value) == nil {
++			t.Fatal("Incomplete or mis-scoped enrollment accepted")
++		}
++	}
++}
+diff --git a/internal/engine/check.go b/internal/engine/check.go
+index 2275051..347964c 100644
+--- a/internal/engine/check.go
++++ b/internal/engine/check.go
+@@ -34,5 +34,17 @@ func (e *Engine) Check(headID string) (map[string]any, error) {
+ 		return nil, err
+ 	}
+ 	candidate := resolved.Manifest.Version
+-	return map[string]any{"installed_version": head.CurrentVersion, "available_version": candidate, "update_available": candidate != head.CurrentVersion && release.SupportsMinimum(candidate, head.CurrentVersion)}, nil
++	result := map[string]any{"installed_version": head.CurrentVersion, "available_version": candidate, "update_available": candidate != head.CurrentVersion && release.SupportsMinimum(candidate, head.CurrentVersion)}
++	if head.Service == "mastermind" {
++		result["profile"] = "mastermind"
++		result["components"] = []string{"core", "runtime", "worker"}
++		compatible := validateMastermindHead(head) == nil && release.ValidateMastermind(resolved.Manifest) == nil &&
++			release.SupportsMinimum(e.runtime.UpdaterVersion, resolved.Manifest.MinimumUpdaterVersion)
++		if compatible {
++			_, deploymentErr := readDeployment(resolved.ComposePath, "mastermind")
++			compatible = deploymentErr == nil
++		}
++		result["compatible"] = compatible
++	}
++	return result, nil
+ }
+diff --git a/internal/engine/engine.go b/internal/engine/engine.go
+index 600ff9f..945d10c 100644
+--- a/internal/engine/engine.go
++++ b/internal/engine/engine.go
+@@ -32,11 +32,38 @@ type Runner interface {
+ 
+ type OSRunner struct{}
+ 
++type boundedCommandOutput struct {
++	mu       sync.Mutex
++	data     []byte
++	exceeded bool
++}
++
++func (output *boundedCommandOutput) Write(value []byte) (int, error) {
++	output.mu.Lock()
++	defer output.mu.Unlock()
++	remaining := 1024*1024 - len(output.data)
++	if len(value) > remaining {
++		output.exceeded = true
++	}
++	output.data = append(output.data, value[:min(len(value), remaining)]...)
++	// Drain the rest without retaining it; never leave a child blocked on stdout.
++	return len(value), nil
++}
++
+ func (OSRunner) Run(ctx context.Context, name string, args, environment []string, directory string) ([]byte, error) {
++	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
++	defer cancel()
+ 	command := exec.CommandContext(ctx, name, args...)
+ 	command.Dir = directory
+ 	command.Env = append(os.Environ(), environment...)
+-	return command.CombinedOutput()
++	command.WaitDelay = 5 * time.Second
++	output := &boundedCommandOutput{}
++	command.Stdout, command.Stderr = output, output
++	err := command.Run()
++	if output.exceeded {
++		return nil, errors.New("host command output exceeded 1 MiB")
++	}
++	return output.data, err
+ }
+ 
+ type Engine struct {
+@@ -116,9 +143,33 @@ func (e *Engine) Start(request model.UpdateRequest) (model.Job, error) {
+ 	if head.Service != request.Service {
+ 		return model.Job{}, fmt.Errorf("head %q is registered for service %q", request.HeadID, head.Service)
+ 	}
+-	backupBytes, err := decodeBackup(request.Backup)
+-	if err != nil {
+-		return model.Job{}, err
++	if request.Service == "mastermind" {
++		if e.runtime.DryRun {
++			return model.Job{}, errors.New("Mastermind Apply is disabled in dry-run mode")
++		}
++		if err := validateMastermindHead(head); err != nil {
++			return model.Job{}, err
++		}
++		if !mastermindRequestID.MatchString(request.RequestID) {
++			return model.Job{}, errors.New("Mastermind request ID must be 32 hexadecimal characters")
++		}
++		if _, err := e.mastermindPreparation(request.HeadID, request.RequestID, request.Version, request.PreparationID); err != nil {
++			return model.Job{}, err
++		}
++	}
++	var backupBytes []byte
++	if request.Backup.SpoolID != "" {
++		if request.Service != "mastermind" || request.Backup.DataBase64 != "" || request.Backup.Filename != "" || request.Backup.SHA256 != "" || request.Backup.RestoreURL != "" {
++			return model.Job{}, errors.New("Mastermind Apply accepts only its sealed backup spool ID")
++		}
++	} else {
++		if request.Service == "mastermind" {
++			return model.Job{}, errors.New("Mastermind requires the streaming backup spool contract")
++		}
++		backupBytes, err = decodeBackup(request.Backup)
++		if err != nil {
++			return model.Job{}, err
++		}
+ 	}
+ 	releaseOperation, err := e.store.BeginOperation("")
+ 	if err != nil {
+@@ -136,24 +187,33 @@ func (e *Engine) Start(request model.UpdateRequest) (model.Job, error) {
+ 
+ 	now := time.Now().UTC()
+ 	job := model.Job{
+-		ID:        fmt.Sprintf("%d-%x", now.Unix(), sha256.Sum256([]byte(request.RequestID))),
+-		RequestID: request.RequestID,
+-		HeadID:    request.HeadID,
+-		Service:   request.Service,
+-		Version:   request.Version,
+-		State:     "REQUESTED",
+-		CreatedAt: now,
+-		UpdatedAt: now,
++		ID:            fmt.Sprintf("%d-%x", now.Unix(), sha256.Sum256([]byte(request.RequestID))),
++		RequestID:     request.RequestID,
++		HeadID:        request.HeadID,
++		Service:       request.Service,
++		PreparationID: request.PreparationID,
++		Version:       request.Version,
++		State:         "REQUESTED",
++		CreatedAt:     now,
++		UpdatedAt:     now,
+ 	}
+ 	if len(job.ID) > 48 {
+ 		job.ID = job.ID[:48]
+ 	}
+-	backupPath, err := e.store.BackupPath(job.ID, request.Backup.Filename)
+-	if err != nil {
+-		e.releaseLock()
+-		return model.Job{}, err
++	var backupPath string
++	if request.Backup.SpoolID != "" {
++		// Stable across a crash after claim but before the job's first durable save.
++		sum := sha256.Sum256([]byte(request.HeadID + ":" + request.RequestID))
++		job.ID = "spool-" + hex.EncodeToString(sum[:])[:40]
++		backupPath, err = e.store.ClaimSpool(request.HeadID, request.RequestID, request.Backup.SpoolID, job.ID)
++		job.BackupSpoolID = request.Backup.SpoolID
++	} else {
++		backupPath, err = e.store.BackupPath(job.ID, request.Backup.Filename)
++		if err == nil {
++			err = os.WriteFile(backupPath, backupBytes, 0600)
++		}
+ 	}
+-	if err := os.WriteFile(backupPath, backupBytes, 0o600); err != nil {
++	if err != nil {
+ 		e.releaseLock()
+ 		return model.Job{}, err
+ 	}
+@@ -183,9 +243,16 @@ func decodeBackup(backup model.Backup) ([]byte, error) {
+ 	return body, nil
+ }
+ 
++func (e *Engine) operationTimeout(service string) time.Duration {
++	if service == "mastermind" {
++		return time.Hour
++	}
++	return time.Duration(e.runtime.CommandTimeoutSec) * time.Second
++}
++
+ func (e *Engine) run(job model.Job, head config.HeadConfig) {
+ 	defer e.releaseLock()
+-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(e.runtime.CommandTimeoutSec)*time.Second)
++	ctx, cancel := context.WithTimeout(context.Background(), e.operationTimeout(job.Service))
+ 	defer cancel()
+ 	update := func(stateName, message string) {
+ 		job.State = stateName
+@@ -197,7 +264,7 @@ func (e *Engine) run(job model.Job, head config.HeadConfig) {
+ 		finalState, message := "FAILED", err.Error()
+ 		if job.PreviousImage != "" && job.MutationStarted {
+ 			update("ROLLING_BACK", message)
+-			rollbackCtx, cancelRollback := context.WithTimeout(context.Background(), time.Duration(e.runtime.CommandTimeoutSec)*time.Second)
++			rollbackCtx, cancelRollback := context.WithTimeout(context.Background(), e.operationTimeout(job.Service))
+ 			rollbackErr := e.rollback(rollbackCtx, &job, head)
+ 			cancelRollback()
+ 			if rollbackErr != nil {
+@@ -238,6 +305,23 @@ func (e *Engine) run(job model.Job, head config.HeadConfig) {
+ 		return
+ 	}
+ 	job.Version = resolved.Manifest.Version
++	if job.Service == "mastermind" {
++		if err := e.applyMastermind(ctx, &job, head, resolved, update); err != nil {
++			fail(err)
++			return
++		}
++		finished := time.Now().UTC()
++		job.State = "COMPLETED"
++		job.Message = "Mastermind component group and data passed functional acceptance"
++		job.UpdatedAt = finished
++		job.FinishedAt = &finished
++		if err := e.store.Save(job); err != nil {
++			fail(err)
++			return
++		}
++		e.prune()
++		return
++	}
+ 	deployment, err := readDeployment(resolved.ComposePath, job.Service)
+ 	if err != nil {
+ 		fail(err)
+@@ -356,6 +440,9 @@ func (e *Engine) composeUp(ctx context.Context, head config.HeadConfig) ([]byte,
+ }
+ 
+ func (e *Engine) rollback(ctx context.Context, job *model.Job, head config.HeadConfig) error {
++	if head.Service == "mastermind" {
++		return e.rollbackMastermind(ctx, job, head)
++	}
+ 	if err := restoreDeployment(head, job.DeploymentSnapshot); err != nil {
+ 		return err
+ 	}
+@@ -412,6 +499,9 @@ func (e *Engine) Rollback(jobID string) (model.Job, error) {
+ 	if job.PreviousImage == "" || !job.RollbackAvailable {
+ 		return model.Job{}, errors.New("rollback is unavailable for this job")
+ 	}
++	if job.Service == "mastermind" && job.State == "COMPLETED" {
++		return model.Job{}, errors.New("a completed Mastermind update requires a fresh Core rollback barrier")
++	}
+ 	head, err := config.LoadHead(e.runtime, job.HeadID)
+ 	if err != nil {
+ 		return model.Job{}, err
+@@ -430,12 +520,13 @@ func (e *Engine) Rollback(jobID string) (model.Job, error) {
+ 	e.operationRelease = releaseOperation
+ 	e.mu.Unlock()
+ 	job.State = "ROLLING_BACK"
++	job.RecoveryPending = false
+ 	job.FinishedAt = nil
+ 	job.UpdatedAt = time.Now().UTC()
+ 	_ = e.store.Save(job)
+ 	go func() {
+ 		defer e.releaseLock()
+-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(e.runtime.CommandTimeoutSec)*time.Second)
++		ctx, cancel := context.WithTimeout(context.Background(), e.operationTimeout(job.Service))
+ 		defer cancel()
+ 		if err := e.rollback(ctx, &job, head); err != nil {
+ 			job.State, job.Message = "ROLLBACK_FAILED", err.Error()
+diff --git a/internal/model/model.go b/internal/model/model.go
+index a85a4ef..a83d639 100644
+--- a/internal/model/model.go
++++ b/internal/model/model.go
+@@ -12,6 +12,7 @@ type Registry struct {
+ }
+ 
+ type Backup struct {
++	SpoolID    string `json:"spool_id,omitempty"`
+ 	Filename   string `json:"filename"`
+ 	SHA256     string `json:"sha256"`
+ 	DataBase64 string `json:"data_base64"`
+@@ -19,11 +20,12 @@ type Backup struct {
+ }
+ 
+ type UpdateRequest struct {
+-	RequestID string `json:"request_id"`
+-	HeadID    string `json:"head_id"`
+-	Service   string `json:"service"`
+-	Version   string `json:"version,omitempty"`
+-	Backup    Backup `json:"backup"`
++	RequestID     string `json:"request_id"`
++	HeadID        string `json:"head_id"`
++	Service       string `json:"service"`
++	Version       string `json:"version,omitempty"`
++	Backup        Backup `json:"backup"`
++	PreparationID string `json:"preparation_id,omitempty"`
+ }
+ 
+ type NeptuneInitializationRequest struct {
+@@ -35,25 +37,32 @@ type NeptuneInitializationRequest struct {
+ }
+ 
+ type Job struct {
+-	ID                 string     `json:"id"`
+-	RequestID          string     `json:"request_id"`
+-	HeadID             string     `json:"head_id"`
+-	Service            string     `json:"service"`
+-	Version            string     `json:"version,omitempty"`
+-	State              string     `json:"state"`
+-	Message            string     `json:"message,omitempty"`
+-	BackupPath         string     `json:"backup_path,omitempty"`
+-	PreviousImage      string     `json:"previous_image,omitempty"`
+-	PreviousWebImage   string     `json:"previous_web_image,omitempty"`
+-	DeploymentSnapshot string     `json:"deployment_snapshot,omitempty"`
+-	MutationStarted    bool       `json:"mutation_started,omitempty"`
+-	PreviousVersion    string     `json:"previous_version,omitempty"`
+-	InstalledImage     string     `json:"installed_image,omitempty"`
+-	InstalledVersion   string     `json:"installed_version,omitempty"`
+-	RollbackAvailable  bool       `json:"rollback_available"`
+-	CreatedAt          time.Time  `json:"created_at"`
+-	UpdatedAt          time.Time  `json:"updated_at"`
+-	FinishedAt         *time.Time `json:"finished_at,omitempty"`
++	ID                 string            `json:"id"`
++	RequestID          string            `json:"request_id"`
++	HeadID             string            `json:"head_id"`
++	Service            string            `json:"service"`
++	Version            string            `json:"version,omitempty"`
++	State              string            `json:"state"`
++	Message            string            `json:"message,omitempty"`
++	BackupPath         string            `json:"backup_path,omitempty"`
++	BackupSpoolID      string            `json:"backup_spool_id,omitempty"`
++	PreviousImage      string            `json:"previous_image,omitempty"`
++	PreviousWebImage   string            `json:"previous_web_image,omitempty"`
++	DeploymentSnapshot string            `json:"deployment_snapshot,omitempty"`
++	MutationStarted    bool              `json:"mutation_started,omitempty"`
++	RecoveryPending    bool              `json:"recovery_pending,omitempty"`
++	PreviousVersion    string            `json:"previous_version,omitempty"`
++	InstalledImage     string            `json:"installed_image,omitempty"`
++	InstalledVersion   string            `json:"installed_version,omitempty"`
++	PreparationID      string            `json:"preparation_id,omitempty"`
++	ManifestSHA256     string            `json:"manifest_sha256,omitempty"`
++	ComponentImages    map[string]string `json:"component_images,omitempty"`
++	PreviousComponents map[string]string `json:"previous_components,omitempty"`
++	PreviousSchema     int               `json:"previous_schema,omitempty"`
++	RollbackAvailable  bool              `json:"rollback_available"`
++	CreatedAt          time.Time         `json:"created_at"`
++	UpdatedAt          time.Time         `json:"updated_at"`
++	FinishedAt         *time.Time        `json:"finished_at,omitempty"`
+ }
+ 
+ type ReleaseManifest struct {
+@@ -68,7 +77,22 @@ type ReleaseManifest struct {
+ 		URL    string `json:"url"`
+ 		SHA256 string `json:"sha256"`
+ 	} `json:"compose_bundle"`
+-	DatabaseSchema        int    `json:"database_schema"`
+-	MinimumUpdaterVersion string `json:"minimum_updater_version"`
+-	WebImage              string `json:"web_image,omitempty"`
++	DatabaseSchema        int                `json:"database_schema"`
++	MinimumUpdaterVersion string             `json:"minimum_updater_version"`
++	WebImage              string             `json:"web_image,omitempty"`
++	Mastermind            *MastermindRelease `json:"mastermind,omitempty"`
++}
++
++type MastermindRelease struct {
++	Profile             string            `json:"profile"`
++	SourceSHA           string            `json:"source_sha"`
++	Platform            string            `json:"platform"`
++	Components          map[string]string `json:"components"`
++	BridgeVersion       string            `json:"bridge_version"`
++	ObsidianVersion     string            `json:"obsidian_version"`
++	ModelSHA256         string            `json:"model_sha256"`
++	MinimumSourceSchema int               `json:"minimum_source_schema"`
++	MaximumSourceSchema int               `json:"maximum_source_schema"`
++	Dependencies        map[string]string `json:"dependencies"`
++	HealthProfile       string            `json:"health_profile"`
+ }
+diff --git a/internal/release/release.go b/internal/release/release.go
+index 1e50cfd..0b07b45 100644
+--- a/internal/release/release.go
++++ b/internal/release/release.go
+@@ -132,6 +132,11 @@ func Resolve(ctx context.Context, repositoryURL, service, requestedVersion, stag
+ 	if manifest.DatabaseSchema < 1 {
+ 		return Resolved{}, errors.New("release manifest database_schema is invalid")
+ 	}
++	if service == "mastermind" {
++		if err := ValidateMastermind(manifest); err != nil {
++			return Resolved{}, err
++		}
++	}
+ 	if service == "saturn" && !regexp.MustCompile(`^[a-zA-Z0-9._:/-]+@sha256:[a-f0-9]{64}$`).MatchString(manifest.WebImage) {
+ 		return Resolved{}, errors.New("Saturn web image must be pinned to a digest")
+ 	}
+diff --git a/internal/releaseauth/verify.go b/internal/releaseauth/verify.go
+index 61d5981..5c929d0 100644
+--- a/internal/releaseauth/verify.go
++++ b/internal/releaseauth/verify.go
+@@ -1,109 +1,109 @@
+-package releaseauth
+-
+-import (
+-	"context"
+-	"crypto"
+-	"crypto/rsa"
+-	"crypto/sha256"
+-	"crypto/x509"
+-	"encoding/base64"
+-	"encoding/hex"
+-	"encoding/json"
+-	"encoding/pem"
+-	"errors"
+-	"io"
+-	"net/http"
+-	"os"
+-	"path/filepath"
+-)
+-
+-type signature struct {
+-	Schema    string `json:"schema"`
+-	Algorithm string `json:"algorithm"`
+-	KeyID     string `json:"key_id"`
+-	Signature string `json:"signature"`
+-}
+-
+-func VerifyBytes(manifest, envelope, publicPEM []byte) error {
+-	if len(manifest) > 2*1024*1024 || len(envelope) > 16384 || len(publicPEM) > 16384 {
+-		return errors.New("release signature input exceeds limit")
+-	}
+-	var signed signature
+-	if json.Unmarshal(envelope, &signed) != nil || signed.Schema != "exocortex.release-signature.v1" || signed.Algorithm != "RSA-PSS-SHA256" {
+-		return errors.New("release signature envelope is invalid")
+-	}
+-	block, rest := pem.Decode(publicPEM)
+-	if block == nil || block.Type != "PUBLIC KEY" || len(rest) != 0 {
+-		return errors.New("release trust key must be a single SPKI public key")
+-	}
+-	parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
+-	if err != nil {
+-		return errors.New("release trust key is invalid")
+-	}
+-	key, ok := parsed.(*rsa.PublicKey)
+-	if !ok || key.N.BitLen() < 3072 {
+-		return errors.New("release trust key must be RSA with at least 3072 bits")
+-	}
+-	id := sha256.Sum256(block.Bytes)
+-	if signed.KeyID != hex.EncodeToString(id[:]) {
+-		return errors.New("release signer is not trusted")
+-	}
+-	value, err := base64.StdEncoding.Strict().DecodeString(signed.Signature)
+-	if err != nil {
+-		return errors.New("release signature is invalid")
+-	}
+-	hash := sha256.Sum256(manifest)
+-	if rsa.VerifyPSS(key, crypto.SHA256, hash[:], value, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash}) != nil {
+-		return errors.New("release signature verification failed")
+-	}
+-	return nil
+-}
+-
+-func downloadLimited(ctx context.Context, client *http.Client, location string, limit int64, unavailable string) ([]byte, error) {
+-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
+-	if err != nil {
+-		return nil, err
+-	}
+-	response, err := client.Do(request)
+-	if err != nil {
+-		return nil, errors.New(unavailable)
+-	}
+-	defer response.Body.Close()
+-	if response.StatusCode != http.StatusOK {
+-		return nil, errors.New(unavailable)
+-	}
+-	value, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
+-	if err != nil || int64(len(value)) > limit {
+-		return nil, errors.New(unavailable)
+-	}
+-	return value, nil
+-}
+-
+-// Release trust must already have been pinned by an authenticated bootstrap.
+-// Head bootstraps carry the signed Updater installer, which also provisions
+-// helper trust. A public key beside a manifest is not an authentication anchor.
+-func VerifyDownloaded(ctx context.Context, client *http.Client, manifestPath, signatureURL, service string) error {
+-	switch service {
+-	case "kernel", "volt", "saturn", "updater", "neptune", "gryphon", "chronos", "laboratory":
+-	default:
+-		return errors.New("unsupported release trust scope")
+-	}
+-	trustDirectory := os.Getenv("EXOCORTEX_RELEASE_TRUST_DIR")
+-	if trustDirectory == "" {
+-		trustDirectory = "/etc/exocortex/release-trust"
+-	}
+-	manifest, err := os.ReadFile(manifestPath)
+-	if err != nil {
+-		return err
+-	}
+-	envelope, err := downloadLimited(ctx, client, signatureURL, 16384, "release signature is unavailable")
+-	if err != nil {
+-		return err
+-	}
+-	keyPath := filepath.Join(trustDirectory, service+".pem")
+-	key, err := os.ReadFile(keyPath)
+-	if err != nil {
+-		return errors.New("release trust key is unavailable for " + service + "; run an exact-version Updater or head bootstrap first")
+-	}
+-	return VerifyBytes(manifest, envelope, key)
+-}
++package releaseauth
++
++import (
++	"context"
++	"crypto"
++	"crypto/rsa"
++	"crypto/sha256"
++	"crypto/x509"
++	"encoding/base64"
++	"encoding/hex"
++	"encoding/json"
++	"encoding/pem"
++	"errors"
++	"io"
++	"net/http"
++	"os"
++	"path/filepath"
++)
++
++type signature struct {
++	Schema    string `json:"schema"`
++	Algorithm string `json:"algorithm"`
++	KeyID     string `json:"key_id"`
++	Signature string `json:"signature"`
++}
++
++func VerifyBytes(manifest, envelope, publicPEM []byte) error {
++	if len(manifest) > 2*1024*1024 || len(envelope) > 16384 || len(publicPEM) > 16384 {
++		return errors.New("release signature input exceeds limit")
++	}
++	var signed signature
++	if json.Unmarshal(envelope, &signed) != nil || signed.Schema != "exocortex.release-signature.v1" || signed.Algorithm != "RSA-PSS-SHA256" {
++		return errors.New("release signature envelope is invalid")
++	}
++	block, rest := pem.Decode(publicPEM)
++	if block == nil || block.Type != "PUBLIC KEY" || len(rest) != 0 {
++		return errors.New("release trust key must be a single SPKI public key")
++	}
++	parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
++	if err != nil {
++		return errors.New("release trust key is invalid")
++	}
++	key, ok := parsed.(*rsa.PublicKey)
++	if !ok || key.N.BitLen() < 3072 {
++		return errors.New("release trust key must be RSA with at least 3072 bits")
++	}
++	id := sha256.Sum256(block.Bytes)
++	if signed.KeyID != hex.EncodeToString(id[:]) {
++		return errors.New("release signer is not trusted")
++	}
++	value, err := base64.StdEncoding.Strict().DecodeString(signed.Signature)
++	if err != nil {
++		return errors.New("release signature is invalid")
++	}
++	hash := sha256.Sum256(manifest)
++	if rsa.VerifyPSS(key, crypto.SHA256, hash[:], value, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash}) != nil {
++		return errors.New("release signature verification failed")
++	}
++	return nil
++}
++
++func downloadLimited(ctx context.Context, client *http.Client, location string, limit int64, unavailable string) ([]byte, error) {
++	request, err := http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
++	if err != nil {
++		return nil, err
++	}
++	response, err := client.Do(request)
++	if err != nil {
++		return nil, errors.New(unavailable)
++	}
++	defer response.Body.Close()
++	if response.StatusCode != http.StatusOK {
++		return nil, errors.New(unavailable)
++	}
++	value, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
++	if err != nil || int64(len(value)) > limit {
++		return nil, errors.New(unavailable)
++	}
++	return value, nil
++}
++
++// Release trust must already have been pinned by an authenticated bootstrap.
++// Head bootstraps carry the signed Updater installer, which also provisions
++// helper trust. A public key beside a manifest is not an authentication anchor.
++func VerifyDownloaded(ctx context.Context, client *http.Client, manifestPath, signatureURL, service string) error {
++	switch service {
++	case "kernel", "volt", "saturn", "updater", "neptune", "gryphon", "chronos", "laboratory", "mastermind":
++	default:
++		return errors.New("unsupported release trust scope")
++	}
++	trustDirectory := os.Getenv("EXOCORTEX_RELEASE_TRUST_DIR")
++	if trustDirectory == "" {
++		trustDirectory = "/etc/exocortex/release-trust"
++	}
++	manifest, err := os.ReadFile(manifestPath)
++	if err != nil {
++		return err
++	}
++	envelope, err := downloadLimited(ctx, client, signatureURL, 16384, "release signature is unavailable")
++	if err != nil {
++		return err
++	}
++	keyPath := filepath.Join(trustDirectory, service+".pem")
++	key, err := os.ReadFile(keyPath)
++	if err != nil {
++		return errors.New("release trust key is unavailable for " + service + "; run an exact-version Updater or head bootstrap first")
++	}
++	return VerifyBytes(manifest, envelope, key)
++}
+diff --git a/internal/state/operation.go b/internal/state/operation.go
+index 7a5437f..8d7e602 100644
+--- a/internal/state/operation.go
++++ b/internal/state/operation.go
+@@ -44,6 +44,10 @@ func (s *Store) ReconcileInterrupted(supervisorActive func(model.Job) bool) erro
+ 		}
+ 		now := time.Now().UTC()
+ 		job.State, job.Message = "FAILED", "Host operation was interrupted; inspect status and retry or use the retained rollback snapshot"
++		if job.Service == "mastermind" && job.MutationStarted {
++			job.State, job.Message = "ROLLBACK_FAILED", "Interrupted Mastermind mutation awaits automatic recovery"
++			job.RecoveryPending = true
++		}
+ 		job.UpdatedAt, job.FinishedAt = now, &now
+ 		if err := s.Save(job); err != nil {
+ 			return err
+diff --git a/internal/state/store.go b/internal/state/store.go
+index 4525737..2fcef33 100644
+--- a/internal/state/store.go
++++ b/internal/state/store.go
+@@ -14,9 +14,12 @@ import (
+ )
+ 
+ type Store struct {
+-	dir  string
+-	mu   sync.Mutex
+-	jobs map[string]model.Job
++	dir         string
++	mu          sync.Mutex
++	jobs        map[string]model.Job
++	spoolMu     sync.Mutex
++	spoolActive map[string]bool
++	spoolQuota  int64
+ }
+ 
+ var safeJobID = regexp.MustCompile(`^[A-Za-z0-9-]{1,128}$`)
+@@ -160,6 +163,9 @@ func (s *Store) BackupPath(jobID, filename string) (string, error) {
+ }
+ 
+ func (s *Store) Prune(maxJobs int, olderThan time.Time) error {
++	if err := s.PruneSpools(time.Now()); err != nil {
++		return err
++	}
+ 	if maxJobs <= 0 {
+ 		return nil
+ 	}
+@@ -179,6 +185,9 @@ func (s *Store) Prune(maxJobs int, olderThan time.Time) error {
+ 		}
+ 	}
+ 	for index, job := range items {
++		if job.BackupSpoolID != "" && (job.State == "ROLLBACK_FAILED" || job.FinishedAt == nil || job.FinishedAt.Add(24*time.Hour).After(time.Now())) {
++			continue
++		}
+ 		if !terminal(job.State) || (index < maxJobs && !job.CreatedAt.Before(olderThan)) {
+ 			continue
+ 		}
+diff --git a/.gitattributes b/.gitattributes
+new file mode 100644
+index 0000000..d109be1
+--- /dev/null
++++ b/.gitattributes
+@@ -0,0 +1,2 @@
++# Signed test vectors must retain the exact producer bytes on every host.
++internal/releaseauth/testdata/* -text
+diff --git a/internal/api/mastermind.go b/internal/api/mastermind.go
+new file mode 100644
+index 0000000..12c687b
+--- /dev/null
++++ b/internal/api/mastermind.go
+@@ -0,0 +1,38 @@
++package api
++
++import (
++	"encoding/json"
++	"errors"
++	"io"
++	"net/http"
++)
++
++func (s Server) mastermind(mux *http.ServeMux) {
++	mux.HandleFunc("POST /v1/heads/{head}/preparations", func(w http.ResponseWriter, r *http.Request) {
++		if err := s.authorize(r, r.PathValue("head")); err != nil {
++			writeError(w, 401, err)
++			return
++		}
++		r.Body = http.MaxBytesReader(w, r.Body, 4096)
++		var input struct {
++			RequestID string `json:"request_id"`
++			Version   string `json:"version"`
++		}
++		decoder := json.NewDecoder(r.Body)
++		decoder.DisallowUnknownFields()
++		if err := decoder.Decode(&input); err != nil {
++			writeError(w, 400, errors.New("invalid preparation request"))
++			return
++		}
++		if decoder.Decode(new(any)) != io.EOF {
++			writeError(w, 400, errors.New("trailing preparation input"))
++			return
++		}
++		result, err := s.Engine.PrepareMastermind(r.Context(), r.PathValue("head"), input.RequestID, input.Version)
++		if err != nil {
++			writeError(w, 409, err)
++			return
++		}
++		writeJSON(w, 200, result)
++	})
++}
+diff --git a/internal/api/spool.go b/internal/api/spool.go
+new file mode 100644
+index 0000000..b8d0430
+--- /dev/null
++++ b/internal/api/spool.go
+@@ -0,0 +1,121 @@
++package api
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"io"
++	"net/http"
++	"time"
++
++	"updater/internal/config"
++	"updater/internal/state"
++)
++
++type progressingBody struct {
++	reader   io.Reader
++	response *http.ResponseController
++}
++
++func (p progressingBody) Read(bytes []byte) (int, error) {
++	// net/http supports this on the real Unix-socket server; test recorders need not.
++	_ = p.response.SetReadDeadline(time.Now().Add(60 * time.Second))
++	return p.reader.Read(bytes)
++}
++
++func (s Server) backupSpools(mux *http.ServeMux) {
++	authorize := func(w http.ResponseWriter, r *http.Request) bool {
++		if err := s.authorize(r, r.PathValue("head")); err != nil {
++			writeError(w, 401, err)
++			return false
++		}
++		head, err := config.LoadHead(s.Runtime, r.PathValue("head"))
++		if err != nil || head.Service != "mastermind" {
++			writeError(w, 403, errors.New("this head does not support Mastermind backup spools"))
++			return false
++		}
++		return true
++	}
++	failure := func(w http.ResponseWriter, err error) {
++		status := 400
++		if errors.Is(err, state.ErrSpoolBusy) {
++			status = 409
++		}
++		if errors.Is(err, state.ErrSpoolQuota) {
++			status = 507
++		}
++		// Filesystem errors must not return host paths or deployment details to clients.
++		writeError(w, status, errors.New("backup spool could not complete this operation"))
++	}
++	mux.HandleFunc("POST /v1/heads/{head}/backup-spools", func(w http.ResponseWriter, r *http.Request) {
++		if !authorize(w, r) {
++			return
++		}
++		var input struct {
++			RequestID string `json:"request_id"`
++			Filename  string `json:"filename"`
++			Size      int64  `json:"size"`
++			SHA256    string `json:"sha256"`
++		}
++		r.Body = http.MaxBytesReader(w, r.Body, 4096)
++		decoder := json.NewDecoder(r.Body)
++		decoder.DisallowUnknownFields()
++		if err := decoder.Decode(&input); err != nil {
++			failure(w, err)
++			return
++		}
++		var extra any
++		if decoder.Decode(&extra) != io.EOF {
++			failure(w, state.ErrSpoolInvalid)
++			return
++		}
++		item, err := s.Store.CreateSpool(r.PathValue("head"), input.RequestID, input.Filename, input.Size, input.SHA256, time.Now())
++		if err != nil {
++			failure(w, err)
++			return
++		}
++		writeJSON(w, 201, item)
++	})
++	mux.HandleFunc("PUT /v1/heads/{head}/backup-spools/{spool}/content", func(w http.ResponseWriter, r *http.Request) {
++		if !authorize(w, r) {
++			return
++		}
++		if r.ContentLength <= 0 || r.ContentLength > state.MaximumSpoolBytes || r.Header.Get("Content-Encoding") != "" {
++			failure(w, state.ErrSpoolInvalid)
++			return
++		}
++		r.Body = http.MaxBytesReader(w, r.Body, state.MaximumSpoolBytes)
++		ctx, cancel := context.WithTimeout(r.Context(), time.Hour)
++		defer cancel()
++		done := make(chan struct{})
++		defer close(done)
++		go func() {
++			select {
++			case <-ctx.Done():
++				r.Body.Close()
++			case <-done:
++			}
++		}()
++		err := s.Store.UploadSpool(ctx, r.PathValue("head"), r.PathValue("spool"), progressingBody{r.Body, http.NewResponseController(w)}, r.ContentLength)
++		if err != nil {
++			failure(w, err)
++			return
++		}
++		w.WriteHeader(204)
++	})
++	mux.HandleFunc("POST /v1/heads/{head}/backup-spools/{spool}/seal", func(w http.ResponseWriter, r *http.Request) {
++		if !authorize(w, r) {
++			return
++		}
++		if r.ContentLength > 0 {
++			failure(w, state.ErrSpoolInvalid)
++			return
++		}
++		item, err := s.Store.SealSpool(r.PathValue("head"), r.PathValue("spool"))
++		if err != nil {
++			failure(w, err)
++			return
++		}
++		writeJSON(w, 200, item)
++	})
++}
+diff --git a/internal/api/spool_test.go b/internal/api/spool_test.go
+new file mode 100644
+index 0000000..883f319
+--- /dev/null
++++ b/internal/api/spool_test.go
+@@ -0,0 +1,92 @@
++//go:build linux
++
++package api
++
++import (
++	"bytes"
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/json"
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"path/filepath"
++	"testing"
++
++	"updater/internal/config"
++	"updater/internal/engine"
++	"updater/internal/state"
++)
++
++func TestStreamingSpoolHTTPAuthenticatesBeforeBodyAndSeals(t *testing.T) {
++	dir := t.TempDir()
++	env := filepath.Join(dir, "mastermind.env")
++	content := "KERNEL_URL=https://kernel.internal\nKERNEL_SERVICE_TOKEN=fixture-kernel-token\nUPDATER_SERVICE_ID=mastermind\n" +
++		"UPDATER_COMPOSE_PROJECT_DIR=" + dir + "\nUPDATER_COMPOSE_SERVICE=core\nUPDATER_CONTAINER_NAME=mastermind-core\nUPDATER_IMAGE_VARIABLE=MASTERMIND_CORE_IMAGE\n" +
++		"UPDATER_VERSION_VARIABLE=MASTERMIND_VERSION\nMASTERMIND_VERSION=0.0.1\nUPDATER_LOCAL_HEALTH_URL=http://127.0.0.1:18390/readyz\nUPDATER_CONTROL_TOKEN=fixture-head-token\n"
++	if err := os.WriteFile(env, []byte(content), 0600); err != nil {
++		t.Fatal(err)
++	}
++	runtime := config.Runtime{StateDir: dir, RegistryPath: filepath.Join(dir, "heads.json")}
++	if err := config.RegisterHead(runtime.RegistryPath, "mastermind", env); err != nil {
++		t.Fatal(err)
++	}
++	store, err := state.New(dir)
++	if err != nil {
++		t.Fatal(err)
++	}
++	app := Server{Version: "test-candidate", Runtime: runtime, Store: store, Engine: engine.New(runtime, store, nil)}
++	server := httptest.NewServer(app.Handler())
++	defer server.Close()
++	send := func(method, route string, body io.Reader, token string) *http.Response {
++		t.Helper()
++		request, err := http.NewRequest(method, server.URL+route, body)
++		if err != nil {
++			t.Fatal(err)
++		}
++		request.Header.Set("X-Updater-Token", token)
++		request.Host = "updater.local"
++		request.Header.Set("Content-Type", "application/octet-stream")
++		response, err := server.Client().Do(request)
++		if err != nil {
++			t.Fatal(err)
++		}
++		t.Cleanup(func() { response.Body.Close() })
++		return response
++	}
++	route := "/v1/heads/mastermind/backup-spools"
++	payload := bytes.Repeat([]byte{1, 3, 5, 7}, 512*1024)
++	sum := sha256.Sum256(payload)
++	descriptor, _ := json.Marshal(map[string]any{"request_id": "http-stream", "filename": state.SpoolFilename, "size": len(payload), "sha256": hex.EncodeToString(sum[:])})
++	if response := send("POST", route, bytes.NewReader(descriptor), "wrong"); response.StatusCode != 401 {
++		t.Fatal(response.StatusCode)
++	}
++	created := send("POST", route, bytes.NewReader(descriptor), "fixture-head-token")
++	if created.StatusCode != 201 {
++		t.Fatal(created.StatusCode)
++	}
++	var item state.Spool
++	if err = json.NewDecoder(created.Body).Decode(&item); err != nil {
++		t.Fatal(err)
++	}
++	object := route + "/" + item.ID
++	if response := send("POST", object+"/seal", nil, "fixture-head-token"); response.StatusCode != 400 {
++		t.Fatal("unuploaded seal accepted")
++	}
++	if response := send("PUT", object+"/content", bytes.NewReader(payload), "wrong"); response.StatusCode != 401 {
++		t.Fatal(response.StatusCode)
++	}
++	if response := send("PUT", object+"/content", bytes.NewReader(payload), "fixture-head-token"); response.StatusCode != 204 {
++		t.Fatal(response.StatusCode)
++	}
++	if response := send("POST", object+"/seal", nil, "fixture-head-token"); response.StatusCode != 200 {
++		t.Fatal(response.StatusCode)
++	}
++	if response := send("PUT", object+"/content", bytes.NewReader(payload), "fixture-head-token"); response.StatusCode != 400 {
++		t.Fatal("sealed spool overwritten")
++	}
++	if response := send("POST", route, bytes.NewReader(append(descriptor, []byte("{}")...)), "fixture-head-token"); response.StatusCode != 400 {
++		t.Fatal("trailing JSON accepted")
++	}
++}
+diff --git a/internal/engine/mastermind_group.go b/internal/engine/mastermind_group.go
+new file mode 100644
+index 0000000..b615eec
+--- /dev/null
++++ b/internal/engine/mastermind_group.go
+@@ -0,0 +1,329 @@
++package engine
++
++import (
++	"bytes"
++	"context"
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"net"
++	"net/http"
++	"net/url"
++	"os"
++	"path/filepath"
++	"strconv"
++	"strings"
++	"time"
++	"updater/internal/config"
++	"updater/internal/model"
++	"updater/internal/release"
++)
++
++var componentNames = []string{"core", "runtime", "worker"}
++
++// An interrupted group mutation cannot be treated as an ordinary failed image
++// pull. Recover its old data/components before Core can reopen owner writes.
++func (e *Engine) ResumeMastermindRecovery() {
++	for _, job := range e.store.List() {
++		if job.Service == "mastermind" && job.RecoveryPending {
++			_, _ = e.Rollback(job.ID)
++			return
++		}
++	}
++}
++
++func componentEnvironment(images map[string]string, version string) map[string]string {
++	return map[string]string{"MASTERMIND_CORE_IMAGE": images["core"], "MASTERMIND_RUNTIME_IMAGE": images["runtime"],
++		"MASTERMIND_WORKER_IMAGE": images["worker"], "MASTERMIND_VERSION": version}
++}
++
++func composeArguments(head config.HeadConfig, args ...string) []string {
++	return append([]string{"compose", "--env-file", head.EnvFile, "-f", filepath.Join(head.ProjectDir, head.ComposeFile)}, args...)
++}
++
++func (e *Engine) groupCommand(ctx context.Context, head config.HeadConfig, args ...string) error {
++	_, err := e.runner.Run(ctx, "docker", composeArguments(head, args...), nil, head.ProjectDir)
++	if err != nil {
++		return errors.New("Mastermind component operation failed: " + args[0])
++	}
++	return nil
++}
++
++func mastermindControl(ctx context.Context, head config.HeadConfig, operation string, input any) (map[string]any, error) {
++	parsed, err := url.Parse(head.LocalHealthURL)
++	if err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.User != nil ||
++		(parsed.Hostname() != "localhost" && (net.ParseIP(parsed.Hostname()) == nil || !net.ParseIP(parsed.Hostname()).IsLoopback())) {
++		return nil, errors.New("Mastermind control endpoint must be registered loopback HTTP(S)")
++	}
++	if operation != "confirm" && operation != "functional" {
++		return nil, errors.New("unsupported Mastermind control operation")
++	}
++	parsed.Path = "/api/internal/updater/" + operation
++	parsed.RawPath = ""
++	parsed.RawQuery = ""
++	parsed.Fragment = ""
++	body, err := json.Marshal(input)
++	if err != nil {
++		return nil, err
++	}
++	request, err := http.NewRequestWithContext(ctx, http.MethodPost, parsed.String(), bytes.NewReader(body))
++	if err != nil {
++		return nil, err
++	}
++	request.Header.Set("Authorization", "Bearer "+head.ControlToken)
++	request.Header.Set("Content-Type", "application/json")
++	client := &http.Client{Timeout: 120 * time.Second, Transport: &http.Transport{Proxy: nil}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
++	response, err := client.Do(request)
++	if err != nil {
++		return nil, errors.New("Mastermind control endpoint is unavailable")
++	}
++	defer response.Body.Close()
++	if response.StatusCode != 200 {
++		return nil, fmt.Errorf("Mastermind %s returned HTTP %d", operation, response.StatusCode)
++	}
++	payload, err := io.ReadAll(io.LimitReader(response.Body, 65537))
++	if err != nil || len(payload) > 65536 {
++		return nil, errors.New("Mastermind control response exceeds its limit")
++	}
++	var result map[string]any
++	err = json.Unmarshal(payload, &result)
++	return result, err
++}
++
++func (e *Engine) validateGroupCompose(ctx context.Context, head config.HeadConfig, filename string, images map[string]string, version string) error {
++	environment := []string{}
++	for key, value := range componentEnvironment(images, version) {
++		environment = append(environment, key+"="+value)
++	}
++	output, err := e.runner.Run(ctx, "docker", []string{"compose", "--env-file", head.EnvFile, "-f", filename, "--project-directory", head.ProjectDir, "config", "--format", "json"}, environment, head.ProjectDir)
++	if err != nil || len(output) > 1024*1024 {
++		return errors.New("Mastermind Compose profile could not be rendered within its bound")
++	}
++	var rendered struct {
++		Name     string `json:"name"`
++		Services map[string]struct {
++			Image         string   `json:"image"`
++			ContainerName string   `json:"container_name"`
++			User          string   `json:"user"`
++			Privileged    bool     `json:"privileged"`
++			ReadOnly      bool     `json:"read_only"`
++			NetworkMode   string   `json:"network_mode"`
++			CapAdd        []string `json:"cap_add"`
++			CapDrop       []string `json:"cap_drop"`
++			Devices       []any    `json:"devices"`
++			Entrypoint    any      `json:"entrypoint"`
++			Command       any      `json:"command"`
++			Ports         []struct {
++				HostIP string `json:"host_ip"`
++				Target int    `json:"target"`
++			} `json:"ports"`
++			Volumes []struct {
++				Type     string `json:"type"`
++				Source   string `json:"source"`
++				Target   string `json:"target"`
++				ReadOnly bool   `json:"read_only"`
++			} `json:"volumes"`
++		} `json:"services"`
++	}
++	if json.Unmarshal(output, &rendered) != nil || rendered.Name != head.ID || len(rendered.Services) != 3 {
++		return errors.New("Mastermind Compose must contain only the registered three-component project")
++	}
++	for _, name := range componentNames {
++		service, ok := rendered.Services[name]
++		if !ok || service.Image != images[name] || service.Privileged || !service.ReadOnly || service.NetworkMode != "" ||
++			service.User != "10001:10001" || len(service.CapAdd) != 0 || len(service.Devices) != 0 ||
++			len(service.CapDrop) != 1 || !strings.EqualFold(service.CapDrop[0], "ALL") || service.Command != nil || service.Entrypoint != nil ||
++			service.ContainerName != "" && service.ContainerName != head.ID+"-"+name+"-1" {
++			return errors.New("Mastermind component violates its fixed runtime profile: " + name)
++		}
++		for _, port := range service.Ports {
++			if name != "core" || port.HostIP != "127.0.0.1" || port.Target != 18390 {
++				return errors.New("Mastermind profile exposes a private component")
++			}
++		}
++		for _, volume := range service.Volumes {
++			if volume.Type == "volume" {
++				if volume.Source != "core-data" && volume.Source != "vault-data" && volume.Source != "runtime-data" && volume.Source != "work-data" {
++					return errors.New("Mastermind profile mounts an unowned volume")
++				}
++				if name == "runtime" && volume.Source != "vault-data" && volume.Source != "runtime-data" || name == "worker" && volume.Source != "work-data" {
++					return errors.New("Mastermind profile crosses a component data boundary")
++				}
++				continue
++			}
++			if volume.Type != "bind" || !volume.ReadOnly {
++				return errors.New("Mastermind profile contains an unsupported host mount")
++			}
++			allowed := filepath.Join(head.ProjectDir, "secrets", name)
++			relative, relErr := filepath.Rel(allowed, volume.Source)
++			ownSecret := relErr == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
++			agentSocket := name == "core" && (volume.Source == "/run/neptune" || volume.Source == filepath.Dir(e.runtime.SocketPath))
++			if !ownSecret && !agentSocket || strings.Contains(volume.Source, "docker.sock") || strings.Contains(volume.Target, "docker.sock") {
++				return errors.New("Mastermind profile requests an unowned host path")
++			}
++		}
++	}
++	return nil
++}
++
++func (e *Engine) applyMastermind(ctx context.Context, job *model.Job, head config.HeadConfig, resolved release.Resolved, update func(string, string)) error {
++	if err := validateMastermindHead(head); err != nil {
++		return err
++	}
++	if err := release.ValidateMastermind(resolved.Manifest); err != nil {
++		return err
++	}
++	preparation, err := e.mastermindPreparation(job.HeadID, job.RequestID, job.Version, job.PreparationID)
++	if err != nil {
++		return err
++	}
++	hash, err := manifestHash(resolved.ManifestPath)
++	if err != nil || hash != preparation.ManifestSHA256 {
++		return errors.New("Mastermind release changed after pre-pull preparation")
++	}
++	images := resolved.Manifest.Mastermind.Components
++	values, err := config.ParseEnvFile(head.EnvFile)
++	if err != nil {
++		return err
++	}
++	previous := map[string]string{"core": values["MASTERMIND_CORE_IMAGE"], "runtime": values["MASTERMIND_RUNTIME_IMAGE"], "worker": values["MASTERMIND_WORKER_IMAGE"]}
++	// Validate the installed profile as well as the candidate before any stop/mutation.
++	if err = e.validateGroupCompose(ctx, head, filepath.Join(head.ProjectDir, head.ComposeFile), previous, head.CurrentVersion); err != nil {
++		return err
++	}
++	files, err := readDeployment(resolved.ComposePath, "mastermind")
++	if err != nil {
++		return err
++	}
++	candidate := filepath.Join(head.ProjectDir, ".updater-candidate-"+job.RequestID+".yaml")
++	if err = atomicDeploymentWrite(candidate, files["compose.production.yaml"]); err != nil {
++		return err
++	}
++	defer os.Remove(candidate)
++	if err = e.validateGroupCompose(ctx, head, candidate, images, job.Version); err != nil {
++		return err
++	}
++	for _, name := range componentNames {
++		// Inspect cannot silently pull after Core has entered its snapshot barrier.
++		if _, err = e.runner.Run(ctx, "docker", []string{"image", "inspect", images[name]}, nil, head.ProjectDir); err != nil {
++			return errors.New("a prepared Mastermind image is no longer present")
++		}
++		output, inspectErr := e.runner.Run(ctx, "docker", []string{"inspect", "--format", "{{.Config.Image}}", head.ID + "-" + name + "-1"}, nil, head.ProjectDir)
++		if inspectErr != nil || strings.TrimSpace(string(output)) != previous[name] {
++			return errors.New("installed component differs from its registered immutable image")
++		}
++	}
++	spool, err := os.Open(job.BackupPath)
++	if err != nil {
++		return err
++	}
++	digest := sha256.New()
++	size, hashErr := io.CopyBuffer(digest, spool, make([]byte, 1024*1024))
++	spool.Close()
++	if hashErr != nil {
++		return hashErr
++	}
++	receipt, err := mastermindControl(ctx, head, "confirm", map[string]any{"request_id": job.RequestID, "version": job.Version,
++		"sha256": hex.EncodeToString(digest.Sum(nil)), "size": size})
++	if err != nil {
++		return err
++	}
++	schema, ok := receipt["schema"].(float64)
++	if receipt["held"] != true || receipt["request_id"] != job.RequestID || !ok || int(schema) < resolved.Manifest.Mastermind.MinimumSourceSchema || int(schema) > resolved.Manifest.Mastermind.MaximumSourceSchema {
++		return errors.New("Core did not confirm the retained snapshot barrier and compatible source schema")
++	}
++	job.PreviousSchema = int(schema)
++	job.PreviousComponents = previous
++	job.PreviousImage = previous["core"]
++	job.PreviousVersion = head.CurrentVersion
++	job.ComponentImages = images
++	job.ManifestSHA256 = hash
++	job.DeploymentSnapshot = filepath.Join(filepath.Dir(job.BackupPath), "deployment.json")
++	if err = snapshotDeployment(head, files, job.DeploymentSnapshot); err != nil {
++		return err
++	}
++	job.MutationStarted = true
++	if err = e.store.Save(*job); err != nil {
++		return err
++	}
++	update("APPLYING", "stopping only Core, Runtime and Worker under the retained write barrier")
++	if err = e.groupCommand(ctx, head, "stop", "core", "runtime", "worker"); err != nil {
++		return err
++	}
++	if err = applyDeployment(head, files); err != nil {
++		return err
++	}
++	if err = setEnvValues(head.EnvFile, componentEnvironment(images, job.Version)); err != nil {
++		return err
++	}
++	if err = e.groupCommand(ctx, head, "run", "--rm", "--no-deps", "--entrypoint", "python", "core", "-m", "mastermind.cli", "update-migrate",
++		"--request", job.RequestID, "--version", job.Version, "--schema", strconv.Itoa(resolved.Manifest.DatabaseSchema)); err != nil {
++		return err
++	}
++	if err = e.groupCommand(ctx, head, "up", "-d", "--no-deps", "runtime", "worker", "core"); err != nil {
++		return err
++	}
++	update("HEALTH_CHECK", "verifying Core schema, Vault open, official Runtime/Bridge and Worker")
++	if err = e.checkHealthFn(ctx, head.LocalHealthURL); err != nil {
++		return err
++	}
++	result, err := mastermindControl(ctx, head, "functional", map[string]any{"request_id": job.RequestID})
++	if err != nil {
++		return err
++	}
++	group := resolved.Manifest.Mastermind
++	if result["verified"] != true || result["version"] != job.Version || result["schema"] != float64(resolved.Manifest.DatabaseSchema) ||
++		result["bridge_version"] != group.BridgeVersion || result["obsidian_version"] != group.ObsidianVersion || result["model_sha256"] != group.ModelSHA256 ||
++		result["worker"] != true || result["vault"] != true {
++		return errors.New("Mastermind functional acceptance did not match the signed component group")
++	}
++	if head.PublicHealthURL != "" {
++		if err = e.checkHealthFn(ctx, head.PublicHealthURL); err != nil {
++			return err
++		}
++	}
++	job.InstalledImage = images["core"]
++	job.InstalledVersion = job.Version
++	// Core releases its durable barrier only after it observes this job COMPLETED.
++	return nil
++}
++
++func (e *Engine) rollbackMastermind(ctx context.Context, job *model.Job, head config.HeadConfig) error {
++	if len(job.PreviousComponents) != 3 || job.PreviousVersion == "" || job.PreviousSchema < 1 {
++		return errors.New("Mastermind rollback component snapshot is incomplete")
++	}
++	if err := e.groupCommand(ctx, head, "stop", "core", "runtime", "worker"); err != nil {
++		return err
++	}
++	if err := restoreDeployment(head, job.DeploymentSnapshot); err != nil {
++		return err
++	}
++	if err := setEnvValues(head.EnvFile, componentEnvironment(job.PreviousComponents, job.PreviousVersion)); err != nil {
++		return err
++	}
++	// File remains beneath a root-only directory; this fixed UID receives only the sealed bind-mounted archive.
++	if err := e.chownBackupFn(job.BackupPath, 10001, 10001); err != nil {
++		return err
++	}
++	if err := e.groupCommand(ctx, head, "run", "--rm", "--no-deps", "-v", job.BackupPath+":/recovery/rollback.zip:ro", "--entrypoint", "python", "core",
++		"-m", "mastermind.cli", "update-rollback", "--request", job.RequestID, "--archive", "/recovery/rollback.zip"); err != nil {
++		return err
++	}
++	if err := e.groupCommand(ctx, head, "up", "-d", "--no-deps", "runtime", "worker", "core"); err != nil {
++		return err
++	}
++	if err := e.checkHealthFn(ctx, head.LocalHealthURL); err != nil {
++		return err
++	}
++	result, err := mastermindControl(ctx, head, "functional", map[string]any{"request_id": job.RequestID})
++	if err != nil {
++		return err
++	}
++	if result["verified"] != true || result["version"] != job.PreviousVersion || result["schema"] != float64(job.PreviousSchema) || result["worker"] != true || result["vault"] != true {
++		return errors.New("Mastermind rollback did not recover the previous functional data/components")
++	}
++	return nil
++}
+diff --git a/internal/engine/mastermind_prepare.go b/internal/engine/mastermind_prepare.go
+new file mode 100644
+index 0000000..7a4df6c
+--- /dev/null
++++ b/internal/engine/mastermind_prepare.go
+@@ -0,0 +1,151 @@
++package engine
++
++import (
++	"context"
++	"crypto/sha256"
++	"encoding/hex"
++	"errors"
++	"os"
++	"path/filepath"
++	"regexp"
++	"strings"
++	"time"
++	"updater/internal/config"
++	"updater/internal/kernel"
++	"updater/internal/model"
++	"updater/internal/release"
++)
++
++var mastermindRequestID = regexp.MustCompile(`^[a-f0-9]{32}$`)
++
++func validateMastermindHead(head config.HeadConfig) error {
++	if head.Service != "mastermind" || head.ComposeService != "core" || head.ImageVariable != "MASTERMIND_CORE_IMAGE" ||
++		head.VersionVariable != "MASTERMIND_VERSION" || !filepath.IsAbs(head.ProjectDir) {
++		return errors.New("head is not registered for the fixed Mastermind component profile")
++	}
++	return nil
++}
++
++func manifestHash(path string) (string, error) {
++	info, err := os.Lstat(path)
++	if err != nil || !info.Mode().IsRegular() || info.Size() > 2*1024*1024 {
++		return "", errors.New("verified manifest is unavailable")
++	}
++	body, err := os.ReadFile(path)
++	if err != nil {
++		return "", err
++	}
++	sum := sha256.Sum256(body)
++	return hex.EncodeToString(sum[:]), nil
++}
++
++// Prepare downloads and independently verifies the exact release and pre-pulls
++// all components before Core acquires the long-lived snapshot/write barrier.
++func (e *Engine) PrepareMastermind(ctx context.Context, headID, requestID, version string) (model.Job, error) {
++	if e.runtime.DryRun {
++		return model.Job{}, errors.New("Mastermind Apply preparation is disabled in dry-run mode")
++	}
++	if !mastermindRequestID.MatchString(requestID) || version == "" {
++		return model.Job{}, errors.New("an exact version and 32-hex request ID are required")
++	}
++	head, err := config.LoadHead(e.runtime, headID)
++	if err != nil {
++		return model.Job{}, err
++	}
++	if err = validateMastermindHead(head); err != nil {
++		return model.Job{}, err
++	}
++	if version == head.CurrentVersion || !release.SupportsMinimum(version, head.CurrentVersion) {
++		return model.Job{}, errors.New("Mastermind preparation requires a newer release")
++	}
++	if previous, ok := e.store.ByRequestID(requestID + ":prepare"); ok {
++		if previous.HeadID != headID || previous.Version != version {
++			return model.Job{}, errors.New("preparation request is already bound to another release")
++		}
++		if previous.State != "COMPLETED" || time.Since(previous.UpdatedAt) > time.Hour {
++			return model.Job{}, errors.New("preparation failed or expired; use a new request ID")
++		}
++		return previous, nil
++	}
++	unlock, err := e.store.BeginOperation("")
++	if err != nil {
++		return model.Job{}, err
++	}
++	defer unlock()
++	sum := sha256.Sum256([]byte(headID + ":" + requestID))
++	now := time.Now().UTC()
++	job := model.Job{ID: "prepare-" + hex.EncodeToString(sum[:])[:40], RequestID: requestID + ":prepare", HeadID: headID,
++		Service: "mastermind-preparation", Version: version, State: "PREPARING", CreatedAt: now, UpdatedAt: now}
++	if err = e.store.Save(job); err != nil {
++		return model.Job{}, err
++	}
++	finished := false
++	defer func() {
++		if !finished {
++			end := time.Now().UTC()
++			job.State = "FAILED"
++			job.Message = "Release preparation did not complete"
++			job.UpdatedAt = end
++			job.FinishedAt = &end
++			_ = e.store.Save(job)
++		}
++	}()
++	ctx, cancel := context.WithTimeout(ctx, time.Hour)
++	defer cancel()
++	snapshot, err := e.loadRegister(head.KernelURL, head.KernelServiceToken, head.KernelCachePath, 5*time.Second)
++	if err != nil {
++		return model.Job{}, err
++	}
++	repository, err := kernel.String(snapshot, "repositories.mastermind.url")
++	if err != nil {
++		return model.Job{}, err
++	}
++	directory := filepath.Join(e.runtime.StateDir, "staging", job.ID)
++	defer os.RemoveAll(directory)
++	resolved, err := e.resolveRelease(ctx, repository, "mastermind", version, directory)
++	if err != nil {
++		return model.Job{}, err
++	}
++	if err = release.ValidateMastermind(resolved.Manifest); err != nil {
++		return model.Job{}, err
++	}
++	if !release.SupportsMinimum(e.runtime.UpdaterVersion, resolved.Manifest.MinimumUpdaterVersion) {
++		return model.Job{}, errors.New("installed Updater is older than the release requirement")
++	}
++	if _, err = readDeployment(resolved.ComposePath, "mastermind"); err != nil {
++		return model.Job{}, err
++	}
++	job.ManifestSHA256, err = manifestHash(resolved.ManifestPath)
++	if err != nil {
++		return model.Job{}, err
++	}
++	job.ComponentImages = resolved.Manifest.Mastermind.Components
++	for _, name := range []string{"core", "runtime", "worker"} {
++		if _, err = e.runner.Run(ctx, "docker", []string{"pull", job.ComponentImages[name]}, nil, head.ProjectDir); err != nil {
++			return model.Job{}, errors.New("Mastermind component pre-pull failed: " + name)
++		}
++		output, inspectErr := e.runner.Run(ctx, "docker", []string{"image", "inspect", "--format", "{{.Os}}/{{.Architecture}}", job.ComponentImages[name]}, nil, head.ProjectDir)
++		if inspectErr != nil || strings.TrimSpace(string(output)) != resolved.Manifest.Mastermind.Platform {
++			return model.Job{}, errors.New("Mastermind component platform does not match: " + name)
++		}
++	}
++	end := time.Now().UTC()
++	job.State = "COMPLETED"
++	job.Message = "All three immutable components verified and pre-pulled"
++	job.UpdatedAt = end
++	job.FinishedAt = &end
++	if err = e.store.Save(job); err != nil {
++		return model.Job{}, err
++	}
++	finished = true
++	return job, nil
++}
++
++func (e *Engine) mastermindPreparation(headID, requestID, version, id string) (model.Job, error) {
++	job, ok := e.store.Get(id)
++	if !ok || job.Service != "mastermind-preparation" || job.HeadID != headID || job.RequestID != requestID+":prepare" ||
++		job.State != "COMPLETED" || job.Version != version || time.Since(job.UpdatedAt) > time.Hour {
++		return model.Job{}, errors.New("Mastermind needs a fresh verified preparation for this head, request and version")
++	}
++	return job, nil
++}
+diff --git a/internal/engine/mastermind_test.go b/internal/engine/mastermind_test.go
+new file mode 100644
+index 0000000..2492cf3
+--- /dev/null
++++ b/internal/engine/mastermind_test.go
+@@ -0,0 +1,234 @@
++package engine
++
++import (
++	"bytes"
++	"context"
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/json"
++	"errors"
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"path/filepath"
++	"strings"
++	"sync"
++	"testing"
++	"time"
++	"updater/internal/config"
++	"updater/internal/kernel"
++	"updater/internal/model"
++	"updater/internal/release"
++	"updater/internal/state"
++)
++
++type groupRunner struct {
++	mu           sync.Mutex
++	calls        []string
++	old          map[string]string
++	version      string
++	failure      string
++	failed       bool
++	extraService bool
++}
++
++func (r *groupRunner) Run(_ context.Context, name string, args, environment []string, directory string) ([]byte, error) {
++	r.mu.Lock()
++	defer r.mu.Unlock()
++	call := name + " " + strings.Join(args, " ")
++	r.calls = append(r.calls, call)
++	if strings.Contains(call, "config --format json") {
++		env, _ := config.ParseEnvFile(filepath.Join(directory, ".env"))
++		for _, value := range environment {
++			key, raw, _ := strings.Cut(value, "=")
++			env[key] = raw
++		}
++		services := map[string]any{}
++		for _, component := range componentNames {
++			services[component] = map[string]any{"image": env["MASTERMIND_"+strings.ToUpper(component)+"_IMAGE"], "user": "10001:10001", "read_only": true, "cap_drop": []string{"ALL"}}
++		}
++		if r.extraService {
++			services["unrelated"] = map[string]any{}
++		}
++		return json.Marshal(map[string]any{"name": "mastermind", "services": services})
++	}
++	if args[0] == "image" {
++		if strings.Contains(call, "--format") {
++			return []byte("linux/amd64"), nil
++		}
++		return []byte("[]"), nil
++	}
++	if args[0] == "inspect" {
++		component := strings.TrimSuffix(strings.TrimPrefix(args[len(args)-1], "mastermind-"), "-1")
++		return []byte(r.old[component]), nil
++	}
++	if strings.Contains(call, "update-migrate") {
++		r.version = "0.0.2"
++		if r.failure == "migration" || r.failure == "rollback" {
++			r.failed = true
++			return nil, errors.New("injected migration failure")
++		}
++	}
++	if strings.Contains(call, "update-rollback") {
++		if r.failure == "rollback" {
++			return nil, errors.New("injected rollback failure")
++		}
++		r.version = "0.0.1"
++	}
++	return []byte("ok"), nil
++}
++
++func TestMastermindGroupPrepareApplyAndFailureOrdering(t *testing.T) {
++	for _, failure := range []string{"none", "migration", "functional", "rollback", "changed-manifest", "extra-service"} {
++		t.Run(failure, func(t *testing.T) {
++			directory := t.TempDir()
++			old := map[string]string{}
++			next := map[string]string{}
++			for index, name := range componentNames {
++				old[name] = "ghcr.io/test/" + name + "@sha256:" + strings.Repeat(string(rune('a'+index)), 64)
++				next[name] = "ghcr.io/test/" + name + "@sha256:" + strings.Repeat(string(rune('d'+index)), 64)
++			}
++			runner := &groupRunner{old: old, version: "0.0.1", failure: failure, extraService: failure == "extra-service"}
++			payload := []byte("sealed synthetic snapshot")
++			digest := sha256.Sum256(payload)
++			hash := hex.EncodeToString(digest[:])
++			requestID := strings.Repeat("a", 32)
++			core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++				if r.Header.Get("Authorization") != "Bearer synthetic-control" {
++					w.WriteHeader(401)
++					return
++				}
++				var input map[string]any
++				if json.NewDecoder(r.Body).Decode(&input) != nil || input["request_id"] != requestID {
++					w.WriteHeader(400)
++					return
++				}
++				runner.mu.Lock()
++				defer runner.mu.Unlock()
++				if r.URL.Path == "/api/internal/updater/confirm" {
++					if input["sha256"] != hash || input["size"] != float64(len(payload)) {
++						w.WriteHeader(409)
++						return
++					}
++					_ = json.NewEncoder(w).Encode(map[string]any{"held": true, "request_id": requestID, "schema": 1})
++					return
++				}
++				valid := !(failure == "functional" && runner.version == "0.0.2")
++				_ = json.NewEncoder(w).Encode(map[string]any{"verified": valid, "version": runner.version, "schema": 1, "vault": true, "worker": true,
++					"bridge_version": runner.version, "obsidian_version": "1.13.7", "model_sha256": strings.Repeat("a", 64)})
++			}))
++			defer core.Close()
++			env := "KERNEL_URL=http://127.0.0.1:18180\nKERNEL_SERVICE_TOKEN=fixture\nUPDATER_SERVICE_ID=mastermind\nUPDATER_COMPOSE_PROJECT_DIR=" + directory + "\nUPDATER_COMPOSE_FILE=compose.production.yaml\nUPDATER_COMPOSE_SERVICE=core\nUPDATER_CONTAINER_NAME=mastermind-core-1\nUPDATER_IMAGE_VARIABLE=MASTERMIND_CORE_IMAGE\nUPDATER_VERSION_VARIABLE=MASTERMIND_VERSION\nMASTERMIND_VERSION=0.0.1\nUPDATER_LOCAL_HEALTH_URL=" + core.URL + "/healthz\nUPDATER_CONTROL_TOKEN=synthetic-control\n"
++			for key, value := range componentEnvironment(old, "0.0.1") {
++				if key != "MASTERMIND_VERSION" {
++					env += key + "=" + value + "\n"
++				}
++			}
++			envPath := filepath.Join(directory, ".env")
++			if err := os.WriteFile(envPath, []byte(env), 0600); err != nil {
++				t.Fatal(err)
++			}
++			if err := os.WriteFile(filepath.Join(directory, "compose.production.yaml"), []byte("original fixed profile"), 0600); err != nil {
++				t.Fatal(err)
++			}
++			runtime := config.Runtime{StateDir: directory, RegistryPath: filepath.Join(directory, "heads.json"), UpdaterVersion: "0.4.7", CommandTimeoutSec: 10, SocketPath: "/run/exocortex/updater.sock"}
++			if err := config.RegisterHead(runtime.RegistryPath, "mastermind", envPath); err != nil {
++				t.Fatal(err)
++			}
++			store, err := state.New(directory)
++			if err != nil {
++				t.Fatal(err)
++			}
++			instance := New(runtime, store, runner)
++			instance.SetTestBackupOwnership(func(string, int, int) error { return nil })
++			instance.SetTestHostOperations(func(context.Context, string) error { return nil }, nil)
++			var resolved release.Resolved
++			resolved.ComposePath = deploymentFixture(t, "mastermind")
++			resolved.ManifestPath = filepath.Join(directory, "manifest.json")
++			resolved.Manifest = model.ReleaseManifest{SchemaVersion: 1, Service: "mastermind", Version: "0.0.2", DatabaseSchema: 1, MinimumUpdaterVersion: "0.4.7"}
++			resolved.Manifest.Image.Reference = "ghcr.io/test/core"
++			resolved.Manifest.Image.Digest = "sha256:" + strings.Repeat("d", 64)
++			resolved.Manifest.Mastermind = &model.MastermindRelease{Profile: "mastermind.components.v1", SourceSHA: strings.Repeat("a", 40), Platform: "linux/amd64", Components: next,
++				BridgeVersion: "0.0.2", ObsidianVersion: "1.13.7", ModelSHA256: strings.Repeat("a", 64), MinimumSourceSchema: 1, MaximumSourceSchema: 1, HealthProfile: "mastermind.functional.v1",
++				Dependencies: map[string]string{"kernel": "0.2.10", "volt": "0.1.5", "saturn": "0.1.15", "chronos": "0.1.1", "neptune": "0.1.7", "updater": "0.4.7"}}
++			manifestBytes, _ := json.Marshal(resolved.Manifest)
++			if err = os.WriteFile(resolved.ManifestPath, manifestBytes, 0600); err != nil {
++				t.Fatal(err)
++			}
++			instance.SetTestDependencies(func(string, string, string, time.Duration) (kernel.Snapshot, error) {
++				return kernel.Snapshot{Values: map[string]any{"repositories": map[string]any{"mastermind": map[string]any{"url": "https://github.com/example/mastermind"}}}}, nil
++			},
++				func(context.Context, string, string, string, string) (release.Resolved, error) { return resolved, nil })
++			preparation, err := instance.PrepareMastermind(context.Background(), "mastermind", requestID, "0.0.2")
++			if err != nil {
++				t.Fatal(err)
++			}
++			if preparation.State != "COMPLETED" {
++				t.Fatal("pre-pull was not confirmed")
++			}
++			if failure == "changed-manifest" {
++				if err = os.WriteFile(resolved.ManifestPath, append(manifestBytes, ' '), 0600); err != nil {
++					t.Fatal(err)
++				}
++			}
++			spool, err := store.CreateSpool("mastermind", requestID, state.SpoolFilename, int64(len(payload)), hash, time.Now())
++			if err != nil {
++				t.Fatal(err)
++			}
++			if err = store.UploadSpool(context.Background(), "mastermind", spool.ID, bytes.NewReader(payload), int64(len(payload))); err != nil {
++				t.Fatal(err)
++			}
++			if _, err = store.SealSpool("mastermind", spool.ID); err != nil {
++				t.Fatal(err)
++			}
++			input := model.UpdateRequest{HeadID: "mastermind", RequestID: requestID, Service: "mastermind", Version: "0.0.2", PreparationID: preparation.ID, Backup: model.Backup{SpoolID: spool.ID}}
++			job, err := instance.Start(input)
++			if err != nil {
++				t.Fatal(err)
++			}
++			deadline := time.Now().Add(5 * time.Second)
++			for instance.Busy() && time.Now().Before(deadline) {
++				time.Sleep(time.Millisecond)
++			}
++			final, _ := store.Get(job.ID)
++			expected := map[string]string{"none": "COMPLETED", "migration": "ROLLED_BACK", "functional": "ROLLED_BACK", "rollback": "ROLLBACK_FAILED", "changed-manifest": "FAILED", "extra-service": "FAILED"}[failure]
++			if final.State != expected {
++				t.Fatalf("wanted %s, got %s: %s", expected, final.State, final.Message)
++			}
++			runner.mu.Lock()
++			calls := strings.Join(runner.calls, "\n")
++			runner.mu.Unlock()
++			if strings.Contains(calls, "down") || strings.Contains(calls, " --volumes") {
++				t.Fatal("unowned/destructive Compose operation")
++			}
++			if failure == "changed-manifest" || failure == "extra-service" {
++				if strings.Contains(calls, "stop core runtime worker") {
++					t.Fatal("invalid candidate stopped live components")
++				}
++				return
++			}
++			lastPull := strings.LastIndex(calls, "docker pull ")
++			firstStop := strings.Index(calls, "stop core runtime worker")
++			if lastPull < 0 || firstStop < lastPull {
++				t.Fatal("component pull happened after the write barrier/mutation")
++			}
++			if expected == "ROLLED_BACK" {
++				restore := strings.Index(calls, "update-rollback")
++				start := strings.LastIndex(calls, "up -d --no-deps runtime worker core")
++				if restore < 0 || start < restore {
++					t.Fatal("old Core started before data rollback")
++				}
++				values, _ := config.ParseEnvFile(envPath)
++				for name, value := range old {
++					if values["MASTERMIND_"+strings.ToUpper(name)+"_IMAGE"] != value {
++						t.Fatal("partial component rollback")
++					}
++				}
++			}
++			repeated, err := instance.Start(input)
++			if err != nil || repeated.ID != job.ID {
++				t.Fatal("Apply retry lost durable identity")
++			}
++		})
++	}
++}
+diff --git a/internal/release/mastermind.go b/internal/release/mastermind.go
+new file mode 100644
+index 0000000..6492e55
+--- /dev/null
++++ b/internal/release/mastermind.go
+@@ -0,0 +1,41 @@
++package release
++
++import (
++	"errors"
++	"regexp"
++	"updater/internal/model"
++)
++
++var pinnedComponent = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:/-]+@sha256:[a-f0-9]{64}$`)
++var sourceRevision = regexp.MustCompile(`^[a-f0-9]{40}$`)
++var artifactHash = regexp.MustCompile(`^[a-f0-9]{64}$`)
++
++// This profile owns exactly three containers. Consumer requests cannot supply
++// a fourth service, an image, a command, a repository or a host path.
++func ValidateMastermind(manifest model.ReleaseManifest) error {
++	group := manifest.Mastermind
++	if manifest.Service != "mastermind" || group == nil || group.Profile != "mastermind.components.v1" ||
++		group.Platform != "linux/amd64" || !sourceRevision.MatchString(group.SourceSHA) ||
++		group.HealthProfile != "mastermind.functional.v1" || group.BridgeVersion != manifest.Version ||
++		!semver.MatchString(group.ObsidianVersion) || !artifactHash.MatchString(group.ModelSHA256) ||
++		group.MinimumSourceSchema < 1 || group.MaximumSourceSchema < group.MinimumSourceSchema || manifest.DatabaseSchema < 1 {
++		return errors.New("Mastermind release metadata is incomplete or incompatible")
++	}
++	if len(group.Components) != 3 {
++		return errors.New("Mastermind requires exactly core, runtime and worker components")
++	}
++	for _, name := range []string{"core", "runtime", "worker"} {
++		if !pinnedComponent.MatchString(group.Components[name]) {
++			return errors.New("Mastermind components must have immutable SHA-256 digests")
++		}
++	}
++	if group.Components["core"] != manifest.Image.Reference+"@"+manifest.Image.Digest {
++		return errors.New("Mastermind primary image differs from its component group")
++	}
++	for _, name := range []string{"kernel", "volt", "saturn", "chronos", "neptune", "updater"} {
++		if !semver.MatchString(group.Dependencies[name]) {
++			return errors.New("Mastermind release requires the exact tested dependency tuple")
++		}
++	}
++	return nil
++}
+diff --git a/internal/state/spool.go b/internal/state/spool.go
+new file mode 100644
+index 0000000..f35e390
+--- /dev/null
++++ b/internal/state/spool.go
+@@ -0,0 +1,419 @@
++package state
++
++import (
++	"context"
++	"crypto/rand"
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/json"
++	"errors"
++	"io"
++	"os"
++	"path/filepath"
++	"regexp"
++	"strings"
++	"time"
++)
++
++const MaximumSpoolBytes int64 = 8 * 1024 * 1024 * 1024
++const SpoolQuotaBytes int64 = 96 * 1024 * 1024 * 1024
++const SpoolFilename = "mastermind-backup.zip"
++
++var spoolID = regexp.MustCompile(`^[a-f0-9]{32}$`)
++var spoolHash = regexp.MustCompile(`^[a-f0-9]{64}$`)
++var ErrSpoolBusy = errors.New("backup spool is busy")
++var ErrSpoolInvalid = errors.New("backup spool is invalid, unavailable or not bound to this request")
++var ErrSpoolQuota = errors.New("backup spool quota or free-space budget is exhausted")
++
++type Spool struct {
++	ID        string    `json:"spool_id"`
++	HeadID    string    `json:"head_id"`
++	RequestID string    `json:"request_id"`
++	Filename  string    `json:"filename"`
++	Size      int64     `json:"size"`
++	SHA256    string    `json:"sha256"`
++	State     string    `json:"state"`
++	CreatedAt time.Time `json:"created_at"`
++	ExpiresAt time.Time `json:"expires_at"`
++	ClaimedBy string    `json:"claimed_by,omitempty"`
++}
++
++func privateDirectory(path string) error {
++	if err := os.MkdirAll(path, 0700); err != nil {
++		return err
++	}
++	info, err := os.Lstat(path)
++	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
++		return ErrSpoolInvalid
++	}
++	return os.Chmod(path, 0700)
++}
++
++func (s *Store) spoolRoot() (string, error) {
++	root := filepath.Join(s.dir, "backups", "spools")
++	// Parent ownership comes from the root-only Updater state directory.
++	for _, p := range []string{s.dir, filepath.Join(s.dir, "backups"), root} {
++		info, err := os.Lstat(p)
++		if os.IsNotExist(err) {
++			if err = privateDirectory(p); err != nil {
++				return "", err
++			}
++			continue
++		}
++		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
++			return "", ErrSpoolInvalid
++		}
++	}
++	return root, nil
++}
++
++func spoolDirectory(root, id string) (string, error) {
++	if !spoolID.MatchString(id) {
++		return "", ErrSpoolInvalid
++	}
++	path := filepath.Join(root, id)
++	info, err := os.Lstat(path)
++	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
++		return "", ErrSpoolInvalid
++	}
++	return path, nil
++}
++
++func readSpool(root, id string) (Spool, error) {
++	dir, err := spoolDirectory(root, id)
++	if err != nil {
++		return Spool{}, err
++	}
++	file, err := openSpoolRegular(filepath.Join(dir, "metadata.json"))
++	if err != nil {
++		return Spool{}, err
++	}
++	defer file.Close()
++	body, err := io.ReadAll(io.LimitReader(file, 8193))
++	if err != nil || len(body) > 8192 {
++		return Spool{}, ErrSpoolInvalid
++	}
++	var item Spool
++	if json.Unmarshal(body, &item) != nil || item.ID != id || !safeJobID.MatchString(item.HeadID) || !safeJobID.MatchString(item.RequestID) ||
++		item.Filename != SpoolFilename || item.Size <= 0 || item.Size > MaximumSpoolBytes || !spoolHash.MatchString(item.SHA256) ||
++		(item.State != "INCOMPLETE" && item.State != "SEALED" && item.State != "CLAIMED") {
++		return Spool{}, ErrSpoolInvalid
++	}
++	return item, nil
++}
++
++func writeSpool(root string, item Spool) error {
++	dir, err := spoolDirectory(root, item.ID)
++	if err != nil {
++		return err
++	}
++	body, err := json.Marshal(item)
++	if err != nil {
++		return err
++	}
++	file, err := os.CreateTemp(dir, "metadata-*.tmp")
++	if err != nil {
++		return err
++	}
++	name := file.Name()
++	defer os.Remove(name)
++	if _, err = file.Write(body); err == nil {
++		err = file.Sync()
++	}
++	closeErr := file.Close()
++	if err != nil {
++		return err
++	}
++	if closeErr != nil {
++		return closeErr
++	}
++	target := filepath.Join(dir, "metadata.json")
++	if info, err := os.Lstat(target); err == nil && (!info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0) {
++		return ErrSpoolInvalid
++	}
++	if err = os.Rename(name, target); err != nil {
++		return err
++	}
++	directory, err := os.Open(dir)
++	if err != nil {
++		return err
++	}
++	defer directory.Close()
++	return directory.Sync()
++}
++
++func (s *Store) spools(root string) ([]Spool, error) {
++	entries, err := os.ReadDir(root)
++	if err != nil {
++		return nil, err
++	}
++	if len(entries) > 1024 {
++		return nil, ErrSpoolQuota
++	}
++	result := []Spool{}
++	for _, entry := range entries {
++		if !spoolID.MatchString(entry.Name()) {
++			return nil, ErrSpoolInvalid
++		}
++		item, err := readSpool(root, entry.Name())
++		if err != nil {
++			return nil, err
++		}
++		result = append(result, item)
++	}
++	return result, nil
++}
++
++func (s *Store) CreateSpool(head, request, filename string, size int64, sha string, now time.Time) (Spool, error) {
++	if !safeJobID.MatchString(head) || !safeJobID.MatchString(request) || filename != SpoolFilename || size <= 0 || size > MaximumSpoolBytes || !spoolHash.MatchString(sha) {
++		return Spool{}, ErrSpoolInvalid
++	}
++	s.spoolMu.Lock()
++	defer s.spoolMu.Unlock()
++	root, err := s.spoolRoot()
++	if err != nil {
++		return Spool{}, err
++	}
++	if err = s.pruneSpools(root, now); err != nil {
++		return Spool{}, err
++	}
++	items, err := s.spools(root)
++	if err != nil {
++		return Spool{}, err
++	}
++	var reserved, actual int64
++	for _, item := range items {
++		if item.HeadID == head && item.RequestID == request {
++			if item.Size != size || item.SHA256 != sha || item.Filename != filename {
++				return Spool{}, ErrSpoolInvalid
++			}
++			return item, nil
++		}
++		reserved += item.Size
++		if info, err := os.Lstat(filepath.Join(root, item.ID, SpoolFilename)); err == nil && info.Mode().IsRegular() {
++			actual += info.Size()
++		}
++	}
++	quota := s.spoolQuota
++	if quota == 0 {
++		quota = SpoolQuotaBytes
++	}
++	if len(items) >= 32 || reserved+size > quota {
++		return Spool{}, ErrSpoolQuota
++	}
++	free, err := spoolAvailableBytes(root)
++	if err != nil {
++		return Spool{}, err
++	}
++	if free < size+reserved-actual+64*1024*1024 {
++		return Spool{}, ErrSpoolQuota
++	}
++	random := make([]byte, 16)
++	if _, err = rand.Read(random); err != nil {
++		return Spool{}, err
++	}
++	item := Spool{ID: hex.EncodeToString(random), HeadID: head, RequestID: request, Filename: filename, Size: size, SHA256: sha,
++		State: "INCOMPLETE", CreatedAt: now.UTC(), ExpiresAt: now.Add(time.Hour).UTC()}
++	if err = os.Mkdir(filepath.Join(root, item.ID), 0700); err != nil {
++		return Spool{}, err
++	}
++	if err = writeSpool(root, item); err != nil {
++		return Spool{}, err
++	}
++	return item, nil
++}
++
++func (s *Store) acquireSpool(head, id string, states ...string) (Spool, string, func(), error) {
++	s.spoolMu.Lock()
++	defer s.spoolMu.Unlock()
++	root, err := s.spoolRoot()
++	if err != nil {
++		return Spool{}, "", nil, err
++	}
++	item, err := readSpool(root, id)
++	if err != nil || item.HeadID != head {
++		return Spool{}, "", nil, ErrSpoolInvalid
++	}
++	allowed := false
++	for _, state := range states {
++		allowed = allowed || state == item.State
++	}
++	if !allowed || item.ClaimedBy == "" && !item.ExpiresAt.After(time.Now()) {
++		return Spool{}, "", nil, ErrSpoolInvalid
++	}
++	if s.spoolActive == nil {
++		s.spoolActive = map[string]bool{}
++	}
++	if s.spoolActive[id] || len(s.spoolActive) >= 2 {
++		return Spool{}, "", nil, ErrSpoolBusy
++	}
++	s.spoolActive[id] = true
++	release := func() { s.spoolMu.Lock(); delete(s.spoolActive, id); s.spoolMu.Unlock() }
++	return item, root, release, nil
++}
++
++// The caller supplies a cancellable reader with a per-read no-progress deadline.
++func (s *Store) UploadSpool(ctx context.Context, head, id string, input io.Reader, length int64) error {
++	item, root, release, err := s.acquireSpool(head, id, "INCOMPLETE")
++	if err != nil {
++		return err
++	}
++	defer release()
++	if length != item.Size {
++		return ErrSpoolInvalid
++	}
++	dir, _ := spoolDirectory(root, id)
++	target := filepath.Join(dir, SpoolFilename)
++	if info, err := os.Lstat(target); err == nil {
++		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
++			return ErrSpoolInvalid
++		}
++		if err = os.Remove(target); err != nil {
++			return err
++		}
++	}
++	// Retry reuses the same reservation and replaces the incomplete file before streaming.
++	file, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
++	if err != nil {
++		return err
++	}
++	defer file.Close()
++	buffer := make([]byte, 1024*1024)
++	var written int64
++	for {
++		if err = ctx.Err(); err != nil {
++			return err
++		}
++		count, readErr := input.Read(buffer)
++		if count > 0 {
++			written += int64(count)
++			if written > item.Size {
++				return ErrSpoolInvalid
++			}
++			if _, err = file.Write(buffer[:count]); err != nil {
++				return err
++			}
++		}
++		if errors.Is(readErr, io.EOF) {
++			break
++		}
++		if readErr != nil {
++			return readErr
++		}
++		if count == 0 {
++			return io.ErrNoProgress
++		}
++	}
++	if written != item.Size {
++		return io.ErrUnexpectedEOF
++	}
++	return file.Sync()
++}
++
++func verifySpool(root string, item Spool) (string, error) {
++	dir, err := spoolDirectory(root, item.ID)
++	if err != nil {
++		return "", err
++	}
++	path := filepath.Join(dir, SpoolFilename)
++	file, err := openSpoolRegular(path)
++	if err != nil {
++		return "", ErrSpoolInvalid
++	}
++	defer file.Close()
++	info, err := file.Stat()
++	if err != nil || info.Size() != item.Size {
++		return "", ErrSpoolInvalid
++	}
++	hash := sha256.New()
++	size, err := io.CopyBuffer(hash, io.LimitReader(file, item.Size+1), make([]byte, 1024*1024))
++	if err != nil || size != item.Size || hex.EncodeToString(hash.Sum(nil)) != item.SHA256 {
++		return "", ErrSpoolInvalid
++	}
++	return path, file.Sync()
++}
++
++func (s *Store) SealSpool(head, id string) (Spool, error) {
++	item, root, release, err := s.acquireSpool(head, id, "INCOMPLETE", "SEALED")
++	if err != nil {
++		return Spool{}, err
++	}
++	defer release()
++	path, err := verifySpool(root, item)
++	if err != nil {
++		return Spool{}, err
++	}
++	if err = os.Chmod(path, 0400); err != nil {
++		return Spool{}, err
++	}
++	item.State = "SEALED"
++	if err = writeSpool(root, item); err != nil {
++		return Spool{}, err
++	}
++	return item, nil
++}
++
++func (s *Store) ClaimSpool(head, request, id, job string) (string, error) {
++	if !safeJobID.MatchString(job) {
++		return "", ErrSpoolInvalid
++	}
++	item, root, release, err := s.acquireSpool(head, id, "SEALED", "CLAIMED")
++	if err != nil {
++		return "", err
++	}
++	defer release()
++	if item.RequestID != request || item.ClaimedBy != "" && item.ClaimedBy != job {
++		return "", ErrSpoolInvalid
++	}
++	path, err := verifySpool(root, item)
++	if err != nil {
++		return "", err
++	}
++	item.ClaimedBy = job
++	item.State = "CLAIMED"
++	if err = writeSpool(root, item); err != nil {
++		return "", err
++	}
++	return path, nil
++}
++
++func (s *Store) pruneSpools(root string, now time.Time) error {
++	items, err := s.spools(root)
++	if err != nil {
++		return err
++	}
++	for _, item := range items {
++		if s.spoolActive[item.ID] {
++			continue
++		}
++		expired := item.ClaimedBy == "" && !item.ExpiresAt.After(now)
++		if item.ClaimedBy != "" {
++			job, exists := s.Get(item.ClaimedBy)
++			// Unfinished claims and rollback failures are retained for explicit repair.
++			expired = exists && job.FinishedAt != nil && job.State != "ROLLBACK_FAILED" && job.FinishedAt.Add(24*time.Hour).Before(now)
++		}
++		if expired {
++			dir, err := spoolDirectory(root, item.ID)
++			if err != nil {
++				return err
++			}
++			if !strings.HasPrefix(dir, root+string(os.PathSeparator)) {
++				return ErrSpoolInvalid
++			}
++			if err = os.RemoveAll(dir); err != nil {
++				return err
++			}
++		}
++	}
++	return nil
++}
++
++func (s *Store) PruneSpools(now time.Time) error {
++	s.spoolMu.Lock()
++	defer s.spoolMu.Unlock()
++	root, err := s.spoolRoot()
++	if err != nil {
++		return err
++	}
++	return s.pruneSpools(root, now)
++}
+diff --git a/internal/state/spool_linux.go b/internal/state/spool_linux.go
+new file mode 100644
+index 0000000..9eb369b
+--- /dev/null
++++ b/internal/state/spool_linux.go
+@@ -0,0 +1,27 @@
++//go:build linux
++
++package state
++
++import (
++	"os"
++	"syscall"
++)
++
++func openSpoolRegular(path string) (*os.File, error) {
++	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
++	if err != nil {
++		return nil, err
++	}
++	file := os.NewFile(uintptr(fd), path)
++	info, err := file.Stat()
++	if err != nil || !info.Mode().IsRegular() || info.Sys().(*syscall.Stat_t).Nlink != 1 {
++		file.Close()
++		return nil, ErrSpoolInvalid
++	}
++	return file, nil
++}
++func spoolAvailableBytes(path string) (int64, error) {
++	var stat syscall.Statfs_t
++	err := syscall.Statfs(path, &stat)
++	return int64(stat.Bavail) * stat.Bsize, err
++}
+diff --git a/internal/state/spool_other.go b/internal/state/spool_other.go
+new file mode 100644
+index 0000000..bc798ed
+--- /dev/null
++++ b/internal/state/spool_other.go
+@@ -0,0 +1,9 @@
++//go:build !linux
++
++package state
++
++import "os"
++
++// The host agent and its authenticated spooling contract are Linux-only.
++func openSpoolRegular(path string) (*os.File, error) { return nil, ErrSpoolInvalid }
++func spoolAvailableBytes(path string) (int64, error) { return 0, ErrSpoolInvalid }
+diff --git a/internal/state/spool_test.go b/internal/state/spool_test.go
+new file mode 100644
+index 0000000..6a49f70
+--- /dev/null
++++ b/internal/state/spool_test.go
+@@ -0,0 +1,195 @@
++//go:build linux
++
++package state
++
++import (
++	"bytes"
++	"context"
++	"crypto/sha256"
++	"encoding/hex"
++	"errors"
++	"fmt"
++	"io"
++	"os"
++	"path/filepath"
++	"runtime"
++	"testing"
++	"time"
++
++	"updater/internal/model"
++)
++
++func fixtureSpool(t *testing.T) (*Store, Spool, []byte) {
++	t.Helper()
++	store, err := New(t.TempDir())
++	if err != nil {
++		t.Fatal(err)
++	}
++	body := bytes.Repeat([]byte("opaque encrypted recovery bytes\n"), 100)
++	sum := sha256.Sum256(body)
++	item, err := store.CreateSpool("mastermind", "request-one", SpoolFilename, int64(len(body)), hex.EncodeToString(sum[:]), time.Now())
++	if err != nil {
++		t.Fatal(err)
++	}
++	return store, item, body
++}
++
++func TestSpoolRestartRetrySealBindingAndRetention(t *testing.T) {
++	store, item, body := fixtureSpool(t)
++	if err := store.UploadSpool(context.Background(), item.HeadID, item.ID, bytes.NewReader(body[:10]), item.Size); !errors.Is(err, io.ErrUnexpectedEOF) {
++		t.Fatal(err)
++	}
++	if _, err := store.SealSpool(item.HeadID, item.ID); err == nil {
++		t.Fatal("incomplete upload sealed")
++	}
++	restarted, err := New(store.dir)
++	if err != nil {
++		t.Fatal(err)
++	}
++	same, err := restarted.CreateSpool(item.HeadID, item.RequestID, item.Filename, item.Size, item.SHA256, time.Now())
++	if err != nil || same.ID != item.ID {
++		t.Fatal("retry did not preserve reservation", err)
++	}
++	if err = restarted.UploadSpool(context.Background(), item.HeadID, item.ID, bytes.NewReader(body), item.Size); err != nil {
++		t.Fatal(err)
++	}
++	if _, err = restarted.SealSpool("other-head", item.ID); err == nil {
++		t.Fatal("wrong head sealed")
++	}
++	if _, err = restarted.SealSpool(item.HeadID, item.ID); err != nil {
++		t.Fatal(err)
++	}
++	if err = restarted.UploadSpool(context.Background(), item.HeadID, item.ID, bytes.NewReader(body), item.Size); err == nil {
++		t.Fatal("sealed upload overwritten")
++	}
++	if _, err = restarted.ClaimSpool(item.HeadID, "other-request", item.ID, "job-one"); err == nil {
++		t.Fatal("cross-request claim accepted")
++	}
++	path, err := restarted.ClaimSpool(item.HeadID, item.RequestID, item.ID, "job-one")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err = restarted.ClaimSpool(item.HeadID, item.RequestID, item.ID, "job-two"); err == nil {
++		t.Fatal("second job reused spool")
++	}
++	if _, err = restarted.ClaimSpool(item.HeadID, item.RequestID, item.ID, "job-one"); err != nil {
++		t.Fatal("same job retry rejected", err)
++	}
++	finished := time.Now().Add(-25 * time.Hour)
++	if err = restarted.Save(model.Job{ID: "job-one", HeadID: item.HeadID, RequestID: item.RequestID, State: "ROLLBACK_FAILED", UpdatedAt: finished, FinishedAt: &finished, BackupPath: path, BackupSpoolID: item.ID}); err != nil {
++		t.Fatal(err)
++	}
++	if err = restarted.Prune(1, time.Now()); err != nil {
++		t.Fatal(err)
++	}
++	if _, err = os.Stat(path); err != nil {
++		t.Fatal("rollback evidence was removed", err)
++	}
++	job, _ := restarted.Get("job-one")
++	job.State = "ROLLED_BACK"
++	if err = restarted.Save(job); err != nil {
++		t.Fatal(err)
++	}
++	if err = restarted.PruneSpools(time.Now()); err != nil {
++		t.Fatal(err)
++	}
++	if _, err = os.Stat(path); !os.IsNotExist(err) {
++		t.Fatal("completed backup retained beyond its bound")
++	}
++}
++
++func TestSpoolHostilePathsTamperQuotaAndExpiry(t *testing.T) {
++	store, item, body := fixtureSpool(t)
++	store.spoolQuota = item.Size
++	if _, err := store.CreateSpool("mastermind", "second", SpoolFilename, 1, item.SHA256, time.Now()); !errors.Is(err, ErrSpoolQuota) {
++		t.Fatal(err)
++	}
++	for _, id := range []string{"../outside", "/absolute", item.ID + "/file"} {
++		if _, err := store.SealSpool(item.HeadID, id); err == nil {
++			t.Fatal("unsafe spool ID")
++		}
++	}
++	root, _ := store.spoolRoot()
++	target := filepath.Join(root, item.ID, SpoolFilename)
++	outside := filepath.Join(store.dir, "outside")
++	if err := os.WriteFile(outside, body, 0600); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Symlink(outside, target); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := store.SealSpool(item.HeadID, item.ID); err == nil {
++		t.Fatal("symlink accepted")
++	}
++	if err := store.UploadSpool(context.Background(), item.HeadID, item.ID, bytes.NewReader(body), item.Size); err == nil {
++		t.Fatal("symlink replaced")
++	}
++	os.Remove(target)
++	if err := os.Link(outside, target); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := store.SealSpool(item.HeadID, item.ID); err == nil {
++		t.Fatal("hardlink accepted")
++	}
++	os.Remove(target)
++	corrupt := bytes.Repeat([]byte("x"), len(body))
++	if err := store.UploadSpool(context.Background(), item.HeadID, item.ID, bytes.NewReader(corrupt), item.Size); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := store.SealSpool(item.HeadID, item.ID); err == nil {
++		t.Fatal("checksum mismatch accepted")
++	}
++	if err := store.PruneSpools(time.Now().Add(2 * time.Hour)); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := os.Stat(target); !os.IsNotExist(err) {
++		t.Fatal("expired incomplete upload retained")
++	}
++	if after, _ := os.ReadFile(outside); !bytes.Equal(after, body) {
++		t.Fatal("outside file was modified")
++	}
++}
++
++type zeroStream struct{}
++
++func (zeroStream) Read(p []byte) (int, error) { clear(p); return len(p), nil }
++
++func TestSpoolLarge356MiBHasBoundedAllocations(t *testing.T) {
++	store, err := New(t.TempDir())
++	if err != nil {
++		t.Fatal(err)
++	}
++	const size = int64(356 * 1024 * 1024)
++	hash := sha256.New()
++	if _, err = io.CopyBuffer(hash, io.LimitReader(zeroStream{}, size), make([]byte, 1024*1024)); err != nil {
++		t.Fatal(err)
++	}
++	runtime.GC()
++	var before, after runtime.MemStats
++	runtime.ReadMemStats(&before)
++	started := time.Now()
++	item, err := store.CreateSpool("mastermind", "large-356", SpoolFilename, size, hex.EncodeToString(hash.Sum(nil)), time.Now())
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err = store.UploadSpool(context.Background(), item.HeadID, item.ID, io.LimitReader(zeroStream{}, size), size); err != nil {
++		t.Fatal(err)
++	}
++	if _, err = store.SealSpool(item.HeadID, item.ID); err != nil {
++		t.Fatal(err)
++	}
++	path, err := store.ClaimSpool(item.HeadID, item.RequestID, item.ID, "large-job")
++	if err != nil {
++		t.Fatal(err)
++	}
++	info, err := os.Stat(path)
++	if err != nil || info.Size() != size {
++		t.Fatal(err)
++	}
++	runtime.ReadMemStats(&after)
++	allocated := after.TotalAlloc - before.TotalAlloc
++	if allocated > 16*1024*1024 {
++		t.Fatalf("streaming allocated %d bytes", allocated)
++	}
++	fmt.Printf("356 MiB upload/seal/claim: %s, additional Go allocations %d bytes\n", time.Since(started), allocated)
++}

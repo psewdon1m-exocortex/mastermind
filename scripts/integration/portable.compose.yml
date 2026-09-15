@@ -1,0 +1,42 @@
+name: mastermind-portable-qualification
+services:
+  obsidian:
+    image: mastermind-runtime:development
+    entrypoint: [python, /qualification/portable_runtime.py]
+    init: true
+    user: "10001:10001"
+    read_only: true
+    environment: {HOME: /copy/home, DISPLAY: ':1'}
+    volumes:
+      - ${PORTABLE_FIXTURE_DIR}:/copy
+      - ./portable_runtime.py:/qualification/portable_runtime.py:ro
+    networks: [isolated]
+    tmpfs: ["/tmp:rw,nosuid,nodev,size=256m,mode=1777"]
+    shm_size: 256m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 3g
+    cpus: 2
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "2"}
+  display:
+    image: mastermind-core:development
+    entrypoint: [python, /qualification/portable_gateway.py]
+    user: "10001:10001"
+    read_only: true
+    volumes: ["./portable_gateway.py:/qualification/portable_gateway.py:ro"]
+    ports: ["127.0.0.1:18392:8090"]
+    networks: [isolated, display]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 64m
+    cpus: 0.5
+    pids_limit: 32
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "2"}
+networks:
+  isolated: {internal: true}
+  display: {}

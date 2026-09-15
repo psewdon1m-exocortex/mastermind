@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "service": "mastermind",
+  "version": "0.0.1",
+  "obsidian": {
+    "version": "v1.13.7",
+    "published": "2026-08-12T13:57:51Z",
+    "assets": [
+      {
+        "name": "Obsidian-1.13.7.AppImage",
+        "url": "https://github.com/obsidianmd/obsidian-releases/releases/download/v1.13.7/Obsidian-1.13.7.AppImage",
+        "size": 136902072,
+        "digest": "sha256:e0d8e0a611624de8c9c7dcd8a9e648279fb0a0d552faa1312b7e4f3a5fa72663"
+      }
+    ]
+  },
+  "kasmvnc": {
+    "version": "v1.5.0",
+    "published_at": "2026-07-29T15:10:52Z",
+    "asset": {
+      "name": "kasmvncserver_bookworm_1.5.0_amd64.deb",
+      "url": "https://github.com/kasmtech/KasmVNC/releases/download/v1.5.0/kasmvncserver_bookworm_1.5.0_amd64.deb",
+      "size": 2445732,
+      "digest": "sha256:770fd3df51510beecc89666879d82faf411276e68c6e11df612f736b891b5f71"
+    }
+  },
+  "verification": "Official release metadata pinned; runtime compatibility qualification pending."
+}

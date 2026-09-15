@@ -1,0 +1,19 @@
+#!/usr/local/bin/python
+"""Chromium executable wrapper; the untrusted browser has no network sockets."""
+import os
+import resource
+import sys
+from pathlib import Path
+
+from mastermind.worker_sandbox import isolate
+
+directory = Path(os.environ["MASTERMIND_BROWSER_JOB"]).resolve(strict=True)
+executable = Path(os.environ["MASTERMIND_CHROMIUM_EXECUTABLE"]).resolve(strict=True)
+if directory.parent != Path("/work") or not executable.is_relative_to("/opt/mastermind/browser"):
+    raise SystemExit(70)
+Path("/proc/self/oom_score_adj").write_text("1000")
+resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+resource.setrlimit(resource.RLIMIT_CPU, (120, 120))
+resource.setrlimit(resource.RLIMIT_FSIZE, (256*1024**2, 256*1024**2))
+isolate(directory, browser=True)
+os.execv(executable, [str(executable), *sys.argv[1:]])

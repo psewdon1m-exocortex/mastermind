@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mastermind"
+version = "0.0.1"
+description = "Exocortex canonical Obsidian knowledge service"
+requires-python = ">=3.12"
+dependencies = ["fastapi==0.141.1", "uvicorn==0.53.0", "httpx==0.28.1", "markdown-it-py==4.2.0", "PyYAML==6.0.3", "argon2-cffi==25.1.0", "cryptography==50.0.1", "watchdog==6.0.0", "python-multipart==0.0.32", "pyrage==1.4.0", "ijson==3.5.1", "psutil==7.2.2", "websockets==17.1", "tzdata==2026.4"]
+
+[project.scripts]
+mastermind = "mastermind.cli:main"
+
+[project.optional-dependencies]
+worker = ["onnxruntime==1.30.0", "tokenizers==0.23.2", "numpy==2.5.3", "pypdf==6.18.1", "beautifulsoup4==4.15.0", "defusedxml==0.7.1", "playwright==1.62.0", "striprtf==0.0.33"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mastermind = ["web/*.html", "web/*.css", "web/*.js", "web/*.svg", "web/fonts/*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+junit_family = "legacy"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"

@@ -1,0 +1,17 @@
+{
+  "name": "mastermind-bridge",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "build": "node build.mjs",
+    "check": "tsc --noEmit",
+    "test": "node test.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "26.5.1",
+    "esbuild": "0.28.2",
+    "markdown-it": "15.0.2",
+    "obsidian": "1.13.1",
+    "typescript": "7.0.2"
+  }
+}

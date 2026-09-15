@@ -1,0 +1,8 @@
+# Explicit opt-in test override; the fixture is absent from all shipped images.
+services:
+  core:
+    entrypoint: [python, -m, uvicorn, core_fixture:create_app, --factory, --host, 0.0.0.0, --port, "18390", --no-access-log]
+    environment:
+      PYTHONPATH: /app/src:/qualification
+    volumes:
+      - ./scripts/integration/core_fixture.py:/qualification/core_fixture.py:ro

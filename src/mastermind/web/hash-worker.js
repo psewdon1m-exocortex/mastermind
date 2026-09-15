@@ -1,0 +1,2 @@
+import {SHA256} from './sha256.js';
+self.onmessage=async e=>{try{const file=e.data;if(!(file instanceof File)||file.size>8*1024**3)throw Error('File size exceeds the supported limit.');const hash=new SHA256();for(let offset=0;offset<file.size;offset+=1024**2){hash.update(new Uint8Array(await file.slice(offset,offset+1024**2).arrayBuffer()));self.postMessage({progress:Math.min(file.size,offset+1024**2)/Math.max(1,file.size)});}self.postMessage({sha256:hash.digest()});}catch(error){self.postMessage({error:error.message});}};

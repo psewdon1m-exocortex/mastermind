@@ -1,0 +1,156 @@
+# Versioned topology: exactly three containers. Host Updater owns lifecycle.
+name: mastermind
+services:
+  runtime:
+    init: true
+    image: ${MASTERMIND_RUNTIME_IMAGE:?Use the signed release lock}
+    user: 10001:10001
+    read_only: true
+    environment:
+      MASTERMIND_CORE_URL: http://core:18390
+      MASTERMIND_SECRET_DIRECTORY: /run/mastermind
+    volumes:
+    - vault-data:/vault
+    - runtime-data:/home/mastermind
+    - ./secrets/runtime:/run/mastermind:ro
+    tmpfs:
+    - /tmp:rw,nosuid,nodev,size=256m,mode=1777
+    shm_size: 256m
+    cap_drop:
+    - ALL
+    security_opt:
+    - no-new-privileges:true
+    mem_limit: 3g
+    cpus: 2
+    pids_limit: 256
+    networks:
+    - private
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/healthz',timeout=3)
+      interval: 10s
+      timeout: 4s
+      retries: 6
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: '2'
+    restart: unless-stopped
+    stop_grace_period: 30s
+  core:
+    image: ${MASTERMIND_CORE_IMAGE:?Use the signed release lock}
+    depends_on:
+      runtime:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+    user: 10001:10001
+    read_only: true
+    environment:
+      MASTERMIND_HOME: /data
+      MASTERMIND_PUBLIC_URL: ${MASTERMIND_PUBLIC_URL:?Set the canonical HTTPS origin}
+      MASTERMIND_SECRET_BACKEND: kernel
+      MASTERMIND_RUNTIME_URL: http://runtime:8091
+      MASTERMIND_WORKER_URL: http://worker:8092
+      MASTERMIND_SECRET_DIRECTORY: /run/mastermind
+      MASTERMIND_KERNEL_URL: ${KERNEL_URL:?Set Kernel HTTPS origin}
+      MASTERMIND_KERNEL_TOKEN_FILE: /run/mastermind/kernel_token
+      MASTERMIND_TRUST_CA_FILE: /run/mastermind/trust_ca.crt
+      MASTERMIND_UPDATER_SOCKET: /run/exocortex/updater.sock
+      MASTERMIND_UPDATER_TOKEN_FILE: /run/mastermind/updater_token
+      MASTERMIND_UPDATER_HEAD_ID: mastermind
+      MASTERMIND_NEPTUNE_SOCKET: /run/neptune/neptuned.sock
+      MASTERMIND_NEPTUNE_TOKEN_FILE: /run/mastermind/neptune_control_token
+      MASTERMIND_NEPTUNE_EXPORT_TOKEN_FILE: /run/mastermind/neptune_export_token
+      MASTERMIND_NEPTUNE_EXPORT_URL: http://127.0.0.1:18390/api/internal/neptune/backup
+      MASTERMIND_TIMEZONE: ${MASTERMIND_TIMEZONE:-UTC}
+    ports:
+    - 127.0.0.1:18390:18390
+    volumes:
+    - core-data:/data
+    - vault-data:/data/vault
+    - ./secrets/core:/run/mastermind:ro
+    - /run/exocortex:/run/exocortex:ro
+    - /run/neptune:/run/neptune:ro
+    tmpfs:
+    - /tmp:rw,nosuid,nodev,size=64m,mode=1777
+    cap_drop:
+    - ALL
+    security_opt:
+    - no-new-privileges:true
+    mem_limit: 2g
+    cpus: 2
+    pids_limit: 128
+    networks:
+    - private
+    - edge
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://127.0.0.1:18390/healthz',timeout=3)
+      interval: 10s
+      timeout: 4s
+      retries: 6
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    restart: unless-stopped
+    group_add:
+    - ${UPDATER_SOCKET_GID:?Install or reuse host Updater}
+    - ${NEPTUNE_SOCKET_GID:-10001}
+    stop_grace_period: 30s
+  worker:
+    init: true
+    image: ${MASTERMIND_WORKER_IMAGE:?Use the signed release lock}
+    user: 10001:10001
+    read_only: true
+    volumes:
+    - work-data:/work
+    - ./secrets/worker:/run/mastermind:ro
+    tmpfs:
+    - /tmp:rw,nosuid,nodev,size=256m,mode=1777
+    cap_drop:
+    - ALL
+    security_opt:
+    - no-new-privileges:true
+    mem_limit: 2g
+    cpus: 2
+    pids_limit: 128
+    networks:
+    - private
+    - worker-egress
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request,pathlib,json; r=urllib.request.Request('http://127.0.0.1:8092/healthz',headers={'Authorization':'Bearer
+        '+pathlib.Path('/run/mastermind/worker_token').read_text()}); assert json.load(urllib.request.urlopen(r,timeout=3))['ready']
+      interval: 10s
+      timeout: 4s
+      retries: 6
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: '2'
+    restart: unless-stopped
+    stop_grace_period: 30s
+networks:
+  private:
+    internal: true
+  edge: {}
+  worker-egress: {}
+volumes:
+  core-data: null
+  vault-data: null
+  runtime-data: null
+  work-data: null

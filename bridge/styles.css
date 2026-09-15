@@ -1,0 +1,23 @@
+.mastermind-pause {
+  position: fixed; inset: 0; z-index: 2147483647;
+  background: var(--background-primary); color: var(--text-normal);
+  font-family: var(--font-interface); display: flex; flex-direction: column;
+  justify-content: center; align-items: center; gap: var(--size-4-4);
+}
+.mastermind-reference {color: var(--link-color); cursor: pointer; text-decoration: underline;}
+.mastermind-reference.is-unresolved {color: var(--text-muted); text-decoration-style: dashed;}
+.mastermind-status {color: var(--text-muted);}
+.mastermind-muted {color: var(--text-muted); font-size: var(--font-ui-small);}
+.mastermind-links-view h5 {margin-bottom: var(--size-4-2);}
+.mastermind-link-row {display: block; width: 100%; text-align: start; margin: var(--size-2-1) 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--link-color);}
+.mastermind-graph-view {display: flex; flex-direction: column; gap: var(--size-4-2); height: 100%;}
+.mastermind-graph-view details {flex: 0 0 auto;}
+.mastermind-graph-view details label {display: inline-flex; align-items: center; gap: var(--size-4-1); margin: var(--size-4-2);}
+.mastermind-graph-view canvas {width: 100%; flex: 1 1 60%; min-height: 200px; touch-action: none; background: var(--background-primary);}
+.mastermind-graph-list {max-height: 25%; min-height: 80px; overflow: auto; flex: 0 1 25%;}
+.mastermind-resource {display:block;margin:var(--size-4-3) 0;padding:var(--size-4-3);border:1px solid var(--background-modifier-border);
+  background:var(--background-secondary);color:var(--text-normal);overflow-wrap:anywhere;}
+.mastermind-resource img,.mastermind-resource video,.mastermind-resource audio {display:block;max-width:100%;height:auto;margin:var(--size-4-2) 0;}
+.mastermind-resource iframe {width:100%;height:60vh;border:0;}
+.mastermind-resource button,.mastermind-resource a {margin:var(--size-4-2);}
