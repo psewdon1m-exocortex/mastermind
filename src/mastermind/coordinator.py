@@ -197,7 +197,7 @@ class Coordinator:
             if relative not in participants and sha_under(self.config.vault, relative) != digest:
                 raise DomainError("RECOVERY_REQUIRED", "An unregistered writer changed a native rename participant.", 503)
         for relative, _ in file_inventory(self.config.vault):
-            if (plan.get("all_files") or relative.endswith(".md")) and not any(p.startswith(".") for p in relative.split("/")) \
+            if (plan.get("all_files") or relative.lower().endswith(".md")) and not any(p.startswith(".") for p in relative.split("/")) \
                     and relative not in plan["allowed"]:
                 raise DomainError("RECOVERY_REQUIRED", "An unregistered writer created a note during rename.", 503)
         if "directories" in plan:

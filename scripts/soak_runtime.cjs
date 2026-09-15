@@ -43,14 +43,15 @@ function inspect(){return ['core','runtime'].map(name=>{const state=JSON.parse(e
     while(Date.now()-started<duration){
       const elapsed=Date.now()-started;await api('/api/auth/session');await ready();
       if(elapsed>=nextEdit){
+        const editStarted=Date.now();
         await openNote();await page.keyboard.press('Escape');await page.mouse.click(720,450);await page.keyboard.press('Control+End');
         const marker='\nSOAK '+run+' '+checkpoints+'\n';await page.keyboard.type(marker,{delay:15});
-        let note;
-        for(let i=0;i<40;i++){await sleep(250);note=await api('/api/note?path=Runtime%20soak.md');if(note.text.includes(marker.trim()))break;}
+        const inputSent=Date.now();let note;
+        while(Date.now()-inputSent<60000){await sleep(250);note=await api('/api/note?path=Runtime%20soak.md');if(note.text.includes(marker.trim()))break;}
         if(!note.text.includes(marker.trim())){await page.screenshot({path:path.join(output,'save-failed.png')});throw Error('Native editor checkpoint was not saved');}
         assert.ok(note.text.includes(expected.trim()),'Earlier canonical text changed');
         assert.equal(note.text.split(marker.trim()).length,2,'Duplicate native checkpoint');expected=note.text;checkpoints++;nextEdit=elapsed+5*60000;
-        log({event:'NATIVE_SAVE',elapsed_ms:Date.now()-started,checkpoints,sha256:note.sha256});
+        log({event:'NATIVE_SAVE',elapsed_ms:Date.now()-started,checkpoints,sha256:note.sha256,input_ms:inputSent-editStarted,save_wait_ms:Date.now()-inputSent});
       }
       if(elapsed>=nextPulse){const before=Date.now();await api('/api/notes','POST',{path:'Soak pulse '+run+' '+checkpoints+'.md',text:'# Pulse\n\n@root\n'});await ready();await connect();
         log({event:'COORDINATED_RESTART',elapsed_ms:Date.now()-started,pause_ms:Date.now()-before});nextPulse=elapsed+30*60000;}

@@ -1,0 +1,167 @@
+name: Release qualified Mastermind
+on:
+  push:
+    tags: ['mastermind-v*']
+permissions:
+  contents: read
+concurrency:
+  group: mastermind-release-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  RELEASE_REVISION: ${{ github.sha }}
+  RELEASE_TAG: ${{ github.ref_name }}
+  RELEASE_REPOSITORY: ${{ github.repository }}
+jobs:
+  preflight:
+    # This dedicated runner holds completed host/producer/eight-hour outputs.
+    # It must never accept pull-request jobs or have access to a signing key.
+    runs-on: [self-hosted, Linux, X64, mastermind-qualification]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12.14'
+      - name: Resolve the pinned central revision
+        id: policy
+        run: |
+          python - <<'PY'
+          import json, os, re
+          value = json.load(open('docs/policy-lock.json'))['authority_revision']
+          assert re.fullmatch('[a-f0-9]{40}', value)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('revision=' + value + '\n')
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: psewdon1m-exocortex/general
+          ref: ${{ steps.policy.outputs.revision }}
+          path: .local/release-policy
+          persist-credentials: false
+      - name: Validate complete existing qualification before any secret access
+        env:
+          CANDIDATE_ROOT: ${{ vars.MASTERMIND_CANDIDATE_ROOT }}
+        run: |
+          test -n "$CANDIDATE_ROOT"
+          python scripts/release_candidate.py --candidate "$CANDIDATE_ROOT/$RELEASE_REVISION" \
+            --output "$RUNNER_TEMP/mastermind-release-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --central .local/release-policy --revision "$RELEASE_REVISION" \
+            --tag "$RELEASE_TAG" --repository "$RELEASE_REPOSITORY"
+      - name: Check the exact public artifact tree for secrets
+        run: |
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --mount "type=bind,source=$RUNNER_TEMP/mastermind-release-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT,target=/release,readonly" \
+            ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+            dir /release --redact --no-banner
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: unsigned-${{ github.sha }}
+          path: ${{ runner.temp }}/mastermind-release-${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: error
+          retention-days: 90
+  sign:
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: mastermind-release-signing
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12.14'
+      - run: python -m pip install -r requirements.lock
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: unsigned-${{ github.sha }}
+          path: .local/release
+      - name: Attest the manifest binding every component and installation byte
+        id: attest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-path: .local/release/mastermind-release.json
+      - name: Retain the portable provenance envelope
+        env:
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+        run: cp -- "$BUNDLE_PATH" .local/release/attestation.sigstore.json
+      - name: Sign with the matching protected identity
+        env:
+          MASTERMIND_RELEASE_PRIVATE_KEY: ${{ secrets.MASTERMIND_RELEASE_PRIVATE_KEY }}
+        run: |
+          python - <<'PY'
+          import os, subprocess, sys, tempfile
+          from pathlib import Path
+          secret = os.environ.pop('MASTERMIND_RELEASE_PRIVATE_KEY')
+          with tempfile.TemporaryDirectory(prefix='mastermind-signing-', dir=os.environ['RUNNER_TEMP']) as directory:
+              key = Path(directory) / 'signer.pem'
+              key.write_text(secret)
+              key.chmod(0o600)
+              del secret
+              subprocess.run([sys.executable, 'scripts/release_promote.py', 'sign', '--folder', '.local/release',
+                  '--key-file', str(key), '--revision', os.environ['RELEASE_REVISION'], '--tag', os.environ['RELEASE_TAG'],
+                  '--repository', os.environ['RELEASE_REPOSITORY']], check=True)
+          PY
+      - name: Verify the signed archive, bootstrap and workflow provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/release_promote.py verify --folder .local/release --revision "$RELEASE_REVISION" \
+            --tag "$RELEASE_TAG" --repository "$RELEASE_REPOSITORY"
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --mount "type=bind,source=$PWD/.local/release,target=/release,readonly" \
+            ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+            dir /release --redact --no-banner
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: signed-${{ github.sha }}
+          path: .local/release/
+          if-no-files-found: error
+          retention-days: 90
+  publish:
+    needs: sign
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: mastermind-release-publication
+    permissions:
+      contents: write
+      attestations: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12.14'
+      - run: python -m pip install -r requirements.lock
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: signed-${{ github.sha }}
+          path: .local/release
+      - name: Stage immutable assets without moving stable discovery
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/release_promote.py stage --folder .local/release --revision "$RELEASE_REVISION" \
+            --tag "$RELEASE_TAG" --repository "$RELEASE_REPOSITORY"
+      - name: Anonymous complete download, final Part 12 gate, then stable discovery
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/release_promote.py finalize --folder .local/release --revision "$RELEASE_REVISION" \
+            --tag "$RELEASE_TAG" --repository "$RELEASE_REPOSITORY"
+      - name: Retain final evidence including an incomplete staging attempt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-evidence-${{ github.sha }}-${{ github.run_attempt }}
+          path: .local/release/
+          if-no-files-found: error
+          retention-days: 90

@@ -4,6 +4,7 @@ import re
 import secrets
 import threading
 import time
+from contextlib import ExitStack
 
 import httpx
 
@@ -183,10 +184,10 @@ class Updates:
                 backup.spool.reserve(backup.estimate() * 8)
                 folder = self.directory / request_id
                 self.save(phase="QUIESCING")
-                paused_at = time.monotonic()
-                with self.service.coordinator.boundary(request_id, resume_if=lambda: self.record["phase"] in
-                    TERMINAL | {"QUIESCING", "SNAPSHOT", "SPOOLING"}):
-                    with snapshot_budget(started=paused_at):
+                with ExitStack() as retained:
+                    with snapshot_budget():
+                        retained.enter_context(self.service.coordinator.boundary(request_id, resume_if=lambda: self.record["phase"] in
+                            TERMINAL | {"QUIESCING", "SNAPSHOT", "SPOOLING"}))
                         spool_id = self.prepare_snapshot(backup, folder, root, request_id)
                     self.save(phase="APPLY_REQUESTED", spool_id=spool_id)
                     # This marker precedes the request: loss of its response must keep writers blocked.

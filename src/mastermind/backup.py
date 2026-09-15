@@ -425,7 +425,7 @@ class Backup:
             names = set()
             notes = 0
             for relative, path in file_inventory(tree / "vault"):
-                if relative.endswith(".md") and not any(p.startswith(".") for p in relative.split("/")):
+                if relative.lower().endswith(".md") and not any(p.startswith(".") for p in relative.split("/")):
                     key = name_key(path.stem)
                     if key in names:
                         raise DomainError("DUPLICATE_BASENAME", "Backup contains conflicting note names.", 422)

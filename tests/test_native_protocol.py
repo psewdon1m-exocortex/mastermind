@@ -131,6 +131,14 @@ def test_offline_rename_does_not_fall_back_to_filesystem(service):
     assert error.value.code == "RUNTIME_UNAVAILABLE"
 
 
+def test_legacy_native_recovery_inventory_includes_uppercase_markdown(service):
+    config, _, coordinator, _ = service
+    atomic_write(config.vault / "Unexpected.MD", b"Preserve a new native note")
+    with pytest.raises(DomainError, match="unregistered writer created"):
+        coordinator.validate_native_inventory({"native": True, "changes": [], "allowed": {}})
+    assert (config.vault / "Unexpected.MD").read_bytes() == b"Preserve a new native note"
+
+
 class PathRuntime(ProtocolRuntime):
     def native_rename(self, old, new, identity):
         root = self.vault.config.vault

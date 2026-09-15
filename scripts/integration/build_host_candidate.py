@@ -1,8 +1,8 @@
 """Build unpublished signed candidates in independent, disposable clones."""
 import argparse
 import json
-import subprocess
 import re
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -29,10 +29,23 @@ def main():
         raise SystemExit("Candidate already exists; immutable qualification artifacts may not be replaced")
     run("git", "clone", "--no-hardlinks", str(base), str(source))
     old_version = tomllib.loads((source / "pyproject.toml").read_text("utf-8"))["project"]["version"]
-    for name in ("src/mastermind/__init__.py", "pyproject.toml", "bridge/manifest.json", "bridge/package.json", "bridge/package-lock.json", "package.json", "package-lock.json"):
+    for name in ("src/mastermind/__init__.py", "pyproject.toml"):
         path = source / name
-        if path.exists():
-            path.write_text(path.read_text("utf-8").replace(old_version, args.version), encoding="utf-8", newline="\n")
+        body = path.read_text("utf-8")
+        declaration = '__version__' if name.endswith('__init__.py') else 'version'
+        body, count = re.subn(r'^' + declaration + r'\s*=\s*"' + re.escape(old_version) + r'"',
+                             declaration + ' = "' + args.version + '"', body, count=1, flags=re.MULTILINE)
+        assert count == 1, "Exact version declaration is absent"
+        path.write_text(body, encoding="utf-8", newline="\n")
+    for name in ("bridge/manifest.json", "bridge/package.json", "bridge/package-lock.json", "package.json", "package-lock.json"):
+        path = source / name
+        data = json.loads(path.read_text("utf-8"))
+        assert data["version"] == old_version
+        data["version"] = args.version
+        if name.endswith("package-lock.json"):
+            assert data["packages"][""]["version"] == old_version
+            data["packages"][""]["version"] = args.version
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
     cli = source / "src/mastermind/cli.py"
     needle = "            migrate(config, args.request, args.version, args.schema)\n"
     injection = needle + "            from .fs import atomic_write\n            atomic_write(config.vault / 'Qualification rejected candidate.md', b'Unaccepted candidate wrote this file.\\n')\n"

@@ -9,7 +9,6 @@ import gzip
 import hashlib
 import io
 import json
-import os
 import re
 import subprocess
 import tarfile
@@ -33,6 +32,15 @@ def sign(path, key_file):
                 "signature": base64.b64encode(key.sign(path.read_bytes(), padding.PSS(mgf=padding.MGF1(hashes.SHA256()),
                                                         salt_length=32), hashes.SHA256())).decode()}
     path.with_name(path.name+".sig.json").write_text(json.dumps(envelope, indent=2)+"\n", newline="\n")
+
+
+def bootstrap(base, public, version):
+    verifier = base64.b64encode((ROOT/"packaging/release_verify.py").read_bytes()).decode()
+    return "#!/bin/sh\nset -eu\numask 077\n" \
+        "command -v python3 >/dev/null && command -v openssl >/dev/null || { echo 'Python 3 and OpenSSL are required' >&2; exit 1; }\n" \
+        "exec python3 - '"+base+"' '"+base64.b64encode(public).decode()+"' '"+version+"' <<'PYBOOTSTRAP'\n" \
+        "import base64, sys\nsys.argv = ['release_verify', 'prepare', *sys.argv[1:]]\n" \
+        "exec(compile(base64.b64decode('"+verifier+"'), '<embedded-release-verifier>', 'exec'))\nPYBOOTSTRAP\n"
 
 
 def build(args):
@@ -89,7 +97,7 @@ def build(args):
                 raise ValueError("Private path entered the release bundle")
             info = tarfile.TarInfo(name)
             info.size, info.uid, info.gid, info.mtime = len(body), 0, 0, 0
-            info.mode = 0o755 if name.endswith(".sh") or name.endswith("updater-linux-amd64") else 0o644
+            info.mode = 0o755 if name.endswith((".sh", "updater-linux-amd64")) else 0o644
             archive.addfile(info, io.BytesIO(body))
     image, image_digest = components["core"].rsplit("@", 1)
     model = json.loads((ROOT/"embedding-model.lock.json").read_text())
@@ -106,13 +114,7 @@ def build(args):
         "qualification": {"published": False, "producer_patch_lock": "docs/compatibility.json"}}
     path = output/"mastermind-release.json"
     path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2)+"\n", newline="\n")
-    verifier = base64.b64encode((ROOT/"packaging/release_verify.py").read_bytes()).decode()
-    script = "#!/bin/sh\nset -eu\numask 077\n" \
-        "command -v python3 >/dev/null && command -v openssl >/dev/null || { echo 'Python 3 and OpenSSL are required' >&2; exit 1; }\n" \
-        "exec python3 - '"+base+"' '"+base64.b64encode(public).decode()+"' '"+version+"' <<'PYBOOTSTRAP'\n" \
-        "import base64, sys\nsys.argv = ['release_verify', 'prepare', *sys.argv[1:]]\n" \
-        "exec(compile(base64.b64decode('"+verifier+"'), '<embedded-release-verifier>', 'exec'))\nPYBOOTSTRAP\n"
-    (output/"bootstrap.sh").write_text(script, newline="\n")
+    (output/"bootstrap.sh").write_text(bootstrap(base, public, version), newline="\n")
     (output/"mastermind.pem").write_bytes(public)
     (output/"SHA256SUMS").write_text("".join(digest(p.read_bytes())+"  "+p.name+"\n" for p in sorted(output.iterdir())
         if p.is_file() and p.name != "SHA256SUMS" and not p.name.endswith(".sig.json")), newline="\n")

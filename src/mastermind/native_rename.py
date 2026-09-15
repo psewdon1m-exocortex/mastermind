@@ -172,10 +172,11 @@ class NativeRename:
                               if relative == old_path or is_directory and relative.startswith(old_path + "/")]
                 if not is_directory and old_path not in allowed:
                     raise DomainError("NOT_FOUND", "Source note not found.", 404)
+                moving = {source for source, _ in file_moves}
+                remaining_names = {name_key(relative) for relative in allowed if relative not in moving}
                 for _, destination in file_moves:
                     resolve(self.vault.config.vault, destination)
-                    if any(name_key(destination) == name_key(relative) for relative in allowed
-                           if relative not in {source for source, _ in file_moves}):
+                    if name_key(destination) in remaining_names:
                         raise DomainError("CONFLICT", "The destination has a case or Unicode path collision.", 409)
                 allowed.update({destination: None for _, destination in file_moves})
                 directories = {relative: path.stat().st_mode & 0o777 for relative, path in directory_inventory(self.vault.config.vault)

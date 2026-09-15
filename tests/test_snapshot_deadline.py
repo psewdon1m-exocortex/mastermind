@@ -80,7 +80,7 @@ def test_snapshot_timeout_resumes_editor_cleans_spool_and_preserves_live_data(re
     backup.vault.write("after.md", "writes are available", None, create=True)
 
 
-@pytest.mark.parametrize("stage", ["snapshot", "pack", "seal"])
+@pytest.mark.parametrize("stage", ["paused_checkpoint", "snapshot", "pack", "seal"])
 def test_update_timeout_never_submits_apply_and_releases_safe_barrier(recovery, clock, monkeypatch, stage):
     backup, _, _ = recovery
     backup.vault.write("root.md", "before update", None, create=True)
@@ -112,6 +112,12 @@ def test_update_timeout_never_submits_apply_and_releases_safe_barrier(recovery, 
             return {"state": "SEALED", "size": updates.record["size"], "sha256": updates.record["sha256"]}
         raise AssertionError("Unexpected privileged request")
     monkeypatch.setattr(updates.updater, "call", call)
+    if stage == "paused_checkpoint":
+        def expire_paused_checkpoint():
+            assert deadline.remaining() is not None
+            clock[0] = 121
+            deadline.check()
+        monkeypatch.setattr(backup.coordinator, "on_paused", expire_paused_checkpoint)
     if stage in {"snapshot", "pack"}:
         original = getattr(backup, stage)
         def expire(*args, **kwargs):

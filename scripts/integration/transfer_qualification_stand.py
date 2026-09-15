@@ -3,6 +3,7 @@
 The original containers/volumes stay preserved. Private transfer files never enter
 release output. Both daemon identities and every container/volume name are checked.
 """
+import argparse
 import json
 import os
 import re
@@ -27,6 +28,9 @@ HOST = "mastermind-qualification-host"
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--finish-copied", action="store_true", help="Resume only after every volume has a successful retained transfer record")
+    args = parser.parse_args()
     assert os.name == "nt" and CACHE.resolve() == Path("E:/mastermind-qualification-cache-20260915/stand-transfer")
     CACHE.mkdir(parents=True, exist_ok=True)
     source = dict(os.environ)
@@ -39,17 +43,24 @@ def main():
         return subprocess.check_output(["docker", *arguments], env=destination if remote else source, text=True, stderr=subprocess.STDOUT, timeout=timeout)
     assert docker(["info", "--format", "{{.Name}}"], timeout=20).strip() == "docker-desktop"
     assert docker(["info", "--format", "{{.Name}}"], remote=True, timeout=20).strip() == "mastermind-qualification-wsl"
-    configuration = json.loads(docker(["inspect", *NAMES]))
+    configuration = json.loads((CACHE / "containers.private.json").read_text("utf-8")) if args.finish_copied else json.loads(docker(["inspect", *NAMES]))
     assert {item["Name"].lstrip("/") for item in configuration} == set(NAMES)
     existing = set(docker(["ps", "-a", "--format", "{{.Names}}"], remote=True).splitlines())
-    assert not existing.intersection(NAMES), "Destination already contains part of the stand; inspect before resuming"
-    (CACHE / "containers.private.json").write_text(json.dumps(configuration, indent=2), encoding="utf-8")
+    if not args.finish_copied:
+        assert not existing.intersection(NAMES), "Destination already contains part of the stand; inspect before resuming"
+        (CACHE / "containers.private.json").write_text(json.dumps(configuration, indent=2), encoding="utf-8")
     networks = {name for item in configuration for name in item["NetworkSettings"]["Networks"]}
     definitions = json.loads(docker(["network", "inspect", *sorted(networks)]))
     assert all(item["Driver"] == "bridge" and item["Name"].startswith("mastermind-") for item in definitions)
     volumes = {mount["Name"] for item in configuration for mount in item["Mounts"] if mount["Type"] == "volume"}
     assert all(re.fullmatch(r"mastermind-[a-z0-9_-]+", name) for name in volumes)
     volume_records = json.loads(docker(["volume", "inspect", *sorted(volumes)]))
+    if args.finish_copied:
+        copied = set(re.findall(r"^COPIED (mastermind-[a-z0-9_-]+)$", (ROOT / "artifacts/stand-wsl-transfer.log").read_text("utf-8"), re.MULTILINE))
+        assert copied == volumes, "Every completed volume copy must have its original successful execution record"
+        assert all(not item["State"]["Running"] for item in json.loads(docker(["inspect", *NAMES]))), "Original fixtures must remain stopped"
+        finish(configuration, definitions, docker, existing)
+        return
     docker(["stop", "--time", "60", *[item["Name"].lstrip("/") for item in configuration if item["State"]["Running"]]], timeout=180)
     print("STOPPED only the 16 explicitly named Mastermind qualification fixtures", flush=True)
     images = {item["Config"]["Image"] for item in configuration if item["Name"].lstrip("/") != HOST}
@@ -76,7 +87,17 @@ def main():
             "--mount", "type=bind,source=/mnt/e/mastermind-qualification-cache-20260915/stand-transfer,target=/transfer,readonly",
             "--entrypoint", "tar", "ubuntu:24.04", "-xpf", "/transfer/" + archive, "-C", "/to"], remote=True)
         print("COPIED " + name, flush=True)
+    finish(configuration, definitions, docker, existing)
+
+
+def finish(configuration, definitions, docker, existing):
+    host_image = "mastermind-private-host:qualification-transfer-20260915"
+    current_networks = set(docker(["network", "ls", "--format", "{{.Name}}"], remote=True).splitlines())
     for network in definitions:
+        if network["Name"] in current_networks:
+            actual = json.loads(docker(["network", "inspect", network["Name"]], remote=True))[0]
+            assert all(actual[key] == network[key] for key in ("Driver", "Internal", "IPAM")), "Existing network differs from the copied fixture"
+            continue
         arguments = ["network", "create", "--driver", "bridge"]
         if network["Internal"]:
             arguments.append("--internal")
@@ -100,16 +121,28 @@ def main():
                     continue
                 path = mount["Name"] if mount["Type"] == "volume" else mount["Source"]
                 if mount["Type"] == "bind":
+                    prefix = "/run/desktop/mnt/host/"
+                    if path.startswith(prefix):
+                        suffix = path.removeprefix(prefix)
+                        assert re.match(r"[a-z]/", suffix)
+                        path = suffix[0].upper() + ":/" + suffix[2:]
                     windows = PureWindowsPath(path)
                     assert windows.is_absolute() and str(windows).lower().startswith(str(ROOT).lower() + "\\"), "Unexpected bind outside the task"
                     path = "/mnt/" + windows.drive[0].lower() + "/" + windows.as_posix()[3:]
                 binds.append(path + ":" + mount["Destination"] + (":rw" if mount["RW"] else ":ro"))
             host["Binds"] = binds
+            host.pop("Mounts", None)
             endpoints = {}
             for network, data in item["NetworkSettings"]["Networks"].items():
                 endpoints[network] = {"Aliases": [alias for alias in data.get("Aliases") or [] if not re.fullmatch(r"[a-f0-9]{12,64}", alias)],
                                       "IPAMConfig": {"IPv4Address": data["IPAddress"]}}
             body.update(HostConfig=host, NetworkingConfig={"EndpointsConfig": endpoints})
+            if name in existing:
+                actual = json.loads(docker(["inspect", name], remote=True))[0]
+                assert actual["State"]["Status"] == "created" and all(actual["Config"].get(key) == body.get(key) for key in
+                    ("Image", "Hostname", "User", "Env", "Cmd", "Entrypoint", "Labels")), "Existing container does not match this unstarted fixture"
+                assert actual["HostConfig"].get("Binds") == host["Binds"] and actual["HostConfig"].get("PortBindings") == host.get("PortBindings")
+                continue
             response = client.post("/containers/create", params={"name": name}, json=body)
             if response.status_code != 201:
                 (CACHE / (name + ".create-error.private.txt")).write_text(response.text, encoding="utf-8")

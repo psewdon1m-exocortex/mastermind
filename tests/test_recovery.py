@@ -340,3 +340,11 @@ def test_recovery_spool_budget_includes_retained_backups(recovery):
     with pytest.raises(DomainError) as error:
         backup.spool.reserve(1)
     assert error.value.code == "INSUFFICIENT_SPACE"
+
+
+def test_backup_inspection_counts_uppercase_markdown(recovery, tmp_path):
+    backup, _, _ = recovery
+    backup.vault.write("Uppercase.MD", "#key\nCase-insensitive note extension", None, create=True)
+    destination = tmp_path / "uppercase.zip"
+    backup.create(destination)
+    assert backup.inspect(destination)["notes"] == 1
