@@ -2,6 +2,7 @@
 import concurrent.futures
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import time
@@ -9,10 +10,19 @@ import uuid
 from pathlib import Path
 
 from probe_integrations import ROOT, FIXTURE, client
+from docker_paths import bind_path
 
 
 def docker(*args, check=True):
-    result = subprocess.run(["docker", *args], capture_output=True)
+    if args[0] == "compose" and os.environ.get("MASTERMIND_DOCKER_PATH_STYLE") == "wsl":
+        assert args[1:3] == ("-f", str(FIXTURE/"compose.yml"))
+        profile = ROOT / ".local/wsl-fixture/integration.json"
+        assert profile.is_file(), "Prepare the exact WSL qualification profiles first"
+        command = ["wsl", "-d", "mastermind-qualification", "-u", "root", "--", "docker", "compose",
+                   "-f", bind_path(profile), *args[3:]]
+    else:
+        command = ["docker", *args]
+    result = subprocess.run(command, capture_output=True)
     if check and result.returncode:
         raise RuntimeError("Qualification Docker operation failed: "+args[0])
     return result
