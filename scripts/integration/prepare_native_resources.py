@@ -8,12 +8,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 from probe_integrations import FIXTURE, checked, client
+from docker_paths import bind_path
 
 directory = FIXTURE / "crusher"
 directory.mkdir(exist_ok=True)
 (directory / "preview.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg" width="480" height="120"><rect width="480" height="120" fill="#163d35"/><text x="20" y="70" fill="white" font-size="28">Saturn native preview fixture</text></svg>')
-subprocess.run(["docker", "run", "--rm", "--network", "none", "--user", "10001:10001", "--cap-drop", "ALL",
-    "--mount", f"type=bind,source={directory},target=/fixture", "--entrypoint", "ffmpeg", "mastermind-worker:development",
+subprocess.run(["docker", "build", "-f", str(ROOT / "scripts/integration/Dockerfile.media-fixture"),
+    "-t", "mastermind-media-fixture:qualification", str(ROOT / "scripts/integration")], check=True)
+fixture_image = subprocess.check_output(["docker", "image", "inspect", "--format", "{{.Id}}", "mastermind-media-fixture:qualification"], text=True).strip()
+subprocess.run(["docker", "run", "--rm", "--network", "none", "--read-only", "--user", "10001:10001", "--cap-drop", "ALL",
+    "--security-opt", "no-new-privileges:true", "--memory", "512m", "--cpus", "2",
+    "--mount", f"type=bind,source={bind_path(directory)},target=/fixture", fixture_image,
     "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=10", "-t", "8",
     "-pix_fmt", "yuv420p", "-movflags", "+faststart", "/fixture/preview.mp4"], check=True)
 credentials = json.loads((FIXTURE / "enrollment.json").read_text())
@@ -44,5 +49,5 @@ if destination.exists():
     assert destination.read_text() == value, "Existing local credential differs from the generated fixture"
 else:
     destination.write_text(value, encoding="utf-8")
-record_path.write_text(json.dumps({"event_id": event["public_id"], "paths": paths}))
+record_path.write_text(json.dumps({"event_id": event["public_id"], "paths": paths, "media_fixture_image": fixture_image}))
 print("PASS: actual Saturn image/video/audio/PDF fixtures and minimal Chronos event prepared.")
