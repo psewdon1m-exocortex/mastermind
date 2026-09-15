@@ -5081,10 +5081,10 @@ index c64c0e5..5059661 100644
 +  });
 +}
 diff --git a/packages/storage/src/sftp-storage.adapter.ts b/packages/storage/src/sftp-storage.adapter.ts
-index cc44009..f108635 100644
+index cc44009..57d12e4 100644
 --- a/packages/storage/src/sftp-storage.adapter.ts
 +++ b/packages/storage/src/sftp-storage.adapter.ts
-@@ -1,253 +1,254 @@
+@@ -1,253 +1,275 @@
 -import path from "node:path";
 -import { once } from "node:events";
 -import type { Readable } from "node:stream";
@@ -5191,7 +5191,7 @@ index cc44009..f108635 100644
 -    const end = options.length === undefined ? undefined : offset + options.length - 1;
 +import path from "node:path";
 +import { once } from "node:events";
-+import type { Readable } from "node:stream";
++import { Transform, type Readable } from "node:stream";
 +import { pipeline } from "node:stream/promises";
 +import type { Stats } from "ssh2";
 +import type { SaturnConfig } from "@saturn/config";
@@ -5307,8 +5307,21 @@ index cc44009..f108635 100644
 -    stream.once("close", () => release(false));
 -    stream.once("error", () => release(true));
 -    // Pin the remote file handle before the caller releases its metadata lock.
--    try { await once(stream, "open", { signal: AbortSignal.timeout(this.#storage.operationTimeoutMs) }); }
--    catch (error) { stream.destroy(); release(true); throw error; }
++      highWaterMark: 256 * 1024,
++      ...(end === undefined ? {} : { end }),
++    });
++    let released = false;
++    const release = (broken: boolean): void => {
++      if (released) return;
++      released = true;
++      void lease.release(broken);
++    };
++    stream.once("end", () => release(false));
++    stream.once("close", () => release(false));
++    stream.once("error", () => release(true));
++    // Pin the remote file handle before the caller releases its metadata lock.
+     try { await once(stream, "open", { signal: AbortSignal.timeout(this.#storage.operationTimeoutMs) }); }
+     catch (error) { stream.destroy(); release(true); throw error; }
 -    return stream;
 -  }
 -
@@ -5326,14 +5339,21 @@ index cc44009..f108635 100644
 -      mode: 0o600,
 -    });
 -    let bytes = 0;
--    let timer: NodeJS.Timeout | undefined;
--    const reset = (): void => {
++    // Opening a handle does not prove later reads can make progress. Bound an
++    // SFTP server that continues answering SSH keepalives but stalls file reads.
++    // A Transform preserves bytes before the consumer attaches; a data listener
++    // on the raw stream here would enter flowing mode and could lose that data.
+     let timer: NodeJS.Timeout | undefined;
++    const clear = (): void => { if (timer !== undefined) clearTimeout(timer); };
+     const reset = (): void => {
 -      if (timer !== undefined) clearTimeout(timer);
 -      timer = setTimeout(() => {
 -        source.destroy(new Error("SFTP write idle timeout"));
 -        target.destroy();
 -      }, this.#storage.operationTimeoutMs);
--    };
++      clear();
++      timer = setTimeout(() => stream.destroy(new Error("SFTP read idle timeout")), this.#storage.operationTimeoutMs);
+     };
 -    source.on("data", (chunk: Buffer | string) => { bytes += Buffer.byteLength(chunk); reset(); });
 -    target.on("drain", reset);
 -    reset();
@@ -5370,7 +5390,10 @@ index cc44009..f108635 100644
 -  async mkdir(storagePath: string): Promise<void> {
 -    await this.#operation(async (lease) => {
 -      await callSftp(lease.sftp, "mkdir", this.#storage.operationTimeoutMs, this.#remote(normalizeStoragePath(storagePath, false)), { mode: 0o700 });
--    });
++    const bounded = new Transform({
++      highWaterMark: 256 * 1024,
++      transform(chunk: Buffer, _encoding, callback) { reset(); callback(null, chunk); },
+     });
 -  }
 -
 -  async rename(source: string, destination: string): Promise<void> {
@@ -5442,22 +5465,14 @@ index cc44009..f108635 100644
 -    return this.#pool.close();
 -  }
 -}
-+      highWaterMark: 256 * 1024,
-+      ...(end === undefined ? {} : { end }),
-+    });
-+    let released = false;
-+    const release = (broken: boolean): void => {
-+      if (released) return;
-+      released = true;
-+      void lease.release(broken);
-+    };
-+    stream.once("end", () => release(false));
-+    stream.once("close", () => release(false));
-+    stream.once("error", () => release(true));
-+    // Pin the remote file handle before the caller releases its metadata lock.
-+    try { await once(stream, "open", { signal: AbortSignal.timeout(this.#storage.operationTimeoutMs) }); }
-+    catch (error) { stream.destroy(); release(true); throw error; }
-+    return stream;
++    // A caller may not yet have attached its error handler when remote I/O fails.
++    // The error remains observable to pipeline/async iteration and is not success.
++    bounded.on("error", () => undefined);
++    stream.once("end", clear);
++    stream.once("close", clear);
++    reset();
++    void pipeline(stream, bounded).catch(() => undefined).finally(clear);
++    return bounded;
 +  }
 +
 +  async write(storagePath: string, source: Readable, options: StorageWriteOptions): Promise<number> {
@@ -6662,6 +6677,93 @@ index 0000000..c2768aa
 +CREATE TRIGGER backup_services_revoke_reader_device
 +  AFTER UPDATE OF state, reader_device_id ON backup_services
 +  FOR EACH ROW EXECUTE FUNCTION vault_revoke_neptune_reader_device();
+diff --git a/packages/storage/src/sftp-storage.adapter.test.ts b/packages/storage/src/sftp-storage.adapter.test.ts
+new file mode 100644
+index 0000000..7237e6b
+--- /dev/null
++++ b/packages/storage/src/sftp-storage.adapter.test.ts
+@@ -0,0 +1,81 @@
++import { Readable } from "node:stream";
++import { setImmediate as tick } from "node:timers/promises";
++import type { SaturnConfig } from "@saturn/config";
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import { SftpStorageAdapter } from "./sftp-storage.adapter.js";
++
++const fixture = vi.hoisted(() => ({ reader: undefined as Readable | undefined, release: vi.fn(async () => undefined) }));
++vi.mock("./sftp-pool.js", () => ({
++  callSftp: vi.fn(),
++  SftpConnectionPool: class {
++    async acquire() {
++      return { release: fixture.release, sftp: { createReadStream() {
++        queueMicrotask(() => fixture.reader?.emit("open", Buffer.from("handle")));
++        return fixture.reader;
++      } } };
++    }
++  },
++}));
++
++const config: SaturnConfig["storage"] = {
++  host: "fixture.invalid", port: 22, username: "saturn", root: "/fixture",
++  hostFingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", authMode: "password_file",
++  passwordFile: "/fixture/unused", operationTimeoutMs: 1000, healthTimeoutMs: 1000, maxConnections: 1,
++};
++
++async function collect(stream: Readable): Promise<Buffer> {
++  const chunks: Buffer[] = [];
++  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
++  return Buffer.concat(chunks);
++}
++
++beforeEach(() => {
++  fixture.release.mockClear();
++  fixture.reader = new Readable({ read() { /* The synthetic remote explicitly supplies bytes. */ } });
++});
++afterEach(() => { fixture.reader?.destroy(); vi.useRealTimers(); });
++
++describe("SFTP read lifecycle", () => {
++  it("retains bytes supplied before the HTTP consumer attaches and releases once", async () => {
++    const source = fixture.reader!;
++    source.push(Buffer.from("before open "));
++    const stream = await new SftpStorageAdapter(config).openRead("note.md");
++    await tick();
++    source.push(Buffer.from("after open")); source.push(null);
++    expect((await collect(stream)).toString()).toBe("before open after open");
++    await tick();
++    expect(fixture.release).toHaveBeenCalledExactlyOnceWith(false);
++  });
++
++  it("fails and retires the connection when an open remote file stops producing data", async () => {
++    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
++    const stream = await new SftpStorageAdapter(config).openRead("note.md");
++    const result = expect(collect(stream)).rejects.toThrow("SFTP read idle timeout");
++    fixture.reader!.push(Buffer.from("partial")); await tick();
++    await vi.advanceTimersByTimeAsync(1001);
++    await result; await tick();
++    expect(fixture.reader!.destroyed).toBe(true);
++    expect(fixture.release).toHaveBeenCalledExactlyOnceWith(true);
++  });
++
++  it("propagates HTTP cancellation to the remote handle without leaking its lease", async () => {
++    const stream = await new SftpStorageAdapter(config).openRead("note.md");
++    stream.destroy(); await tick(); await tick();
++    expect(fixture.reader!.destroyed).toBe(true);
++    expect(fixture.release).toHaveBeenCalledExactlyOnceWith(true);
++  });
++
++  it("accepts a progressing transfer whose total duration exceeds the idle budget", async () => {
++    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
++    const stream = await new SftpStorageAdapter(config).openRead("note.md");
++    const completed = collect(stream);
++    for (let i = 0; i < 4; i++) {
++      fixture.reader!.push(Buffer.from(String(i))); await tick();
++      await vi.advanceTimersByTimeAsync(600);
++    }
++    fixture.reader!.push(null);
++    expect((await completed).toString()).toBe("0123");
++    await tick();
++    expect(fixture.release).toHaveBeenCalledExactlyOnceWith(false);
++  });
++});
 diff --git a/packages/sync/src/resource-reader.test.ts b/packages/sync/src/resource-reader.test.ts
 new file mode 100644
 index 0000000..318aa31

@@ -76,7 +76,7 @@
       "baseline_version": "0.1.15",
       "baseline_source_sha": "3fa28fef80e6578bb24a2f3f4dac066e24d08014",
       "patch": "integrations/patches/saturn-0.1.15-mastermind.patch",
-      "patch_sha256": "a883a86fa99824adde47bd07c62ec446aff2c451203ec4bbf4f3db44e6e29989",
+      "patch_sha256": "d57bcb5bb85114955acceebfe44bf572e8679d6bf88e0f23a495e49d71a5809c",
       "modified_files": [
         "apps/api/src/backup.controller.ts",
         "apps/api/src/main.ts",
@@ -98,6 +98,7 @@
         "apps/api/src/resource-reader.ts",
         "packages/database/migrations/0036_neptune_resource_reader.down.sql",
         "packages/database/migrations/0036_neptune_resource_reader.up.sql",
+        "packages/storage/src/sftp-storage.adapter.test.ts",
         "packages/sync/src/resource-reader.test.ts",
         "packages/sync/src/resource-reader.ts"
       ],
