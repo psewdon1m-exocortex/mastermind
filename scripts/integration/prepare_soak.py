@@ -1,9 +1,16 @@
 """Create independent disposable credentials for the eight-hour Runtime session."""
+import argparse
 import os
+import re
 import secrets
 from pathlib import Path
 
-root = Path(__file__).resolve().parents[2] / ".local/runtime-soak"
+parser = argparse.ArgumentParser()
+parser.add_argument("--name", default="runtime-soak")
+args = parser.parse_args()
+if not re.fullmatch(r"runtime-soak(?:-[a-z0-9-]+)?", args.name):
+    raise SystemExit("Use an isolated Runtime soak fixture name")
+root = Path(__file__).resolve().parents[2] / ".local" / args.name
 root.mkdir(parents=True, exist_ok=True)
 if not (root / "core/bootstrap_access_key").exists():
     common = {name: secrets.token_urlsafe(32) for name in ("bridge_token", "runtime_token", "vnc_password")}

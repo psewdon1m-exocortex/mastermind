@@ -5,6 +5,7 @@ import shutil
 import time
 from contextlib import contextmanager
 
+from .deadline import check
 from .errors import DomainError
 from .fs import file_inventory, remove_private_tree
 from .locking import FileMutex
@@ -15,7 +16,9 @@ CHUNK = 1024 * 1024
 def copy_bounded(source, destination, limit, *, deadline=None):
     deadline = deadline or time.monotonic() + 3600
     size, digest = 0, hashlib.sha256()
+    check()
     while data := source.read(CHUNK):
+        check()
         size += len(data)
         if size > limit:
             raise DomainError("SIZE_LIMIT", "The stream exceeds its declared limit.", 413)
@@ -23,6 +26,7 @@ def copy_bounded(source, destination, limit, *, deadline=None):
             raise DomainError("DEADLINE_EXCEEDED", "The operation exceeded its deadline.", 408)
         destination.write(data)
         digest.update(data)
+    check()
     return size, digest.hexdigest()
 
 

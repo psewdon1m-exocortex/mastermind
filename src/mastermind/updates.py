@@ -8,6 +8,7 @@ import time
 import httpx
 
 from . import __version__
+from .deadline import check, remaining, snapshot_budget
 from .errors import DomainError
 from .fs import atomic_json, durable_tree, remove_private_tree, sha_file
 from .restore import tree_digest
@@ -30,17 +31,20 @@ class Updater:
         if source is not None:
             headers.update({"Content-Length": str(size), "Content-Type": "application/zip"})
         try:
+            timeout = remaining(timeout)
             deadline = time.monotonic() + timeout
             with self.client.stream(method, route, headers=headers, json=data if source is None else None,
-                                    content=source, timeout=httpx.Timeout(timeout, connect=5,
-                                        read=timeout if route.endswith("/preparations") else 60, write=60)) as response:
+                                    content=source, timeout=httpx.Timeout(timeout, connect=min(5, timeout),
+                                        read=timeout if route.endswith("/preparations") else min(60, timeout), write=min(60, timeout))) as response:
                 body = bytearray()
                 for block in response.iter_bytes():
+                    check()
                     if time.monotonic() > deadline:
                         raise DomainError("UPDATER_TIMEOUT", "Updater exceeded the operation deadline.", 503)
                     if len(body) + len(block) > 1024 * 1024:
                         raise DomainError("UPDATER_PROTOCOL", "Updater metadata exceeded its limit.", 503)
                     body.extend(block)
+                check()
                 if response.status_code >= 400:
                     raise DomainError("UPDATER_REJECTED", "Updater rejected this operation.", response.status_code)
                 return json.loads(body) if body else None
@@ -179,41 +183,17 @@ class Updates:
                 backup.spool.reserve(backup.estimate() * 8)
                 folder = self.directory / request_id
                 self.save(phase="QUIESCING")
+                paused_at = time.monotonic()
                 with self.service.coordinator.boundary(request_id, resume_if=lambda: self.record["phase"] in
                     TERMINAL | {"QUIESCING", "SNAPSHOT", "SPOOLING"}):
-                    self.save(phase="SNAPSHOT")
-                    snapshot = folder / "snapshot"
-                    snapshot.mkdir(mode=0o700)
-                    with self.service.state.lock:
-                        boundary = backup.snapshot(snapshot, inside_boundary=True)
-                    durable_tree(snapshot)
-                    self.save(preimage_vault_sha256=tree_digest(snapshot / "vault"),
-                              preimage_db_sha256=sha_file(snapshot / "snapshot.sqlite3"), generation=boundary["generation"],
-                              previous_version=__version__, previous_schema=1)
-                    archive = folder / "mastermind-backup.zip"
-                    backup.pack(snapshot, boundary, archive)
-                    size, digest = archive.stat().st_size, sha_file(archive)
-                    self.save(phase="SPOOLING", size=size, sha256=digest)
-                    spool = self.updater.call("POST", root + "/backup-spools", data={"request_id": request_id,
-                        "filename": "mastermind-backup.zip", "size": size, "sha256": digest})
-                    route = root + "/backup-spools/" + spool["spool_id"]
-                    def chunks():
-                        with archive.open("rb") as source:
-                            deadline = time.monotonic() + 3600
-                            while block := source.read(1024 * 1024):
-                                if time.monotonic() > deadline:
-                                    raise DomainError("UPDATE_TIMEOUT", "Backup handoff exceeded its deadline.", 408)
-                                yield block
-                    self.updater.call("PUT", route + "/content", source=chunks(), size=size, timeout=3600)
-                    sealed = self.updater.call("POST", route + "/seal")
-                    if sealed.get("state") != "SEALED" or sealed.get("sha256") != digest or sealed.get("size") != size:
-                        raise DomainError("UPDATE_INTEGRITY", "Updater did not seal the exact snapshot.", 409)
-                    self.save(phase="APPLY_REQUESTED", spool_id=spool["spool_id"])
+                    with snapshot_budget(started=paused_at):
+                        spool_id = self.prepare_snapshot(backup, folder, root, request_id)
+                    self.save(phase="APPLY_REQUESTED", spool_id=spool_id)
                     # This marker precedes the request: loss of its response must keep writers blocked.
                     try:
                         job = self.updater.call("POST", "/v1/updates", data={"request_id": request_id,
                             "head_id": self.config.updater_head_id, "service": "mastermind", "version": version,
-                            "preparation_id": prepared["id"], "backup": {"spool_id": spool["spool_id"]}})
+                            "preparation_id": prepared["id"], "backup": {"spool_id": spool_id}})
                         self.save(job_id=job["id"])
                     except DomainError as error:
                         if error.status < 500:
@@ -226,6 +206,37 @@ class Updates:
                 self.save(phase="FAILED", error=error.code if isinstance(error, DomainError) else "UPDATE_PREPARATION_FAILED")
             else:
                 self.save(error="UPDATE_RECOVERY_REQUIRED")
+
+    def prepare_snapshot(self, backup, folder, root, request_id):
+        self.save(phase="SNAPSHOT")
+        snapshot = folder / "snapshot"
+        snapshot.mkdir(mode=0o700)
+        with self.service.state.lock:
+            boundary = backup.snapshot(snapshot, inside_boundary=True)
+        durable_tree(snapshot)
+        self.save(preimage_vault_sha256=tree_digest(snapshot / "vault"),
+                  preimage_db_sha256=sha_file(snapshot / "snapshot.sqlite3"), generation=boundary["generation"],
+                  previous_version=__version__, previous_schema=1)
+        archive = folder / "mastermind-backup.zip"
+        backup.pack(snapshot, boundary, archive)
+        size, digest = archive.stat().st_size, sha_file(archive)
+        self.save(phase="SPOOLING", size=size, sha256=digest)
+        spool = self.updater.call("POST", root + "/backup-spools", data={"request_id": request_id,
+            "filename": "mastermind-backup.zip", "size": size, "sha256": digest})
+        route = root + "/backup-spools/" + spool["spool_id"]
+        def chunks():
+            with archive.open("rb") as source:
+                check()
+                while block := source.read(1024 * 1024):
+                    check()
+                    yield block
+                check()
+        self.updater.call("PUT", route + "/content", source=chunks(), size=size, timeout=3600)
+        sealed = self.updater.call("POST", route + "/seal")
+        if sealed.get("state") != "SEALED" or sealed.get("sha256") != digest or sealed.get("size") != size:
+            raise DomainError("UPDATE_INTEGRITY", "Updater did not seal the exact snapshot.", 409)
+        check()
+        return spool["spool_id"]
 
     def monitor(self, owns_boundary=False):
         while not self.service.stop_event.wait(1):

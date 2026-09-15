@@ -1,7 +1,7 @@
-name: mastermind-runtime-soak
+name: ${SOAK_PROJECT:-mastermind-runtime-soak}
 services:
   initialize:
-    image: mastermind-core:development
+    image: ${SOAK_CORE_IMAGE:-mastermind-core:development}
     entrypoint: [python, /qualification/soak_initialize.py]
     user: "0:0"
     network_mode: none
@@ -17,7 +17,7 @@ services:
       driver: json-file
       options: {max-size: 5m, max-file: "2"}
   runtime:
-    image: mastermind-runtime:development
+    image: ${SOAK_RUNTIME_IMAGE:-mastermind-runtime:development}
     init: true
     depends_on:
       initialize: {condition: service_completed_successfully}
@@ -29,7 +29,7 @@ services:
     volumes:
       - vault:/vault
       - profile:/home/mastermind
-      - ../../.local/runtime-soak/runtime:/run/mastermind:ro
+      - ${SOAK_CREDENTIAL_ROOT:-../../.local/runtime-soak}/runtime:/run/mastermind:ro
     tmpfs: ["/tmp:rw,nosuid,nodev,size=256m,mode=1777"]
     shm_size: 256m
     cap_drop: [ALL]
@@ -47,22 +47,22 @@ services:
       driver: json-file
       options: {max-size: 5m, max-file: "2"}
   core:
-    image: mastermind-core:development
+    image: ${SOAK_CORE_IMAGE:-mastermind-core:development}
     depends_on:
       runtime: {condition: service_healthy}
     user: "10001:10001"
     read_only: true
     environment:
       MASTERMIND_HOME: /data
-      MASTERMIND_PUBLIC_URL: http://localhost:18394
+      MASTERMIND_PUBLIC_URL: http://localhost:${SOAK_PORT:-18394}
       MASTERMIND_SECRET_BACKEND: development-files
       MASTERMIND_SECRET_DIRECTORY: /run/mastermind
       MASTERMIND_RUNTIME_URL: http://runtime:8091
     volumes:
       - data:/data
       - vault:/data/vault
-      - ../../.local/runtime-soak/core:/run/mastermind:ro
-    ports: ["127.0.0.1:18394:18390"]
+      - ${SOAK_CREDENTIAL_ROOT:-../../.local/runtime-soak}/core:/run/mastermind:ro
+    ports: ["127.0.0.1:${SOAK_PORT:-18394}:18390"]
     tmpfs: ["/tmp:rw,nosuid,nodev,size=64m,mode=1777"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]

@@ -4,6 +4,7 @@ import os
 
 import pyrage
 
+from .deadline import check, remaining
 from .errors import DomainError
 
 
@@ -31,12 +32,23 @@ def transform(mode, source, destination, secret_store, limit, deadline=3600):
     worker = multiprocessing.get_context("spawn").Process(
         target=_transform, args=(mode, source, destination, key)
     )
+    check()
     worker.start()
-    worker.join(deadline)
+    try:
+        worker.join(remaining(deadline))
+    except BaseException:
+        worker.kill()
+        worker.join()
+        destination.unlink(missing_ok=True)
+        raise
     if worker.is_alive():
         worker.terminate()
-        worker.join(10)
+        worker.join(1)
+        if worker.is_alive():
+            worker.kill()
+            worker.join()
         destination.unlink(missing_ok=True)
+        check()
         raise DomainError("DEADLINE_EXCEEDED", "Encryption exceeded its deadline.", 408)
     if worker.exitcode != 0:
         destination.unlink(missing_ok=True)
@@ -45,3 +57,4 @@ def transform(mode, source, destination, secret_store, limit, deadline=3600):
     if destination.stat().st_size > limit:
         destination.unlink()
         raise DomainError("SIZE_LIMIT", "The encrypted stream exceeded its resource budget.", 413)
+    check()

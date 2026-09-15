@@ -2,23 +2,27 @@
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),crypto=require('node:crypto');
 const {execFileSync}=require('node:child_process');
 const {chromium}=require('./lib/browser.cjs');
-const root=path.resolve(__dirname,'..'),origin='http://localhost:18394';
+const root=path.resolve(__dirname,'..'),port=Number(process.env.SOAK_PORT||18394),origin='http://localhost:'+port;
+const project=process.env.SOAK_PROJECT||'mastermind-runtime-soak';
+assert.match(project,/^mastermind-runtime-soak(?:-[a-z0-9-]+)?$/);assert.ok(Number.isInteger(port)&&port>1024&&port<65536);
+const credentials=path.resolve(root,process.env.SOAK_CREDENTIAL_ROOT||'.local/'+project.replace(/^mastermind-/,''));
+assert.ok(credentials.startsWith(path.join(root,'.local')+path.sep));
 const output=path.resolve(root,process.env.SOAK_OUTPUT||'artifacts/runtime-soak');
 if(!output.startsWith(path.join(root,'artifacts')+path.sep))throw Error('Soak output must stay in the artifacts directory');
 fs.mkdirSync(output,{recursive:true});
 const minutes=Number(process.env.SOAK_MINUTES||480),duration=minutes*60*1000;
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const log=data=>{const line=JSON.stringify({utc:new Date().toISOString(),...data});fs.appendFileSync(path.join(output,'events.jsonl'),line+'\n');console.log(line);};
-function inspect(){return ['core','runtime'].map(name=>{const state=JSON.parse(execFileSync('docker',['inspect','mastermind-runtime-soak-'+name+'-1'],{encoding:'utf8'}))[0];
+function inspect(){return ['core','runtime'].map(name=>{const state=JSON.parse(execFileSync('docker',['inspect',project+'-'+name+'-1'],{encoding:'utf8'}))[0];
   return {name,image:state.Image,started:state.State.StartedAt,restarts:state.RestartCount,oom:state.State.OOMKilled,
     memory:Number(execFileSync('docker',['exec',state.Id,'cat','/sys/fs/cgroup/memory.current'],{encoding:'utf8'}).trim())};});}
 (async()=>{
   assert.ok(Number.isFinite(duration)&&duration>0&&duration<=12*3600*1000);
-  const lock=path.join(root,'.local/runtime-soak/running.lock');const handle=fs.openSync(lock,'wx');fs.writeSync(handle,String(process.pid));
+  const lock=path.join(credentials,'running.lock');const handle=fs.openSync(lock,'wx');fs.writeSync(handle,String(process.pid));
   let browser;
   try{
     browser=await chromium.launch({headless:true});const context=await browser.newContext({viewport:{width:1440,height:1000}});
-    const login=await context.request.post(origin+'/api/auth/login',{headers:{Origin:origin},data:{access_key:fs.readFileSync(path.join(root,'.local/runtime-soak/core/bootstrap_access_key'),'utf8')}});
+    const login=await context.request.post(origin+'/api/auth/login',{headers:{Origin:origin},data:{access_key:fs.readFileSync(path.join(credentials,'core/bootstrap_access_key'),'utf8')}});
     assert.equal(login.status(),200);const csrf=(await login.json()).csrf,headers={Origin:origin,'X-CSRF-Token':csrf};
     async function api(route,method='GET',data){const response=await context.request.fetch(origin+route,{method,headers,data,timeout:180000});
       assert.equal(response.status(),200,route+' HTTP '+response.status());return response.json();}

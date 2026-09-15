@@ -18,8 +18,18 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey,
 
 from . import __version__
 from .crypto_stream import transform
+from .deadline import check, snapshot_budget
 from .errors import DomainError
-from .fs import directory_inventory, file_inventory, name_key, open_under, resolve, safe_relative, sha_file
+from .fs import (
+    directory_inventory,
+    file_inventory,
+    name_key,
+    open_under,
+    resolve,
+    safe_relative,
+    sha_file,
+    stream_digest,
+)
 from .spool import Spool, copy_bounded, private_open
 from .state import MANDATORY_TABLES, State
 
@@ -104,8 +114,12 @@ class Backup:
 
     def snapshot(self, folder, *, inside_boundary=False):
         if not inside_boundary:
-            with self.coordinator.boundary():
+            with snapshot_budget(), self.coordinator.boundary():
                 return self.snapshot(folder, inside_boundary=True)
+        with snapshot_budget():
+            return self._snapshot(folder)
+
+    def _snapshot(self, folder):
         self.vault.index(force=True)
         tree = folder / "vault"
         tree.mkdir(mode=0o700)
@@ -130,9 +144,10 @@ class Backup:
             raise DomainError("VAULT_BUSY", "Vault inventory changed during snapshot.", 423)
         database = folder / "snapshot.sqlite3"
         with self.state.lock, closing(sqlite3.connect(database)) as copy:
-            self.state.db.backup(copy, pages=256)
+            self.state.db.backup(copy, pages=256, progress=lambda *_: check())
         os.chmod(database, 0o600)
         generation = self.state.one("SELECT value FROM metadata WHERE key='generation'")["value"]
+        check()
         return {"boundary": datetime.now(UTC).isoformat(), "generation": int(generation)}
 
     def export_state(self, database, directory):
@@ -144,6 +159,7 @@ class Backup:
                 index, stream, size, count, total = 0, None, 0, 0, 0
                 try:
                     for row in db.execute(f'SELECT * FROM "{table}" ORDER BY rowid'):
+                        check()
                         data = canonical(dict(row))
                         if len(data) > STATE_RECORD_BYTES:
                             raise DomainError("STATE_LIMIT", "A state record exceeds the backup limit.", 413)
@@ -205,10 +221,10 @@ class Backup:
         inner, encrypted = folder / "logical.zip", folder / "payload.age"
         # Stored ZIP members avoid excessive compression ratios for opaque plugin data.
         with private_open(inner) as raw, zipfile.ZipFile(raw, "w", zipfile.ZIP_STORED) as archive:
-            archive.write(inventory, "inventory.json")
+            self.zip_file(archive, inventory, "inventory.json")
             for root in ("vault", "state"):
                 for relative, path in file_inventory(folder / root):
-                    archive.write(path, root + "/" + relative)
+                    self.zip_file(archive, path, root + "/" + relative)
         recipient_text = self.secrets.read("recovery_recipient")
         transform("encrypt", inner, encrypted, self.secrets, self.config.max_backup_bytes)
         unsigned = {"format": FORMAT, "service_version": __version__, "schema": 1, **boundary,
@@ -222,7 +238,7 @@ class Backup:
         manifest = {"manifest": unsigned, "signature": signature}
         with private_open(destination) as raw, zipfile.ZipFile(raw, "w", zipfile.ZIP_STORED) as archive:
             archive.writestr("manifest.json", canonical(manifest))
-            archive.write(encrypted, "payload.age")
+            self.zip_file(archive, encrypted, "payload.age")
             raw.flush()
             os.fsync(raw.fileno())
         if destination.stat().st_size > self.config.max_backup_bytes:
@@ -231,6 +247,13 @@ class Backup:
         # Check the completed ciphertext and its external trust before offering it.
         self.verify_wrapper(destination)
         return unsigned
+
+    def zip_file(self, archive, path, name):
+        # ZipFile.write uses an uninterruptible copy loop. Keep ZIP metadata but
+        # check the enclosing preparation budget between bounded file chunks.
+        info = zipfile.ZipInfo.from_file(path, name)
+        with path.open("rb") as source, archive.open(info, "w", force_zip64=True) as target:
+            copy_bounded(source, target, self.config.max_expanded_bytes)
 
     def create(self, destination, *, inside_boundary=False):
         destination = Path(destination)
@@ -270,7 +293,7 @@ class Backup:
                 if members["payload.age"].file_size != unsigned["payload"]["size"]:
                     raise DomainError("INVALID_ARCHIVE", "Ciphertext size does not match its manifest.", 422)
                 with archive.open("payload.age") as stream:
-                    digest = hashlib.file_digest(stream, "sha256").hexdigest()
+                    digest = stream_digest(stream)
                 if digest != unsigned["payload"]["sha256"]:
                     raise DomainError("INVALID_ARCHIVE", "Ciphertext digest does not match its manifest.", 422)
                 if not 0 <= unsigned["expanded_bytes"] <= self.config.max_expanded_bytes \

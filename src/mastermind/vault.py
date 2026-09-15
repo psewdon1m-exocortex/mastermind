@@ -1,6 +1,7 @@
 import json
 import time
 
+from .deadline import check
 from .errors import DomainError
 from .fs import file_inventory, name_key, open_under, resolve, sha_bytes, sha_file
 from .references import masked, note_tags, parse
@@ -64,14 +65,17 @@ class Vault:
             dirty = set(previous.keys() - inventory.keys())
             with self.state.transaction() as db:
                 for relative in previous.keys() - inventory.keys():
+                    check()
                     db.execute("DELETE FROM note_fts WHERE path=?", (relative,))
                     db.execute("DELETE FROM notes WHERE path=?", (relative,))
                     db.execute("DELETE FROM edges WHERE source=?", (relative,))
                 # History survives target deletion and rebuild.
                 for key, display in current.items():
+                    check()
                     db.execute("INSERT OR IGNORE INTO reference_history VALUES('internal',?,?)", (key, display))
                 history = list(set(history) | set(current.values()))
                 for relative, (path, key) in inventory.items():
+                    check()
                     stat = path.stat()
                     old = previous.get(relative)
                     if not force and not changed_names and old and old["mtime_ns"] == stat.st_mtime_ns \

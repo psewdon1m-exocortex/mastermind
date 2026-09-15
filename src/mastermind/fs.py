@@ -8,6 +8,7 @@ import unicodedata
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 
+from .deadline import check
 from .errors import DomainError
 
 WINDOWS_RESERVED = re.compile(r"^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)", re.IGNORECASE)
@@ -54,10 +55,21 @@ def resolve(root: Path, relative: str, *, internal: bool = False) -> Path:
 
 
 def sha_file(path: Path) -> str | None:
+    check()
     if not path.is_file():
         return None
     with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+        return stream_digest(stream)
+
+
+def stream_digest(stream):
+    digest = hashlib.sha256()
+    check()
+    while block := stream.read(1024 * 1024):
+        check()
+        digest.update(block)
+    check()
+    return digest.hexdigest()
 
 
 def sha_bytes(value: bytes) -> str:
@@ -101,6 +113,7 @@ def atomic_json(path: Path, value):
 def file_inventory(root: Path):
     """Yield regular files, validating hidden user data without reading its content."""
     for directory, dirs, names in os.walk(root, followlinks=False):
+        check()
         dirs.sort()
         names.sort()
         for name in dirs:
@@ -108,6 +121,7 @@ def file_inventory(root: Path):
             if candidate.is_symlink() or candidate.is_junction():
                 raise DomainError("UNSAFE_PATH", "Vault contains a symbolic directory.")
         for name in names:
+            check()
             relative = (Path(directory) / name).relative_to(root).as_posix()
             path = resolve(root, relative, internal=True)
             yield relative, path
@@ -115,8 +129,10 @@ def file_inventory(root: Path):
 
 def directory_inventory(root: Path):
     for directory, dirs, _ in os.walk(root, followlinks=False):
+        check()
         dirs.sort()
         for name in dirs:
+            check()
             relative = (Path(directory) / name).relative_to(root).as_posix()
             yield relative, resolve(root, relative, internal=True)
 
@@ -128,6 +144,7 @@ def durable_tree(root: Path):
     for _, path in reversed(list(directory_inventory(root))):
         sync_dir(path)
     sync_dir(root)
+    check()
 
 
 @contextmanager
