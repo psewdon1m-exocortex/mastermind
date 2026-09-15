@@ -1,0 +1,5 @@
+* text=auto eol=lf
+docs/policy/** -text
+integrations/patches/** -text
+*.woff2 binary
+*.doc binary
