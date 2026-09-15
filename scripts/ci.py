@@ -100,7 +100,7 @@ def main():
             run("test-storage-owner", ["docker", "run", "--rm", "--network", "none", "--read-only", "--user", "0:0",
                 "--cap-drop", "ALL", "--cap-add", "CHOWN", "--cap-add", "FOWNER", "--security-opt", "no-new-privileges:true",
                 "--mount", "type=volume,source=" + volume + ",target=/verification", "--entrypoint", "python", images["core"],
-                "-c", "import os; os.chown('/verification',10001,10001); os.chmod('/verification',0o700)"])
+                "-c", "import os; os.makedirs('/verification/worker'); [(os.chown(p,10001,10001),os.chmod(p,0o700)) for p in ['/verification','/verification/worker']]"])
             result["test_storage_volume"] = volume
             isolated = ["docker", "run", "--rm", "--network", "none", "--read-only", "--user", "10001:10001",
                         "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "--memory", "2g", "--cpus", "2",
@@ -108,7 +108,7 @@ def main():
                         "--mount", "type=volume,source=" + volume + ",target=/verification"]
             run("linux-tests", [*isolated, "--entrypoint", "python", images["worker"], "-m", "pytest", "/suite/tests", "-q",
                                 "-o", "pythonpath=/app/src", "-p", "no:cacheprovider", "--basetemp=/verification/pytest"], timeout=600)
-            run("real-worker-sandbox", [*isolated, "--tmpfs", "/work:rw,nosuid,nodev,size=256m,mode=1777",
+            run("real-worker-sandbox", [*isolated, "--mount", "type=volume,source=" + volume + ",target=/work,volume-subpath=worker",
                 "--tmpfs", "/run/mastermind:rw,nosuid,nodev,size=1m,mode=1777", "--entrypoint", "python", images["worker"],
                 "/suite/scripts/integration/probe_worker.py"], timeout=180)
         else:
