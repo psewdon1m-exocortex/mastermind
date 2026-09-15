@@ -17,15 +17,17 @@ def main():
     output = ROOT / "artifacts/chronos-replay" / run_id
     private.mkdir(parents=True)
     output.mkdir(parents=True)
-    source = ROOT / ".local/patch-replay/chronos"
+    lock = json.loads((ROOT / "docs/compatibility.json").read_text())["services"]["chronos"]
+    source = ROOT / ".local/patch-replay" / ("chronos-" + lock["patch_sha256"][:16])
     password = secrets.token_urlsafe(32)
     (private / "db.env").write_text("POSTGRES_DB=chronos_test\nPOSTGRES_USER=qualification\nPOSTGRES_PASSWORD=" + password + "\n", encoding="utf-8")
     (private / "test.env").write_text("TEST_DATABASE_URL=postgresql://qualification:" + password + "@db:5432/chronos_test\n", encoding="utf-8")
-    identity = subprocess.check_output(["docker", "image", "inspect", "--format", "{{.Id}}", "mastermind-chronos:patch-replay"], text=True).strip()
+    identity = subprocess.check_output(["docker", "image", "inspect", "--format", "{{.Id}}", "mastermind-chronos:integration"], text=True).strip()
     subprocess.run(["docker", "image", "tag", identity, name + ":base"], check=True)
     (private / "Dockerfile").write_text("FROM " + name + ":base\nUSER root\nCOPY requirements-dev.lock /tmp/requirements-dev.lock\nRUN pip install --no-cache-dir --require-hashes -r /tmp/requirements-dev.lock\nUSER 10001:10001\n", encoding="utf-8")
     (private / "requirements-dev.lock").write_bytes((source / "requirements-dev.lock").read_bytes())
-    result = {"image_id": identity, "isolation": "new internal network and new database volume", "steps": []}
+    result = {"image_id": identity, "patch_sha256": lock["patch_sha256"],
+              "isolation": "new internal network and new database volume", "steps": []}
     def run(step, command, timeout=900):
         started = time.monotonic()
         with (output / (step + ".log")).open("wb") as log:

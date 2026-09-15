@@ -15,6 +15,7 @@ def assert_host():
 def main():
     assert_host()
     fixture = Path("/opt/qualification")
+    saturn_address = "172.31.0.7" if (fixture/"clean-host").exists() else "172.31.0.5"
     for source, name in ((fixture/"transport-ca.crt", "mastermind-qualification.crt"),
                          (fixture/"combined-ca.crt", "mastermind-integration.crt")):
         # update-ca-certificates needs one certificate per file. The combined
@@ -28,7 +29,7 @@ def main():
     subprocess.run(["update-ca-certificates"], check=True)
     dns = "bind-dynamic\nlisten-address=127.0.0.1,10.245.0.1\nno-resolv\nserver=1.1.1.1\n"
     for host in ("kernel", "volt", "saturn", "chronos"):
-        dns += f"address=/{host}.mastermind.test/172.31.0.{5 if host == 'saturn' else 2}\n"
+        dns += f"address=/{host}.mastermind.test/{saturn_address if host == 'saturn' else '172.31.0.2'}\n"
     for host in ("github.com", "api.github.com", "mastermind.qualification.test"):
         dns += f"address=/{host}/10.245.0.1\n"
     dns += "address=/registry.mastermind.test/172.31.0.3\n"
@@ -38,7 +39,7 @@ def main():
     values = hosts.read_text()
     for line in ("127.0.0.1 github.com api.github.com mastermind.qualification.test",
                  "172.31.0.2 kernel.mastermind.test volt.mastermind.test chronos.mastermind.test",
-                 "172.31.0.5 saturn.mastermind.test",
+                 saturn_address+" saturn.mastermind.test",
                  "172.31.0.3 registry.mastermind.test"):
         if line not in values:
             values += "\n"+line+"\n"

@@ -46,7 +46,7 @@
       "baseline_version": "0.1.7",
       "baseline_source_sha": "34222db49ca9e3b18ba9ee99100e9b035010570e",
       "patch": "integrations/patches/neptune-0.1.7-mastermind.patch",
-      "patch_sha256": "c28477970f0d0e61dea6808b57769fe024b38234274595407f70aa15c3df4a6c",
+      "patch_sha256": "53b5e2e02995fe75ae24bbb3cd78599a55dbdcc0ace8ade5c5f01ba95af6e821",
       "modified_files": [
         "src/Neptune.Core/BackupCoordinator.cs",
         "src/Neptune.Core/KernelRegisterClient.cs",
@@ -68,6 +68,7 @@
         "src/Neptune.Linux/ResourceReader.cs",
         "tests/Neptune.Core.Tests/MastermindBoundaryTests.cs",
         "tests/Neptune.Core.Tests/MastermindExportTests.cs",
+        "tests/Neptune.Core.Tests/MastermindMigrationTests.cs",
         "tests/Neptune.Core.Tests/ResourceReaderContractTests.cs"
       ],
       "status": "LOCAL_QUALIFICATION_CANDIDATE"

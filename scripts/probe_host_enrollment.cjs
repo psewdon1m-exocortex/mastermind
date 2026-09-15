@@ -4,9 +4,10 @@ const {execFileSync}=require('node:child_process');
 const {chromium}=require('./lib/browser.cjs');
 const root=path.resolve(__dirname,'..'),origin='https://mastermind.qualification.test';
 (async()=>{
-  const key=execFileSync('docker',['exec','mastermind-qualification-host','cat','/opt/exocortex/mastermind/secrets/core/bootstrap_access_key'],{encoding:'utf8'});
-  const code=JSON.parse(fs.readFileSync(path.join(root,'.local/host-fixture/enrollment.json'),'utf8')).code;
-  const browser=await chromium.launch({headless:true,args:['--host-resolver-rules=MAP mastermind.qualification.test 127.0.0.1:18445']});
+  const clean=process.argv.includes('--clean-host'),host=clean?'mastermind-clean-install-host':'mastermind-qualification-host',port=clean?18446:18445;
+  const key=execFileSync('docker',['exec',host,'cat','/opt/exocortex/mastermind/secrets/core/bootstrap_access_key'],{encoding:'utf8'});
+  const code=JSON.parse(fs.readFileSync(path.join(root,clean?'.local/clean-install/enrollment.json':'.local/host-fixture/enrollment.json'),'utf8')).code;
+  const browser=await chromium.launch({headless:true,args:['--host-resolver-rules=MAP mastermind.qualification.test 127.0.0.1:'+port]});
   try{
     const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:{width:1920,height:1080}});
     const page=await context.newPage();
@@ -30,7 +31,7 @@ const root=path.resolve(__dirname,'..'),origin='https://mastermind.qualification
       if(result.state!==previous){console.log(JSON.stringify({utc:new Date().toISOString(),state:result.state,error:result.error}));previous=result.state;}
       if(['COMPLETED','FAILED'].includes(result.state))break;
     }
-    const suffix=process.argv.includes('--review')?'.review':'';
+    const suffix=(clean?'.clean':'')+(process.argv.includes('--review')?'.review':'');
     fs.writeFileSync(path.join(root,'artifacts/host-enrollment'+suffix+'.json'),JSON.stringify(result,null,2));
     await page.goto(origin+'/settings');
     await page.screenshot({path:path.join(root,'artifacts/host-enrollment'+suffix+'.png')});

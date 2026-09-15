@@ -1,6 +1,6 @@
 # Releases and updates
 
-The initial numeric version is `0.0.1`. Branch pushes, a plain validation tag such as `v0.0.1`, and the protected deployable tag `mastermind-v0.0.1` are distinct workflows. Only the exact service-qualified tag may publish a release. Build artifacts once, test them, sign those same bytes and promote the immutable digests.
+The candidate numeric version is `0.1.0`; earlier `0.0.x` versions are unpublished local qualification fixtures. Branch pushes, a plain validation tag such as `v0.1.0`, and the protected deployable tag `mastermind-v0.1.0` are distinct workflows. Only the exact service-qualified tag may publish a release. Build artifacts once, test them, sign those same bytes and promote the immutable digests.
 
 ## Artifact contract
 

@@ -25,6 +25,14 @@ credentials = json.loads((FIXTURE / "enrollment.json").read_text())
 saturn = client("saturn")
 paths = []
 for name in ("preview.svg", "preview.mp4", "scan.pdf", "source.wav"):
+    # Keep these generated sources in the test Vault too: the real mirror must
+    # otherwise delete remotely injected files absent from its canonical tree.
+    subprocess.run(["docker", "exec", "-i", "mastermind-development-runtime-1", "python", "-c",
+        "from pathlib import Path; import sys; p=Path('/vault/current')/sys.argv[1]; body=sys.stdin.buffer.read(); "
+        "assert not p.is_symlink(); "
+        "assert not p.exists() or p.read_bytes()==body, 'Existing fixture path has different bytes'; "
+        "p.open('xb').write(body) if not p.exists() else None", name],
+        input=(directory/name).read_bytes(), check=True)
     headers = {"Authorization": "Bearer " + credentials["mirrorToken"], "Content-Type": "application/octet-stream"}
     route = "/dav/mastermind/" + name
     previous = saturn.head(route, headers=headers)

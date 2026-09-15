@@ -25,16 +25,87 @@ Parts 00, 02–07, 09–10, 12 apply. Part 01 applies to all owned UI; the nativ
 | S0 — Scope/environment | Final requirements and authority available | Applicability, environment inventory, isolated project/test namespace | Tools/engines available, existing edits recorded | PASS |
 | S1 — Storage and references | S0 | SQLite state, safe paths, parser/history, graph/FTS, coordinator/journal | Unicode collisions, code exclusions, concurrent writes, crash recovery, no-clobber and ETag tests | PASS |
 | S2 — Recovery and identity | S1 | Exact Access Key auth, sessions/CSRF, audit, encrypted full backup/restore | Access-key parity, secret redaction, complete round-trip, hostile archives, interrupted rollback, >350 MiB | PASS |
-| S3 — Native Runtime and Bridge | S1/S2 | Official pinned Obsidian/KasmVNC, supervisor, Bridge, native/@ rename, Activity | Native editor smoke, dirty-buffer quiesce, rename consistency, reconnect/revoke, themes/export | IN_PROGRESS |
-| S4 — Integrations | S2 | Kernel/Volt/Chronos adapters; two Neptune pipelines/read/Range; Updater spool/group | Real local producer-consumer tests, scope isolation, partial enrollment, large handoff/rollback | IN_PROGRESS |
-| S5 — Shared and Crusher | S1/S2 and qualified S4 reader/secret contracts; final group-update gate follows Worker | Safe shared projection, source/progress-only Crusher, worker, hierarchy placement | Reference injection, path revival, expiry, SSRF, source extractors, idempotent commit, bounded context | IN_PROGRESS |
-| S6 — Web and operations | S2–S5 | Unified Shell/Settings/Documentation, telemetry, logs, CLI | Browser workflows, accessibility/keyboard/clipboard, responsive screenshot review | IN_PROGRESS |
+| S3 — Native Runtime and Bridge | S1/S2 | Official pinned Obsidian/KasmVNC, supervisor, Bridge, native/@ rename, Activity | Native editor smoke, dirty-buffer quiesce, rename consistency, reconnect/revoke, themes/export | PASS locally |
+| S4 — Integrations | S2 | Kernel/Volt/Chronos adapters; two Neptune pipelines/read/Range; Updater spool/group | Real local producer-consumer tests, scope isolation, partial enrollment, large handoff/rollback | PASS locally; producer publication open |
+| S5 — Shared and Crusher | S1/S2 and qualified S4 reader/secret contracts; final group-update gate follows Worker | Safe shared projection, source/progress-only Crusher, worker, hierarchy placement | Reference injection, path revival, expiry, SSRF, source extractors, idempotent commit, bounded context | PASS with controlled Google endpoint |
+| S6 — Web and operations | S2–S5 | Unified Shell/Settings/Documentation, telemetry, logs, CLI | Browser workflows, accessibility/keyboard/clipboard, responsive screenshot review | PASS locally |
 | S7 — Packaging | S1–S6 | Locked images/dependencies, bootstrap/install, signed manifests, CI/pre-push/known-problem gate | Clean install, own profile update/rollback, artifact/trust and secret scans | IN_PROGRESS |
 | S8 — End-to-end qualification | S1–S7 | Local related-service stack, representative dataset and final evidence | Complete owner/shared/Crusher/recovery flows, fault tests, resource limits, bounded native regression | IN_PROGRESS |
 
 No stage passes because its code exists. Each gate records exact commands, counts, outcome and remaining limitations below. Blocked integration tests do not become mocked PASS. Product decisions are closed; implementation feasibility is tested as work proceeds.
 
-## Current checkpoints — 2026-09-15
+## Current qualification — 2026-09-15, main disk
+
+This section supersedes every historical RUNNING, transfer, eight-hour and 8 GiB
+statement below. No long test is running. Development and all active fixtures use
+C: and Docker Desktop. The stopped external WSL registration/data still exist
+because automatic execution review rejected their deletion. No remote exists;
+the only image pushes were to the loopback qualification registry.
+
+The three candidate 0.1.0 images built from `b42891fbebbf105b32a318c1b86cd3f5510f0f3a`
+passed full local CI: **508 Linux tests, zero skips**, Bridge parser/type/build,
+real offline model and isolated Chrome/SSRF checks, complete source/history
+secret scans. Exact config digests are in `artifacts/current-image-identities.json`
+and `artifacts/ci/b42891fbebbf105b32a318c1b86cd3f5510f0f3a/result.json`.
+
+| Executed exit check | Result and retained local evidence |
+| --- | --- |
+| Bounded native operation | PASS in 100.090 s: 6 actual keyboard saves, 2 coordinated mutations, 368,915,142 export bytes, reconnects, no OOM/container restart, persisted final native Activity. `native-runtime-b42891f/result.json` |
+| Native boundaries and resources | PASS actual lost acknowledgement, stale dirty buffer, socket revocation, native/@ rename, attachment/folder moves, graph, Chronos cards and Saturn image/video/audio/PDF/Range. `native-lost-ack-b42891f.log`, `native-boundaries-b42891f.log`, `native-rename-b42891f.log`, `native-moves-b42891f.log`, `native-graph-b42891f.log`, `native-resources-b42891f-v2.log` |
+| Independent Runtime restart | PASS 5.830 s; Core process unchanged, saved text retained, browser reconnected. `native-restart-current.log` |
+| Shared and owned UI | PASS password/edit/conflict/revoke, retained protected references, real clipboard/fallback, settings, keyboard/modal/focus, browser backup/download/inspect/resume/restore, log export. `shared-b42891f.log`, `shell-workflows-b42891f-v2.log` |
+| Responsive UI | PASS 1920×1080 and 390×844, navigation/documentation search, no horizontal overflow or browser/CSP errors; screenshots reviewed. `shell-responsive-current.log`, `shell/` |
+| Crusher | PASS 15 jobs including real Worker extraction, expected failures/retry, actual Core SIGKILL/restart and exactly one resulting commit. Only Google's paid REST endpoint is controlled; provider quality/availability is not claimed. `crusher-b42891f-v2.log` |
+| Encrypted native restore | PASS 23.906 s, 368,028,205 archive bytes, 350 MiB attachment hash preserved, old session revoked and verification copy removed. `large-native-restore-b42891f.log` |
+| Independent archive and mirror | PASS on the newly fixed Neptune image in 45.141 s, exact 350 MiB reader hash, extra Neptune RSS 25,788,416 bytes below 128 MiB bound. `large-pipelines-neptune-migration.log`, `large-pipelines.json` |
+| Actual producer contracts | PASS real Saturn SFTP/Range, immutable reader, principal isolation, Kernel/Volt and minimal Chronos projection. `integration-contract-current.log` |
+| Saturn transport faults | PASS actual process SIGKILL with held persisted upload lease, interrupted HTTP 502, retry and reader hash. Real loopback SSH/SFTP server then withheld READ after OPEN: bounded failure, early bytes retained and new connection recovered. `saturn-process-kill-current.log`, `saturn-real-sftp-stall-current-v2.log` |
+| Fresh OS install | PASS authenticated signed bootstrap, install, native trust on generated empty Vault, Settings → Updater → Neptune enrollment and reader readiness. Separate C: volumes, database and SFTP namespace. `clean-host-bootstrap.log`, `clean-host-install-v2.log`, `clean-host-native-trust.log`, `clean-host-enrollment.log` |
+| Installation diagnostics | PASS current installer returns READY/exit 0; stopped Neptune produces detailed NOT_READY JSON/exit 1; restart restores READY. `clean-host-doctor-recovery.log` |
+| Host bounded snapshot spool | PASS actual 4 MiB streaming/hash/seal, wrong identity, cancellation, expiry and oversized declaration rejected before allocation. No actual 8 GiB transfer. `host-spool-bounded-current-v3.log` |
+| Actual host update/recovery | PASS 0.0.2 → 0.1.0, manual return retaining new notes, Updater SIGKILL after candidate write → automatic ROLLED_BACK, return to 0.1.0 and canonical HTTPS edge checks. `host-update-0.1.0.log`, `host-manual-rollback-current-0.0.2.log`, `host-updater-interruption-current.log`, `host-fault-0.0.5-current.log`, `host-return-current-0.1.0.log`, `host-edge-b42891f.log` |
+| Post-fault data identity | PASS original 350 MiB attachment SHA-256 `055621ce89f553eb434851825a44986eb91efe091569238303f44872fbfe33c5` and unchanged synthetic opaque plugin data. `host-post-fault-bytes-current.log` |
+
+All evidence names in this table are relative to ignored `artifacts/`. Earlier
+failed runs remain failures. Subsequent passes describe corrected code or corrected
+harness preconditions; overlapping test runs are never added together.
+
+The complete clean producer suites also pass: Neptune **69 tests**, all **20
+Saturn packages** with their declared tests/typechecks, Chronos **37 tests** on a
+fresh private PostgreSQL database, and all Updater Go packages. Evidence:
+`neptune-migration-all-tests.log`, `saturn-all-packages-current.log`,
+`chronos-replay/45e4c4fa2aff/`, `updater-all-packages-current-v2.log`.
+All four exported producer patches replay cleanly (`producer-patch-replay.json`).
+
+The new Neptune patch fixes an observed concurrent SQLite migration race: the
+column check and ALTER now share an immediate transaction. Fresh and legacy
+databases are tested with 16 concurrent initializers across four iterations.
+The current installer preserves doctor diagnostics on dependency failure. Clean
+host preparation now initializes its own Saturn volume permissions and runs real
+database migrations before starting API/worker. These post-b42891f source changes
+require the next clean committed CI run; its result is written under
+`artifacts/ci/<full-source-sha>/result.json`. Native receipts bind both source SHA
+and actual running image identities; historical results must not be relabelled.
+
+### Remaining gates
+
+- **Security remains REVIEW_REQUIRED**, not PASS: exact-image raw matches are
+  Core 51 High/0 Critical, Runtime 70 High/2 Critical and Worker 71 High/9 Critical.
+  See [dependency remediation](dependency-remediation.md) for current facts and
+  concrete next steps. No exception, waiver or scanner suppression was added.
+- The four producer patches are qualified local candidates, not upstream releases.
+  A public release requires immutable published producer identities and replay.
+- The effective central Part 12 contains the owner's existing worktree changes;
+  the exact accepted bytes are not yet in an immutable central commit.
+- No remote repository, hosted CI/attestation, protected signing environment,
+  public release or production installation has been created or claimed.
+- Actual paid Gemini, eight-hour endurance and 8 GiB transfers were not run.
+  The latter two are explicitly excluded by the owner, not unfinished tests.
+
+## Historical checkpoints — superseded by current qualification
+
+The following entries preserve the investigation history. RUNNING and required
+wording records its original checkpoint only; it is not the current work plan.
 
 **Main-disk qualification checkpoint:** source d5b0897 passed complete local CI
 with **507 Linux tests, zero skips**, actual isolated Chrome/SSRF and offline

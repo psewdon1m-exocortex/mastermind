@@ -48,6 +48,24 @@ def signed_release(tmp_path, release_tools):
     return manifest, manifest.with_name(manifest.name+".sig.json"), public, private
 
 
+@pytest.mark.parametrize("status,exit_code", [("READY", 0), ("NOT_READY", 1)])
+def test_installer_doctor_preserves_diagnostic_and_failure_status(release_tools, monkeypatch, capsys, status, exit_code):
+    _, installer, _ = release_tools
+    monkeypatch.setattr(installer.sys, "platform", "linux")
+    monkeypatch.setattr(installer.os, "geteuid", lambda: 0, raising=False)
+    monkeypatch.setattr(installer.sys, "argv", ["mastermind-install", "doctor"])
+    diagnostic = {"status": status, "dependencies": {"neptune": {"status": "FAIL", "code": "NEPTUNE_INCOMPATIBLE"}}}
+
+    def command(args, **kwargs):
+        assert args == ["docker", "exec", "mastermind-core-1", "mastermind", "doctor"]
+        assert kwargs["accepted_codes"] == (0, 1)
+        return json.dumps(diagnostic) + "\n"
+
+    monkeypatch.setattr(installer, "run", command)
+    assert installer.main() == exit_code
+    assert json.loads(capsys.readouterr().out) == diagnostic
+
+
 @pytest.mark.skipif(not shutil.which("openssl"), reason="OpenSSL is required on the Linux deployment host")
 def test_release_authentication_exact_bytes_key_role_and_version(signed_release, release_tools):
     verifier, _, builder = release_tools

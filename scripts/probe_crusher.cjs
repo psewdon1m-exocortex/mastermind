@@ -42,6 +42,10 @@ const assert = require('node:assert/strict'), { execFileSync } = require('node:c
       if (restart && result.stage === 'GENERATING' && !restarted) {
         execFileSync('docker',['kill','--signal','KILL','mastermind-development-core-1'],{stdio:'pipe'});
         execFileSync('docker',['start','mastermind-development-core-1'],{stdio:'pipe'});
+        // This containerized fixture shares Core's network namespace; a restart
+        // must reattach it to the new namespace. Production Neptune runs on the
+        // Linux host and does not have this fixture-only dependency.
+        execFileSync('docker',['restart','mastermind-integration-neptune-1'],{stdio:'pipe'});
         restarted = true;
         for (let i=0;i<90;i++) {
           await new Promise(resolve=>setTimeout(resolve,500));

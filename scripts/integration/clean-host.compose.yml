@@ -1,0 +1,25 @@
+# Independent clean-install OS; no existing installation or workstation socket.
+name: mastermind-clean-install
+services:
+  host:
+    image: mastermind-qualification-host:local
+    container_name: mastermind-clean-install-host
+    hostname: mastermind-qualification-host
+    privileged: true
+    cgroup: private
+    security_opt: ["label=disable"]
+    tmpfs: ["/run:rw,nosuid,nodev,size=128m", "/tmp:rw,nosuid,nodev,size=512m"]
+    volumes: ["host-data:/opt", "host-docker:/var/lib/docker"]
+    ports: ["127.0.0.1:18446:443"]
+    networks:
+      edge: {ipv4_address: 172.31.0.6}
+    mem_limit: 8g
+    cpus: 3
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "2"}
+networks:
+  edge: {external: true, name: mastermind-integration_edge}
+volumes:
+  host-data: {}
+  host-docker: {}

@@ -308,11 +308,14 @@ def main():
     elif args.action == "status":
         print(compose(args.directory, "ps", "--format", "json", capture=True))
     else:
-        print(run(["docker", "exec", "mastermind-core-1", "mastermind", "doctor"], timeout=120, capture=True))
+        diagnostic = run(["docker", "exec", "mastermind-core-1", "mastermind", "doctor"],
+                         timeout=120, capture=True, accepted_codes=(0, 1))
+        print(diagnostic.rstrip())
+        return 0 if json.loads(diagnostic)["status"] == "READY" else 1
 
 
 if __name__ == "__main__":
     try:
-        main()
+        raise SystemExit(main())
     except (ValueError, OSError, KeyError, subprocess.SubprocessError) as error:
         raise SystemExit("Mastermind installer: "+str(error)) from None
