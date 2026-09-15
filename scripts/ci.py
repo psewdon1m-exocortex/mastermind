@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -78,6 +79,9 @@ def main():
         run("bridge-check", [npm, "--prefix", "bridge", "run", "check"])
         run("bridge-tests", [npm, "--prefix", "bridge", "test"])
         run("bridge-build", [npm, "--prefix", "bridge", "run", "build"])
+        # Portable-export tests consume the freshly built Bridge, which is an
+        # ignored build output and therefore deliberately absent from git archive.
+        shutil.copytree(ROOT / "bridge/dist", source / "bridge/dist")
         if args.images:
             run("offline-model", [sys.executable, "scripts/fetch_embedding_model.py"])
             images = {}
