@@ -1,4 +1,4 @@
-"""Actual 8 GiB boundary, cancellation and retention on the disposable host only."""
+"""Bounded actual transport, cancellation and retention on the disposable host."""
 import argparse
 import hashlib
 import http.client
@@ -22,7 +22,7 @@ class LocalConnection(http.client.HTTPConnection):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--smoke", action="store_true", help="Small transport smoke; never qualifies the 8 GiB gate")
+    parser.add_argument("--smoke", action="store_true", help="Compatibility flag: the bounded 4 MiB profile is now the default")
     args = parser.parse_args()
     assert socket.gethostname() == "mastermind-qualification-host" and os.geteuid() == 0
     token = Path("/opt/exocortex/mastermind/secrets/core/updater_token").read_text()
@@ -64,7 +64,7 @@ def main():
         owned[spool["spool_id"]] = request
         assert call("POST", root, data=data)[1]["spool_id"] == spool["spool_id"]
         return spool
-    limit = 4 * 1024**2 if args.smoke else 8 * 1024**3
+    limit = 4 * 1024**2
     oversized = {"request_id": "boundary-" + secrets.token_hex(16), "filename": "mastermind-backup.zip", "size": 8 * 1024**3 + 1, "sha256": "0" * 64}
     check("8 GiB plus one rejected before allocation", call("POST", root, data=oversized)[0] == 400)
     denied, _ = call("POST", root, data=oversized, credential="invalid-qualification-token")
@@ -134,9 +134,9 @@ def main():
         time.sleep(1)
     check("actual periodic expiry removed only owned fixture spools", all(not (directory / identifier).exists() for identifier in owned)
           and all((directory / identifier / "metadata.json").read_bytes() == body for identifier, body in original.items()))
-    status = "SMOKE_PASS" if args.smoke else "PASS"
-    result = {"status": status, "scope": "opaque spool transport, not a logical archive Apply", "steps": steps}
-    filename = "host-spool-smoke.json" if args.smoke else "host-spool-boundary.json"
+    status = "BOUNDED_TRANSPORT_PASS"
+    result = {"status": status, "full_capacity_8gib": "NOT_TESTED_BY_OWNER_DECISION", "scope": "opaque spool transport, not a logical archive Apply", "steps": steps}
+    filename = "host-spool-bounded.json"
     Path("/opt/qualification", filename).write_text(json.dumps(result, indent=2) + "\n")
     print(status + ": actual host spool transport and lifecycle; no Apply submitted", flush=True)
 

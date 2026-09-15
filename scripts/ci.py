@@ -36,8 +36,7 @@ def main():
     parser.add_argument("--secrets", action="store_true")
     parser.add_argument("--reuse-images", type=Path, help="Verified unchanged OCI candidate; avoid rebuilding after qualification-only edits")
     args = parser.parse_args()
-    storage = Path(os.environ.get("MASTERMIND_DOCKER_STORAGE_PATH", str(ROOT)))
-    if os.name == "nt" and (shutil.disk_usage(storage).free < 12 * 1024**3 or shutil.disk_usage(ROOT).free < 2 * 1024**3):
+    if os.name == "nt" and shutil.disk_usage(ROOT).free < 12 * 1024**3:
         raise SystemExit("CI requires at least 12 GiB of free host disk before large image/backup tests")
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     if subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"], cwd=ROOT):

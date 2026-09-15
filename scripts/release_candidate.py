@@ -1,7 +1,7 @@
 """Validate an already qualified candidate before a job can access release secrets.
 
 The candidate directory is provisioned on a dedicated qualification runner. It
-contains immutable outputs from the complete local/host/soak qualification; this
+contains immutable outputs from the complete local/host/native qualification; this
 module neither manufactures those results nor rebuilds an image during promotion.
 """
 import argparse
@@ -84,14 +84,20 @@ def validate_results(record, candidate, revision, manifest_digest, components):
         for raw in proof["raw_evidence"]:
             path = evidence_file(candidate, raw.get("path"))
             require(digest(path) == raw.get("sha256"), name + ": original execution output changed")
-    soak, _ = referenced(candidate, record.get("native_soak"))
-    require(soak.get("status") == "PASS" and soak.get("elapsed_ms", 0) >= 28_800_000 and
-            soak.get("checkpoints", 0) >= 90 and soak.get("frames", 0) > 0,
-            "An uninterrupted full eight-hour native soak is required")
+    soak, _ = referenced(candidate, record.get("native_runtime"))
+    require(soak.get("schema") == "mastermind.native-runtime-regression.v1" and
+            soak.get("revision") == revision and soak.get("status") == "PASS" and
+            0 < soak.get("elapsed_ms", 0) <= 900_000 and soak.get("checkpoints", 0) >= 6 and
+            soak.get("frames", 0) > 0 and soak.get("connections", 0) >= 3 and
+            soak.get("coordinated_mutations", 0) >= 2 and soak.get("portable_exports", 0) >= 1 and
+            soak.get("export_bytes", 0) >= 350 * 1024**2 and
+            soak.get("content_preserved") is True and soak.get("single_copy_markers") is True and
+            soak.get("long_duration_stability") == "NOT_TESTED_BY_OWNER_DECISION",
+            "Complete bounded native regression and explicit long-duration exclusion are required")
     containers = soak.get("containers", [])
     require(len(containers) == 2 and {item.get("name") for item in containers} == {"core", "runtime"} and
             all(item.get("image") == identities[item["name"]] and item.get("oom") is False and
-                item.get("restarts") == 0 for item in containers), "Soak used different images or had a container failure")
+                item.get("restarts") == 0 for item in containers), "Native regression used different images or had a container failure")
     security, security_path = referenced(candidate, record.get("supply_chain"))
     require(security.get("schema") == "mastermind.supply-chain.v1" and security.get("status") == "PASS" and
             security.get("images") == identities and set(security.get("reports", {})) == COMPONENTS,
@@ -164,7 +170,7 @@ def prepare(candidate, output, central, revision, tag, repository):
     summary = {"schema": "mastermind.release-preflight.v1", "status": "PASS", "revision": revision, "tag": tag,
                "repository": repository, "manifest_sha256": manifest_digest, "components": components,
                "image_ids": identities, "checks": sorted(CHECKS), "qualification_sha256": digest(candidate / "qualification.json"),
-               "native_soak": record["native_soak"]["sha256"], "supply_chain": record["supply_chain"]["sha256"],
+               "native_runtime": record["native_runtime"]["sha256"], "supply_chain": record["supply_chain"]["sha256"],
                "known_problems": known_result, "candidate_assets": record["assets"]}
     (output / "qualification-summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8", newline="\n")
     (output / "known-problems-pre-signing.json").write_text(json.dumps(known, indent=2) + "\n", encoding="utf-8", newline="\n")

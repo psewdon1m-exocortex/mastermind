@@ -45,7 +45,10 @@ def qualified(tmp_path, promotion):
         "manifest_sha256": manifest, "components": components, "status": "PASS", "checks": [name], "exit_code": 0,
         "command": "synthetic-unit-fixture", "raw_evidence": [{"path": "linux-tests.log", "sha256": gate.digest(tmp_path / "linux-tests.log")} ]})
         for name in gate.CHECKS}
-    record["native_soak"] = save("soak.json", {"status": "PASS", "elapsed_ms": 28_800_000, "checkpoints": 96, "frames": 1000,
+    record["native_runtime"] = save("soak.json", {"schema": "mastermind.native-runtime-regression.v1", "revision": revision,
+        "status": "PASS", "elapsed_ms": 120_000, "checkpoints": 6, "frames": 1000, "connections": 4,
+        "coordinated_mutations": 2, "portable_exports": 1, "export_bytes": 350 * 1024**2,
+        "content_preserved": True, "single_copy_markers": True, "long_duration_stability": "NOT_TESTED_BY_OWNER_DECISION",
         "containers": [{"name": name, "image": images[name], "oom": False, "restarts": 0} for name in ("core", "runtime")]})
     security = {"schema": "mastermind.supply-chain.v1", "status": "PASS", "images": images, "reports": {}}
     for name, image_id in images.items():
@@ -63,8 +66,10 @@ def test_complete_qualification_receipts_are_verified(qualified, promotion):
 
 
 @pytest.mark.parametrize("fault", ["stale", "missing_check", "missing_log", "changed_log", "failed_ci", "missing_ci_step",
-    "changed_raw_evidence", "short_soak", "smoke_soak", "interrupted_soak", "wrong_soak_image", "restart_soak",
-    "oom_soak", "no_frames", "few_checkpoints", "unreviewed_security", "forged_security_pass", "changed_sbom", "path_escape"])
+    "changed_raw_evidence", "unbounded_soak", "smoke_soak", "interrupted_soak", "wrong_soak_image", "restart_soak",
+    "oom_soak", "no_frames", "few_checkpoints", "stale_soak", "missing_mutation_soak", "missing_export_soak",
+    "missing_reconnect_soak", "changed_content_soak", "duplicate_content_soak", "hidden_exclusion_soak", "small_export_soak",
+    "unreviewed_security", "forged_security_pass", "changed_sbom", "path_escape"])
 def test_incomplete_or_mismatched_evidence_never_opens_signing(qualified, promotion, fault):
     record, path, revision, manifest, components, save = qualified
     if fault == "stale":
@@ -84,8 +89,8 @@ def test_incomplete_or_mismatched_evidence_never_opens_signing(qualified, promot
         record["ci"] = save("ci.json", ci)
     elif "soak" in fault or fault in {"no_frames", "few_checkpoints"}:
         soak = json.loads((path / "soak.json").read_text())
-        if fault == "short_soak":
-            soak["elapsed_ms"] -= 1
+        if fault == "unbounded_soak":
+            soak["elapsed_ms"] = 900_001
         elif fault in {"smoke_soak", "interrupted_soak"}:
             soak["status"] = "SMOKE_PASS" if fault == "smoke_soak" else "ENVIRONMENT_INTERRUPTED"
         elif fault == "wrong_soak_image":
@@ -94,9 +99,25 @@ def test_incomplete_or_mismatched_evidence_never_opens_signing(qualified, promot
             soak["containers"][0]["restarts"] = 1
         elif fault == "oom_soak":
             soak["containers"][0]["oom"] = True
+        elif fault == "stale_soak":
+            soak["revision"] = "d" * 40
+        elif fault == "missing_mutation_soak":
+            soak["coordinated_mutations"] = 0
+        elif fault == "missing_export_soak":
+            soak["portable_exports"] = 0
+        elif fault == "small_export_soak":
+            soak["export_bytes"] = 1
+        elif fault == "missing_reconnect_soak":
+            soak["connections"] = 0
+        elif fault == "changed_content_soak":
+            soak["content_preserved"] = False
+        elif fault == "duplicate_content_soak":
+            soak["single_copy_markers"] = False
+        elif fault == "hidden_exclusion_soak":
+            soak.pop("long_duration_stability")
         else:
             soak["frames" if fault == "no_frames" else "checkpoints"] = 0
-        record["native_soak"] = save("soak.json", soak)
+        record["native_runtime"] = save("soak.json", soak)
     elif fault in {"unreviewed_security", "forged_security_pass"}:
         security = json.loads((path / "security.json").read_text())
         if fault == "unreviewed_security":

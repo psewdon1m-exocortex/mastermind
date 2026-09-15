@@ -8,6 +8,14 @@ Authority: [Part 00](policy/PART_00_SYSTEM_UNIFICATION_SPECIFICATION.md), Parts 
 
 ## Applicability and accepted decisions
 
+The [2026-09-15 owner acceptance decisions](acceptance-decisions.md) supersede
+historical eight-hour and actual 8 GiB test gates. Use bounded native/transport
+regressions and report those excluded measurements as not tested. All active
+development returns to C: and Docker Desktop. The external WSL daemon is stopped;
+automatic execution review rejected its physical deletion (`blocked by policy`),
+so its E: directory is still present. Transfer scripts and path overrides have
+been retired. No remote repository exists; all prior CI-script runs are local.
+
 Parts 00, 02–07, 09–10, 12 apply. Part 01 applies to all owned UI; the native Obsidian viewport inherits Obsidian UI/UX by explicit owner decision. Part 08 indexable publication is N/A because all routes are non-indexable. Part 11 is reference integration guidance, not authorization to deploy its original topology. Node-canvas project/revision semantics are N/A to Markdown. User plugin data, secrets and binaries remain opaque and unchanged inside the Vault; shell secrets belong to Kernel/Volt, and full recovery protects the Vault with encrypted payloads. These exceptions were decided by the owner before implementation, and require no repeated approval.
 
 ## Stages
@@ -22,11 +30,16 @@ Parts 00, 02–07, 09–10, 12 apply. Part 01 applies to all owned UI; the nativ
 | S5 — Shared and Crusher | S1/S2 and qualified S4 reader/secret contracts; final group-update gate follows Worker | Safe shared projection, source/progress-only Crusher, worker, hierarchy placement | Reference injection, path revival, expiry, SSRF, source extractors, idempotent commit, bounded context | IN_PROGRESS |
 | S6 — Web and operations | S2–S5 | Unified Shell/Settings/Documentation, telemetry, logs, CLI | Browser workflows, accessibility/keyboard/clipboard, responsive screenshot review | IN_PROGRESS |
 | S7 — Packaging | S1–S6 | Locked images/dependencies, bootstrap/install, signed manifests, CI/pre-push/known-problem gate | Clean install, own profile update/rollback, artifact/trust and secret scans | IN_PROGRESS |
-| S8 — End-to-end qualification | S1–S7 | Local related-service stack, representative dataset and final evidence | Complete owner/shared/Crusher/recovery flows, fault tests, resource limits, 8-hour Runtime soak | IN_PROGRESS |
+| S8 — End-to-end qualification | S1–S7 | Local related-service stack, representative dataset and final evidence | Complete owner/shared/Crusher/recovery flows, fault tests, resource limits, bounded native regression | IN_PROGRESS |
 
 No stage passes because its code exists. Each gate records exact commands, counts, outcome and remaining limitations below. Blocked integration tests do not become mocked PASS. Product decisions are closed; implementation feasibility is tested as work proceeds.
 
 ## Current checkpoints — 2026-09-15
+
+**Current owner-directed scope:** rebuild on the main Docker Desktop engine with
+approximately 151 GiB available on C:. Original named fixture volumes remain;
+their old Desktop containers/images are absent and will be recreated. Later
+historical transfer/soak statements below are superseded by acceptance-decisions.md.
 
 Final candidate version is **0.1.0**. Earlier 0.0.x images are unpublished qualification baselines and fault fixtures; they are not advertised upstream releases. Final clean-install, oldest-baseline update, rollback and long-running tests must reuse the exact 0.1.0 CI image identities. Runtime's component lock now records the actual official KasmVNC Debian 13 archive and validation rejects version/archive drift.
 
@@ -120,3 +133,5 @@ The retained snapshot barrier now includes the coordinator's paused checkpoint i
 - Version rollback through a fresh Core snapshot/barrier, CLI, owner API and Settings is implemented with strict recorded previous-release identity and source-schema checks. It preserves current compatible notes instead of replaying a stale old backup. Go/source tests pass; the actual final-candidate version-return scenario remains open.
 - Standalone technical docs and the immutable policy image dependencies are included. `validate_repository.py` checks all 28 active documents, numeric version agreement, pinned dependencies, source whitespace and policy/patch hashes; all 97 active Part 12 IDs parse. `known_problems_gate.py` rejects missing/duplicate/stale/UNKNOWN/FAIL evidence and uncommitted central policy before publication; 14 adversarial tests pass. The effective Part 12 includes the owner's existing central worktree edit: publication remains fail-closed until an immutable central revision contains those exact bytes. This does not fabricate a production deployment result.
 - Gitleaks 8.30.1, pinned OCI digest, scanned all seven existing source commits and runtime source. One exact requirements prose phrase (`revoke/repair/idempotency`) was reviewed as a false positive; its narrow rule/path/value exception passed the repeated scan. Current uncommitted source, final images/bundles, CI/pre-push and final signed-asset evidence still require their concluding gates.
+
+- Owner-scope revision: release evidence validation passes 40 tests (one Windows OpenSSL-dependent skip); repository validation passes for 0.1.0, 29 documents and 97 known-problem IDs; Python lint and the bounded native runner syntax pass. External WSL deletion was rejected before execution; non-destructive termination succeeded. No endurance or 8 GiB transfer was run.

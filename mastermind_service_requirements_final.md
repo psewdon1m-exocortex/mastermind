@@ -6,6 +6,13 @@
 **Основа:** [адаптированная концепция](mastermind_service_requirements_adapted.md) и ответы владельца по MM-Q01–MM-Q20.  
 **Общие требования:** [.docs / Part 00](docs/policy/PART_00_SYSTEM_UNIFICATION_SPECIFICATION.md).
 
+**Уточнение владельца от 2026-09-15:** разработка и проверки выполняются на основном
+диске; восьмичасовой прогон и фактическая передача 8 GiB исключены. Вместо них
+выполняются ограниченные функциональные проверки native Runtime и передачи через
+Updater. Лимиты сервиса сохранены; длительная стабильность и пропускная способность
+на полном объёме 8 GiB не считаются проверенными. Подробности:
+[действующие критерии приёмки](docs/acceptance-decisions.md).
+
 Навигация: [область и правила](#section-0), [архитектура](#section-5), [UI/Vault](#section-13), [Shares](#section-47), [Crusher](#section-58), [placement](#section-71), [writes](#section-80), [recovery](#section-86), [Neptune](#section-139), [Updater](#section-140), [limits](#section-141), [принятые решения](#section-146), [точные версии](#section-147), [изменения соседних систем](#section-148).
 
 Документ содержит полный целевой контракт. Прежние файлы сохранены как история подготовки; все обязательные решения и компромиссы внесены непосредственно в затронутые разделы.
@@ -2890,7 +2897,7 @@ Failure не запускает сервис с partial schema. Незаверш
 - reconnect;
 - fullscreen;
 - hotkeys;
-- 8-hour session stability.
+- Bounded native save/reconnect/coordinated-mutation/export regression; long-duration stability is excluded by owner decision.
 
 Для собственного Shell дополнительно проверяются reference desktop 1919x1034 и 1920x1080, sidebar open/hidden, narrow viewport, keyboard/focus/reduced-motion, clipboard rejection/manual fallback и reconnect.
 
@@ -3202,7 +3209,7 @@ Mastermind считается готовым только если выполн�
 - [ ] Doctor CLI.
 - [ ] Unit/integration/E2E tests.
 - [ ] Backup/restore test.
-- [ ] 8-hour Obsidian Runtime test.
+- [ ] Bounded Obsidian Runtime save/reconnect/mutation/export regression.
 
 ## Общесистемная готовность
 
@@ -3573,7 +3580,7 @@ Default supported host для qualification: Linux x86-64, 4 vCPU, 8 GiB RAM, л
 | Neptune | Exact profile, archive+mirror separately, receipt, outage/recovery, scope/Range |
 | Backup | Full clean restore, shell-secret exclusion, opaque plugin-secret encrypted round-trip, mismatched/corrupt/oversized ZIP, interrupted rollback |
 | Updates | Oldest supported version → candidate; failed migration/health → verified rollback |
-| Runtime | Official Obsidian/Bridge versions, export compatibility, keyboard/clipboard/reconnect, 8-hour test |
+| Runtime | Official Obsidian/Bridge versions, export compatibility, keyboard/clipboard/reconnect, bounded native regression |
 | Own UI | Part 01 reference views, Settings/Documentation, accessibility и pending/failure states |
 | Secrets/ingress | Exact Access Key parity, rotation consumer check, external unauthorized probes |
 | Resource budgets | Peak RAM/disk under concurrent large upload and ordinary UI; enforced limits |
@@ -3628,7 +3635,7 @@ Final artifacts build once/test/promote same bytes; private signing key нахо
 4. Реализовать и выпустить Updater large spool/group profile; зависимости зафиксировать точными новыми released versions.
 5. Проверить complete backup/restore/rollback до подключения опасных mutations, затем Shell/auth/Vault runtime, Shared projection и capability tests.
 6. Добавить worker/extractors/Crusher и bounded hierarchy placement, локальные embeddings; проверить source/privacy/expiry/exactly-once.
-7. Импортировать representative Vault, прогнать browser/themes/8-hour session, resource и real-agent acceptance.
+7. Импортировать representative Vault, прогнать browser/themes/bounded native regression, resource и real-agent acceptance.
 8. Собрать signed Mastermind release, выполнить bootstrap/update/recovery и все §§130/142/143 gates; production qualification оформить отдельно.
 
 Продуктовые решения закрыты этим документом. Feasibility/contract/benchmark проверки являются обязательными задачами разработки, а не новыми вопросами владельцу. Если реализация не выполняет выбранный контракт, исправляется реализация либо оформляется явное изменение требований; неизвестный результат теста не считается разрешённым исключением.

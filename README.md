@@ -12,7 +12,7 @@ data inside `.obsidian` remains opaque. One typed Neptune enrollment provides
 independent full-backup and mirror pipelines plus scoped Saturn resource reads.
 The host Updater handles the signed three-image update and rollback transaction.
 
-The development version is **0.0.1**. Current acceptance evidence and remaining
+The development version is **0.1.0**. Current acceptance evidence and remaining
 gates are recorded in [IMPLEMENTATION](docs/IMPLEMENTATION.md). Development images
 and local producer candidates are not published releases. See the exact
 [producer patch lock](docs/compatibility.json) and

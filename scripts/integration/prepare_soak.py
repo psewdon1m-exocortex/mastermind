@@ -1,4 +1,4 @@
-"""Create independent disposable credentials for the eight-hour Runtime session."""
+"""Create disposable credentials for the bounded native Runtime regression."""
 import argparse
 import os
 import re
