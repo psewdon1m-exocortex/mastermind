@@ -64,10 +64,12 @@ def test_telemetry_uses_vault_bavail_and_core_monotonic_lifetime(api, monkeypatc
         paths.append(path)
         return SimpleNamespace(f_blocks=100, f_frsize=1024, f_bavail=25, f_bfree=40)
     monkeypatch.setattr('mastermind.operator.os.statvfs', statvfs, raising=False)
+    # A fractional baseline reproduces cancellation rounding on fresh CI hosts.
+    monkeypatch.setattr(service, 'started', 165.4)
     monkeypatch.setattr('mastermind.operator.time.monotonic', lambda: service.started+123)
     result = client.get('/api/owner/metrics').json()
     assert paths == [service.config.vault]
     assert result['disk']['used'] == 75*1024
     assert result['disk']['percent'] == 75
-    assert result['uptime_seconds'] == 123
+    assert result['uptime_seconds'] == pytest.approx(123, rel=0, abs=1e-9)
     assert result['cpu']['percent'] is None  # A first sample is unknown, not a healthy zero.

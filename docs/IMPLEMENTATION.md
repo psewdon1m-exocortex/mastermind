@@ -56,6 +56,13 @@ Evidence is retained in GitHub Actions for 90 days and locally as
 main pushes, pull requests and manual dispatch. Native and related-service
 qualification below remains the separately recorded local evidence.
 
+The subsequent [documentation-commit run](https://github.com/psewdon1m-exocortex/mastermind/actions/runs/35125080690)
+exposed a test-only floating-point comparison: uptime `123.00000000000003` was
+compared with exact integer `123` (509 passed, one failed). The regression now
+uses a deterministic fractional monotonic baseline and a one-nanosecond absolute
+tolerance. The original exact comparison was reproduced failing locally before
+the assertion was corrected; production telemetry behavior is unchanged.
+
 This source/CI migration follows the scoped [owner decision](acceptance-decisions.md).
 It publishes no release tag or container image and performs no deployment.
 The dependency, producer-identity and protected-promotion gates remain open.
