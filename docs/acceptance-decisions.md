@@ -18,14 +18,17 @@ remain authoritative for every unaffected requirement.
   Representative roughly 350 MiB backup, restore and pipeline checks remain.
 - Runtime limits are unchanged. Long-duration stability and actual full-capacity
   8 GiB throughput are **not tested by owner decision**; neither is reported PASS.
-- No remote repository exists. Current commits and CI-script executions are local;
-  GitHub Actions, publication and production deployment have not been performed.
+- On 2026-09-16 the owner connected `origin` to
+  `https://github.com/psewdon1m-exocortex/mastermind.git` and requested the first
+  source push and verification CI. Existing recorded test runs are local;
+  GitHub Actions results must be recorded separately after an actual run.
+  Release publication and production deployment remain separate operations.
 
 The final three-image build, 510-test Linux suite, bounded native and producer
 regressions, clean host installation and update/rollback recovery have passed
 locally. Remaining release work covers dependency remediation/review, immutable
-upstream producer/policy identities and remote publication setup when a repository
-exists. Physical removal of the stopped external copy and unused C: transfer
+upstream producer/policy identities and protected publication setup in the newly
+connected repository. Physical removal of the stopped external copy and unused C: transfer
 credentials was rejected by automatic execution review. See the current
 [implementation ledger](IMPLEMENTATION.md) for evidence and exact limitations.
 

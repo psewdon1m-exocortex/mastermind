@@ -14,7 +14,8 @@ regressions and report those excluded measurements as not tested. All active
 development returns to C: and Docker Desktop. The external WSL daemon is stopped;
 automatic execution review rejected its physical deletion (`blocked by policy`),
 so its E: directory is still present. Transfer scripts and path overrides have
-been retired. No remote repository exists; all prior CI-script runs are local.
+been retired. The owner connected the GitHub remote on 2026-09-16; all verification
+results recorded below were produced locally, before any GitHub Actions run.
 
 Parts 00, 02–07, 09–10, 12 apply. Part 01 applies to all owned UI; the native Obsidian viewport inherits Obsidian UI/UX by explicit owner decision. Part 08 indexable publication is N/A because all routes are non-indexable. Part 11 is reference integration guidance, not authorization to deploy its original topology. Node-canvas project/revision semantics are N/A to Markdown. User plugin data, secrets and binaries remain opaque and unchanged inside the Vault; shell secrets belong to Kernel/Volt, and full recovery protects the Vault with encrypted payloads. These exceptions were decided by the owner before implementation, and require no repeated approval.
 
@@ -39,8 +40,9 @@ No stage passes because its code exists. Each gate records exact commands, count
 This section supersedes every historical RUNNING, transfer, eight-hour and 8 GiB
 statement below. No long test is running. Development and all active fixtures use
 C: and Docker Desktop. The stopped external WSL registration/data still exist
-because automatic execution review rejected their deletion. No remote exists;
-the only image pushes were to the loopback qualification registry.
+because automatic execution review rejected their deletion. The only image pushes
+in this qualification checkpoint were to the loopback qualification registry;
+the GitHub source remote was connected the following day.
 
 The three candidate 0.1.0 images built from implementation revision
 `6e11a0f14831f957a2b865db8e0ceaacdd02b23f` passed full local CI:
@@ -105,8 +107,9 @@ FastAPI/Starlette deprecation warnings, with no failed or skipped tests.
   A public release requires immutable published producer identities and replay.
 - The effective central Part 12 contains the owner's existing worktree changes;
   the exact accepted bytes are not yet in an immutable central commit.
-- No remote repository, hosted CI/attestation, protected signing environment,
-  public release or production installation has been created or claimed.
+- The GitHub source remote now exists. Hosted CI/attestation, protected signing
+  environment, public release and production installation have not yet been
+  verified or claimed by this checkpoint.
 - Actual paid Gemini, eight-hour endurance and 8 GiB transfers were not run.
   The latter two are explicitly excluded by the owner, not unfinished tests.
 - Physical cleanup remains blocked by automatic execution review (`blocked by

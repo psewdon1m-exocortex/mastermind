@@ -20,5 +20,6 @@ Core completes startup recovery. External commits require Bridge buffer verifica
 and confirmed process termination. A missing Bridge with a running editor fails closed.
 Subprocess output is not persisted because plugin output may contain private data.
 
-Qualification of dirty-buffer handling, native rename, reconnect and the eight-hour
-session is recorded in the implementation ledger; building an image is not that evidence.
+Qualification of dirty-buffer handling, native rename, reconnect and the bounded
+native regression is recorded in the implementation ledger. Eight-hour endurance
+is excluded by the owner's acceptance decision; building an image is not test evidence.

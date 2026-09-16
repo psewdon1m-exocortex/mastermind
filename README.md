@@ -1,5 +1,9 @@
 # Mastermind
 
+Source repository: [psewdon1m-exocortex/mastermind](https://github.com/psewdon1m-exocortex/mastermind).
+The `Verify` workflow runs on pushes to `main` and pull requests. Source
+verification and protected release publication are separate gates.
+
 Mastermind keeps the canonical knowledge base as ordinary Markdown and assets in
 an Obsidian Vault. The owned web interface provides search, activity, sharing,
 Crusher intake/progress, settings and operations. The Vault tab embeds the pinned
