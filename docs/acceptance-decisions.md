@@ -20,8 +20,9 @@ remain authoritative for every unaffected requirement.
   8 GiB throughput are **not tested by owner decision**; neither is reported PASS.
 - On 2026-09-16 the owner connected `origin` to
   `https://github.com/psewdon1m-exocortex/mastermind.git` and requested the first
-  source push and verification CI. Existing recorded test runs are local;
-  GitHub Actions results must be recorded separately after an actual run.
+  source push and verification CI. Earlier recorded test runs were local;
+  the actual GitHub Actions result is recorded separately in the implementation
+  ledger.
   Release publication and production deployment remain separate operations.
 - The owner's subsequent explicit instruction to migrate the complete local
   repository and pipeline to GitHub authorizes the initial `main` history push

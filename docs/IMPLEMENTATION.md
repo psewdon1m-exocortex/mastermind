@@ -14,8 +14,8 @@ regressions and report those excluded measurements as not tested. All active
 development returns to C: and Docker Desktop. The external WSL daemon is stopped;
 automatic execution review rejected its physical deletion (`blocked by policy`),
 so its E: directory is still present. Transfer scripts and path overrides have
-been retired. The owner connected the GitHub remote on 2026-09-16; all verification
-results recorded below were produced locally, before any GitHub Actions run.
+been retired. The owner connected the GitHub remote on 2026-09-16. The hosted CI
+result below is distinct from the earlier local qualification evidence.
 
 Parts 00, 02–07, 09–10, 12 apply. Part 01 applies to all owned UI; the native Obsidian viewport inherits Obsidian UI/UX by explicit owner decision. Part 08 indexable publication is N/A because all routes are non-indexable. Part 11 is reference integration guidance, not authorization to deploy its original topology. Node-canvas project/revision semantics are N/A to Markdown. User plugin data, secrets and binaries remain opaque and unchanged inside the Vault; shell secrets belong to Kernel/Volt, and full recovery protects the Vault with encrypted payloads. These exceptions were decided by the owner before implementation, and require no repeated approval.
 
@@ -35,7 +35,32 @@ Parts 00, 02–07, 09–10, 12 apply. Part 01 applies to all owned UI; the nativ
 
 No stage passes because its code exists. Each gate records exact commands, counts, outcome and remaining limitations below. Blocked integration tests do not become mocked PASS. Product decisions are closed; implementation feasibility is tested as work proceeds.
 
-## Current qualification — 2026-09-15, main disk
+## GitHub migration — 2026-09-16
+
+The complete repository was pushed to `psewdon1m-exocortex/mastermind`, branch
+`main`: 310 tracked files and all 30 commits through
+`1f9730e708c36f71137bae19dd05e34b7eca21b6`. Local `main` tracks `origin/main`.
+The first hosted [Verify run](https://github.com/psewdon1m-exocortex/mastermind/actions/runs/35124494309)
+passed on GitHub's `ubuntu-24.04` runner in 3 minutes 56 seconds. It independently
+built Core, Runtime and Worker; passed **510 Linux tests with zero skips**,
+549 parser parity cases, Bridge type/build checks, the actual offline model,
+isolated extractor and Chrome/SSRF probes, and full source/history secret scans.
+The Linux suite reported two upstream deprecation warnings.
+
+The run's verification artifact contains 37 successful steps and their logs.
+Its downloaded ZIP was checked against GitHub's SHA-256
+`bb844a85e51fcd457988fcdafebc5bdcaccde5ebcde0a43816b4ac4ee4384696`.
+Evidence is retained in GitHub Actions for 90 days and locally as
+`artifacts/github-verification-1f9730e.zip` and
+`artifacts/github-verification-1f9730e.json`. Hosted verification now runs on
+main pushes, pull requests and manual dispatch. Native and related-service
+qualification below remains the separately recorded local evidence.
+
+This source/CI migration follows the scoped [owner decision](acceptance-decisions.md).
+It publishes no release tag or container image and performs no deployment.
+The dependency, producer-identity and protected-promotion gates remain open.
+
+## Local qualification — 2026-09-15, main disk
 
 This section supersedes every historical RUNNING, transfer, eight-hour and 8 GiB
 statement below. No long test is running. Development and all active fixtures use
@@ -107,9 +132,9 @@ FastAPI/Starlette deprecation warnings, with no failed or skipped tests.
   A public release requires immutable published producer identities and replay.
 - The effective central Part 12 contains the owner's existing worktree changes;
   the exact accepted bytes are not yet in an immutable central commit.
-- The GitHub source remote now exists. Hosted CI/attestation, protected signing
-  environment, public release and production installation have not yet been
-  verified or claimed by this checkpoint.
+- Hosted verification passed in the separate GitHub migration checkpoint above.
+  Release attestation, protected signing, public release and production
+  installation remain unverified.
 - Actual paid Gemini, eight-hour endurance and 8 GiB transfers were not run.
   The latter two are explicitly excluded by the owner, not unfinished tests.
 - Physical cleanup remains blocked by automatic execution review (`blocked by

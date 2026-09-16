@@ -1,7 +1,9 @@
 # Mastermind
 
+[![Verify](https://github.com/psewdon1m-exocortex/mastermind/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/psewdon1m-exocortex/mastermind/actions/workflows/ci.yml)
+
 Source repository: [psewdon1m-exocortex/mastermind](https://github.com/psewdon1m-exocortex/mastermind).
-The `Verify` workflow runs on pushes to `main` and pull requests. Source
+The `Verify` workflow runs on pushes to `main`, pull requests and manual dispatch. Source
 verification and protected release publication are separate gates.
 
 Mastermind keeps the canonical knowledge base as ordinary Markdown and assets in
