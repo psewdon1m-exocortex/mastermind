@@ -23,6 +23,13 @@ remain authoritative for every unaffected requirement.
   source push and verification CI. Existing recorded test runs are local;
   GitHub Actions results must be recorded separately after an actual run.
   Release publication and production deployment remain separate operations.
+- The owner's subsequent explicit instruction to migrate the complete local
+  repository and pipeline to GitHub authorizes the initial `main` history push
+  and the follow-up commits needed to make hosted `Verify` pass. This is a scoped
+  source/CI migration decision under Part 00/Part 07 despite the already reported
+  image dependency findings. It does not turn the failed security assessment
+  into a passing scan or authorize release tags, image publication or deployment.
+  The normal security and qualification gates remain required for promotion.
 
 The final three-image build, 510-test Linux suite, bounded native and producer
 regressions, clean host installation and update/rollback recovery have passed

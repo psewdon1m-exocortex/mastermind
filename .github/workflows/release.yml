@@ -13,7 +13,7 @@ env:
   RELEASE_REPOSITORY: ${{ github.repository }}
 jobs:
   preflight:
-    # This dedicated runner holds completed host/producer/eight-hour outputs.
+    # This dedicated runner holds completed host/producer/bounded-native outputs.
     # It must never accept pull-request jobs or have access to a signing key.
     runs-on: [self-hosted, Linux, X64, mastermind-qualification]
     timeout-minutes: 60
