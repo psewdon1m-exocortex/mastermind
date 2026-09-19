@@ -15,10 +15,9 @@ from .kernel import Kernel, checked_origin
 from .secret_store import SHELL_BINDINGS
 
 ORDERS = {
-    "navigation": ["dashboard", "vault", "crusher", "analytics", "shares", "settings"],
-    "dashboard": ["cpu", "ram", "disk", "uptime", "operations"],
-    "analytics": ["heatmap", "connectedness", "notes", "edges", "broken"],
-    "settings": ["appearance", "security", "backup", "updates", "logs"],
+    "navigation": ["dashboard", "vault", "crusher", "shares", "settings"],
+    "dashboard": ["cpu", "ram", "disk", "uptime", "connectedness", "items", "heatmap", "crusher_access"],
+    "settings": ["appearance", "security", "wyvern", "backup", "updates", "logs"],
 }
 
 
@@ -80,10 +79,14 @@ class Operator:
 
     def preferences(self):
         stored = self.state.setting("shell", {})
+        def order(key, defaults):
+            # Preserve surviving custom positions when a view/card is retired or added.
+            previous = stored.get("orders", {}).get(key, [])
+            return list(dict.fromkeys(value for value in [*previous, *defaults] if value in defaults))
         return {"revision": stored.get("revision", 0), "accent": stored.get("accent", "#00A8FF"),
                 "sidebar": stored.get("sidebar", "fixed"),
                 "timezone": stored.get("timezone", self.service.config.timezone),
-                "orders": {key: stored.get("orders", {}).get(key, values) for key, values in ORDERS.items()}}
+                "orders": {key: order(key, values) for key, values in ORDERS.items()}}
 
     def change(self, data):
         if set(data) - {"revision", "accent", "sidebar", "timezone", "orders"} or type(data.get("revision")) is not int:
@@ -184,8 +187,9 @@ class Operator:
                 days[row["day"]]["kinds"][row["kind"]] = row["count"]
         maximum = max(item["count"] for item in days.values())
         graph = self.service.vault.graph()
+        counts = self.service.vault.item_counts()
         return {"timezone": str(zone), "first": start.isoformat(), "last": end.isoformat(),
                 "notes": len(graph["nodes"]), "edges": len(graph["edges"]), "broken": graph["broken"],
-                "connectedness": graph["connectedness"], "max_activity": maximum,
+                "connectedness": graph["connectedness"], "max_activity": maximum, "items": counts,
                 "days": [{"date": day, **item, "level": math.ceil(item["count"]/maximum*4) if maximum else 0}
                          for day, item in days.items()]}

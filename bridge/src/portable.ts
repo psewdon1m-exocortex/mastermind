@@ -65,6 +65,7 @@ export class Portable {
   async request<T>(route:string,data?:unknown):Promise<T>{
     await this.loaded;
     const input=(data||{}) as Record<string,any>;
+    if(route==="/reference-dictionary")return{current:this.inventory().current,history:[...this.history].sort(),saturn:this.saturn} as T;
     if(route==="/references")return parse(input.text,this.inventory().current,[...this.history],this.saturn) as T;
     if(route==="/suggest"){
       if(excluded(input.text).some(([a,b])=>a<=input.offset&&input.offset<b)||input.query.includes(":"))return [] as T;

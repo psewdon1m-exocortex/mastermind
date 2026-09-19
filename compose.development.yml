@@ -41,7 +41,7 @@ services:
     mem_limit: 3g
     cpus: 2
     pids_limit: 256
-    networks: [private]
+    networks: [private, runtime-egress]
     healthcheck:
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/healthz',timeout=3)"]
       interval: 10s
@@ -119,6 +119,7 @@ networks:
   private: {internal: true}
   edge: {}
   worker-egress: {}
+  runtime-egress: {}
 volumes:
   core-data:
   vault-data:

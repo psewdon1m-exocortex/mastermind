@@ -320,6 +320,12 @@ def create_app(config=None, service=None):
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers.setdefault("X-Frame-Options", "DENY" if request.url.path.startswith("/s/") else "SAMEORIGIN")
+        if request.url.path == "/assets/hash-worker.js":
+            # A worker has its own response CSP. Firefox applies it to the
+            # static sha256.js import; the default deny-all policy blocks it.
+            # Permit same-origin modules only, retaining denied network/eval.
+            response.headers.setdefault("Content-Security-Policy",
+                "default-src 'none'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'")
         response.headers.setdefault("Content-Security-Policy", (
             "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'"
         ) if not request.url.path.startswith("/runtime/") else (
@@ -580,6 +586,12 @@ def create_app(config=None, service=None):
     @app.get("/api/logs", dependencies=[Depends(owner)])
     def logs(after: int | None = None, limit: int = 200):
         return context.audit.page(after, limit)
+
+    @app.get("/internal/bridge/reference-dictionary", dependencies=[Depends(bridge)])
+    async def reference_dictionary():
+        context.data_ready()
+        current, history, saturn = await asyncio.to_thread(context.dictionary)
+        return {"current": current, "history": history, "saturn": saturn}
 
     @app.post("/internal/bridge/references", dependencies=[Depends(bridge)])
     async def references(request: Request):

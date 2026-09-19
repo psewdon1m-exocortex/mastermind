@@ -1,17 +1,20 @@
 """Versioned, authenticated operator articles shipped with the implementation."""
 from markdown_it import MarkdownIt
 
+from . import __version__
+
 ARTICLES = [
     ("introduction", "Introduction", """Mastermind keeps a canonical Obsidian Vault and the service state needed to operate it.
-The owner uses Dashboard, Vault, Crusher, Analytics, Shares and Settings. Documentation and Logout remain in the bottom navigation group.
+The owner uses Dashboard, Vault, Crusher, Shared and Settings. Documentation and Logout remain in the bottom navigation group.
 
 ### Your first session
 Sign in with the exact Access Key. Spaces, Unicode and line breaks are significant. Paste preserves the exact clipboard value; Shift+Enter adds a line break. Enter submits. An empty Access Key is valid only if it was explicitly configured.
+The service status checks availability independently of your key. A rejected key leaves the form open and returns focus to Access Key; it does not mean the service is unreachable. While a sign-in request is running, wait for its result before trying again.
 An owner browser session lasts 12 hours. Ten owner sessions can coexist; Vault connects them to the same graphical Obsidian instance. Logging out closes that browser's Runtime connections. Access Key rotation ends the other sessions.
 
 ### Dashboard
 CPU and RAM describe the server visible to the service. Disk describes the filesystem holding the canonical Vault, using space available to the service account. Uptime starts with the current Core process. Unknown or unavailable data are labeled explicitly.
-Drag a card or navigation handle to reorder it. With the handle focused, Alt+Arrow Up or Down performs the same change. Orders are saved on the server.
+Drag a card by its handle or drag a navigation row to reorder it. With a card handle or navigation link focused, Alt+Arrow Up or Down performs the same change. Navigation keeps its numbers and has no dot handles. Orders are saved on the server. In automatic sidebar mode, move the pointer to the left edge to reveal the menu; keyboard and mobile navigation remain available.
 """),
     ("vault", "Vault and references", """Vault opens the genuine Obsidian application through the authenticated Runtime gateway. Its themes, typography, dialogs and keyboard shortcuts follow Obsidian. Shell appearance does not rewrite Obsidian settings.
 
@@ -26,21 +29,38 @@ Native file-manager rename updates native links. Mastermind coordinates the oper
 ### External resources
 Chronos references show the minimal permitted event card. Saturn resources are read through the local Neptune agent with owner authorization. A native Download command prepares an explicit download in the Vault toolbar. Shared visitors have no access to either resolver.
 
-### Reconnect and portable copies
+### Reconnect and fullscreen
 Reconnect attaches to the existing graphical session. Fullscreen expands the Vault viewport; Exit fullscreen returns to the Shell. The graphical stream does not expose the native document as a web screen-reader tree.
-Download Vault copy produces a normal ZIP with the complete Vault and its original Obsidian plugin data, which may contain plugin credentials. The included Bridge supports local references and graph features in a standalone Obsidian copy. External service references show unavailable there. Editing that copy does not synchronize it back.
+The Vault toolbar contains Reconnect and Fullscreen. Use Settings → Backup for recovery snapshots; leaving the Vault tab does not close the native editor.
 """),
-    ("crusher", "Crusher submissions", """Choose text, a web page, file, YouTube video, Git repository or an owner-selected Saturn file. Submit one source and follow its confirmed processing stages. The page shows source identity, progress, stage and a sanitized failure message. The resulting note is found in Vault.
+    ("crusher", "Crusher submissions", """Paste source links, one per line, or drop files anywhere on the unlocked page. You can also use Choose files. There is no source-type selector: YouTube links and recognized repository URLs are classified automatically; other HTTP(S) links are web sources. Submit links accepts up to twenty links at a time; a file selection accepts up to twenty files. A fullscreen accent outline and Upload here label identify an active file drag. Page colors follow Mastermind's current accent.
+On a wide screen, processing history and search are on the left, with source links and file drop on the right. Both columns fit the space available beside the sidebar. Narrow screens stack the source form above the history. The page shows source identity, progress, stage and a sanitized failure message. The resulting note is found in Vault. Search filters the current page by source or stage. Clear search or Escape restores the full current page and keeps focus in the field.
 
 ### Owner and visitor access
-The owner can create a six-digit one-time code valid for 30 minutes. A visitor activates it at `/crusher` and receives a 30-minute submission session. Receipts permit checking accepted jobs for 24 hours while they remain in the tab. The visitor cannot browse Vault or select private Saturn resources. Reloading the visitor page discards its in-memory session and receipts.
+On Dashboard, select Create & copy in the Crusher access card to create a six-digit one-time code valid for 30 minutes. A visitor opens `/crusher`, enters it in the centered access form and receives a 30-minute submission session. The unlocked page shows remaining submission time and service reachability. Receipts permit checking accepted jobs for 24 hours while they remain in the tab. The visitor cannot browse Vault or select private Saturn resources. Reloading the visitor page discards its in-memory session and receipts.
+
+### Processing stages
+QUEUED (0%) accepts a durable, idempotent job. ACQUIRING (5%) obtains or transfers its source into the isolated Worker. NORMALIZING (15%) is a checkpoint marking verified acquisition; extraction and normalization happen in the Worker. EXTRACTING (20%) obtains bounded text or prepares media. UNDERSTANDING (40%) asks Gemini for structured facts, topics and uncertainty. PLACING (55%) selects a branch. GENERATING (65%) writes a structured Markdown draft. VALIDATING (85%) checks its schema, size, secrets and forbidden references. COMMITTING (95%) rechecks the destination and writes the canonical note once. COMPLETED is 100%. Percentages are stage milestones, not an estimate of elapsed or remaining time.
+
+### Context and destination
+Placement follows root → #main → #key, including nested #key branches, for at most eight levels. Local full-text and embedding ranking narrows candidates before transmission. At most twelve title/tag/excerpt cards reach Gemini per level; excerpts are at most 512 characters. Only offered candidate handles can be selected. Vault context is limited to 12,000 unique tokens and 24,000 transmitted tokens. Confidence below 0.90, missing or ambiguous hierarchy, changed branches or exhausted budgets send the note to Inbox/Crusher.
+With a valid branch, the new file is written beside its anchor note and Core adds the verified internal branch link. The service allocates a unique filename and preserves existing notes. It does not send the entire Vault, attachments or plugin configuration to Gemini. The chosen source and selected context cards do leave the service when a live provider is configured.
+
+### Provider readiness
+Production uses Google's Gemini REST API with approved model identifiers from Kernel and the provider credential resolved through Kernel/Volt. A healthy Core or completed test job alone does not prove that a live provider is connected. The explicit local qualification override replaces Google HTTP responses with controlled fixtures, including synthetic model names. Such runs verify the pipeline and storage, not real model quality, quota or availability. A live setup requires a real credential, supported model names and removal of that fixture override, followed by a small non-sensitive end-to-end check.
 
 ### Limits and placement
-Text input is limited to 1 MiB and uploaded sources to 2 GiB. Uploads are hashed incrementally in a browser worker and checked by Core. Public URL fetching is restricted to validated public addresses; private network targets and arbitrary Git helpers are rejected.
+Uploaded sources are limited to 2 GiB each. Uploads are hashed incrementally in a browser worker and checked by Core. The API also supports text up to 1 MiB and owner-authorized Saturn resources; these are not separate controls in the link/drop interface. Public URL fetching is restricted to validated public addresses; private network targets and arbitrary Git helpers are rejected.
 One pipeline runs at a time. Each job has a 60-minute deadline and at most three attempts per retryable stage. The local multilingual model indexes Vault text without sending it to an embedding provider. Placement uses a bounded hierarchy of root, main and nested key notes. Only selected, bounded context reaches the configured AI provider. Ambiguous placement uses Inbox.
 An interrupted operation resumes from durable checkpoints. Failed or unavailable source material must be resubmitted; a successful result is committed once. The provider key and approved models must resolve through Kernel and Volt.
 """),
-    ("analytics", "Analytics and Activity", """Analytics shows the Activity Heatmap, note count, distinct internal edges, broken internal references and Connectedness.
+    ("dashboard", "Dashboard and Activity", """Dashboard begins with CPU Usage, RAM Usage, Disk Usage and Uptime. Connectedness and Total items each occupy a 2x card. Activity Heatmap occupies a 4x card, and Crusher access occupies a 1x card. All cards can be reordered using their handles.
+
+### Total items
+Total items counts notes and other knowledge files in the canonical Vault, including images, documents, audio, video, canvases and other attachments. Folders, hidden files, trash and Obsidian plugin/configuration files are excluded. The card shows the note and attachment counts separately. It does not count service jobs, sessions or external resources that are not stored in the Vault.
+
+### Crusher access
+On the Dashboard's Crusher access card, select Create & copy to create a one-time upload code and copy it. The card shows the complete code and its expiration; Copied appears only after a successful clipboard write. Click the card again to copy the same code. If copying is unavailable, select the code manually or retry. The code stays in this owner's browser memory until expiry or logout; reloading the page clears the displayed value. It is not a login key for the Vault. See Crusher submissions for visitor permissions.
 
 ### Activity events
 Only owner CREATE, EDIT, RENAME and MOVE actions count. Autosaves belong to one edit session. It closes when focus changes to another note, the note closes or 300 seconds pass after the last edit. A simultaneous rename and move contributes both events. Reading, navigation, indexing, public edits and automated Crusher writes do not count.
@@ -49,14 +69,21 @@ Events remain in UTC. Settings → Appearance → Activity timezone changes cale
 ### Connectedness
 Native and Mastermind internal references form one undirected graph. Duplicate and self links do not increase its edges. For N notes and E distinct edges, Connectedness is `100 × 2E / (N × (N − 1))`; it is zero for fewer than two notes. External service links do not enter this percentage.
 """),
-    ("shares", "Shares and public editing", """A Share is a capability URL for one current note, with view or edit permission, optional password and optional expiry. It grants no directory, search, neighbor, attachment, graph or external-resource access.
+    ("shares", "Shared and public editing", """Open Shared to manage capability URLs for individual current notes. A Share has view or edit permission, optional password and optional expiry. It grants no directory, search, neighbor, attachment, graph or external-resource access. The canonical page is `/shared`; existing `/shares` bookmarks open the same page.
+
+### Find and inspect
+Search filters the current page immediately, ignoring case and query-edge whitespace while preserving the input text. Clear search or Escape restores that page. Name and Modified sort the current page; Modified is the note's file modification time, not its Share creation time. Expand a row with a click, Enter or Space to inspect password status, shared-since time, expiry, note size, permission, access status and full path. Missing-note metadata is shown as unavailable. No download count is invented for note sharing.
 
 ### Create and copy
-Select Create Share, provide a note path and policy, then keep the returned URL. Copy works only on an explicit click; a selectable complete value is always available if clipboard access fails. The raw URL stays in this owner's browser memory. Reload or a new login cannot recover it from the server's hash. Create a new Share if it is lost, and revoke the old one separately.
-Passwords contain 12–128 characters, at most 256 UTF-8 bytes, with no line breaks. Expiry can be up to 365 days ahead. Policy changes invalidate existing visitor sessions. Revoke permanently disables that capability.
+Select Create Share and provide the note path, View or Edit access, optional expiry and optional password. Create share copies the URL and closes the overlay. If clipboard access is declined, the record opens with a selectable complete URL and Copy link remains available. Copy link works again after reload or a new login. Existing links remain valid when an owner obtains a new copy for an older record.
+Passwords have no minimum length or complexity rule: even `1` is accepted. Empty means no password. Expiry can be up to 365 days ahead. When editing a policy, an empty password keeps the current one; Remove password turns it off. Policy changes invalidate existing visitor sessions. After confirmation, Revoke permanently disables that capability and its visitor sessions, removes the row from Shared and leaves the Vault note intact. An internal revocation record remains for access control and audit; the revoked URL cannot be revived.
 
 ### Public projection
-Visitors receive an isolated note projection. Links, references, frontmatter and protected content remain outside editable fields. The server rejects reference syntax and encoded bypasses before reconstructing Markdown. Concurrent modifications cause a conflict and preserve the visitor's safe draft for review.
+Password-protected links first show a centered password form and service reachability. An unlocked page shows the note title followed immediately by its content. With Edit access, type directly into the Markdown text; there is no Edit button. Changes save after 900 milliseconds without typing, or with Ctrl/Cmd+S. Clean pages check for changes every five seconds. Links, references, frontmatter and protected content remain outside editable fields. The server rejects reference syntax and encoded bypasses before reconstructing Markdown.
+
+### Simultaneous editing
+The canonical Markdown file is the source of truth. Before accepting a public write, Mastermind pauses the native writer, flushes pending Obsidian edits and compares the file version with the visitor's version. A stale write is rejected instead of overwriting another edit. The current version appears above the retained unsaved draft, and automatic saving pauses. Copy the desired parts into the editor, then select Save merged changes. Further conflicts require another review. Text typed during a save or background refresh is retained. Unsaved drafts live only in the open tab; closing it discards them after the browser's unsaved-changes warning.
+Accepted edits are journaled into the canonical Vault and reindexed in SQLite. Obsidian sees the same file; public editing does not add owner Activity events.
 An active Share to a missing note reports that its target is gone. Creating a different note at the same path makes that path-bound Share live again. Native rename and folder moves update the tracked Share paths.
 """),
     ("settings", "Appearance and Security", """Appearance changes belong to the server. Accent changes preview immediately; Apply validates contrast and persists them. Reset previews the default blue; Apply is still required. Other ordinary settings commit immediately and revert visibly on failure.
@@ -94,7 +121,26 @@ NOT_READY or RECOVERY_REQUIRED means a consistency condition is unresolved. Pres
 ]
 
 
+TOPICS = {
+    "introduction": ("Getting started", "Sign in, navigate the service and arrange your workspace.", ["login", "Access Key", "navigation", "search"]),
+    "vault": ("Knowledge base", "Edit notes and resources in native Obsidian.", ["Obsidian", "references", "Reconnect", "Fullscreen"]),
+    "dashboard": ("Knowledge base", "Read service metrics, total items, connectedness and daily activity.", ["Total items", "attachments", "Activity Heatmap", "Crusher access", "Create access code"]),
+    "crusher": ("Knowledge base", "Submit a source and follow its processing stages.", ["Submissions", "Clear search", "source", "access code"]),
+    "shares": ("Knowledge base", "Inspect shared notes, change policies and revoke visitor access.", ["Shared", "Create Share", "Copy link", "password", "revoke", "Modified"]),
+    "settings": ("Operations", "Manage appearance, the Access Key and the Kernel connection.", ["Appearance", "Security", "timezone", "Volt"]),
+    "backup": ("Operations", "Create encrypted snapshots and restore a verified recovery archive.", ["Backup", "Restore", "Neptune", "mirror"]),
+    "updates": ("Operations", "Apply verified releases and recover interrupted updates.", ["Updater", "rollback", "recovery"]),
+    "logs": ("Operations", "Read diagnostic logs and resolve unavailable dependencies.", ["Logs", "troubleshooting", "NOT_READY"]),
+}
+
+
 def articles():
     renderer = MarkdownIt("commonmark", {"html": False})
-    return [{"id": identifier, "title": title, "text": text, "html": renderer.render(text)}
-            for identifier, title, text in ARTICLES]
+    source = {identifier: (title, text) for identifier, title, text in ARTICLES}
+    result = []
+    for identifier, (group, summary, keywords) in TOPICS.items():
+        title, text = source[identifier]
+        html = renderer.render(text).replace("<h3>", "<h4>").replace("</h3>", "</h4>")
+        result.append({"id": identifier, "title": title, "text": text, "html": html,
+                       "group": group, "summary": summary, "keywords": keywords, "version": __version__})
+    return result

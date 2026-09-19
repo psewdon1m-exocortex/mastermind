@@ -16,6 +16,8 @@ from .owner_operations import OwnerOperations
 
 
 def install_operator(app, service, owner, bounded_json):
+    from .wyvern_routes import install_wyvern
+    install_wyvern(app, service, owner, bounded_json)
     service.operator = Operator(service)
     service.owner_operations = OwnerOperations(service)
     service.agent_lifecycle = AgentLifecycle(service)
@@ -28,7 +30,7 @@ def install_operator(app, service, owner, bounded_json):
             "font-src 'self'; connect-src 'self'; frame-src 'self'; worker-src 'self'; "
             "frame-ancestors 'none'; base-uri 'none'; object-src 'none'; form-action 'self'"})
 
-    for route in ("/", "/login", "/dashboard", "/vault", "/crusher", "/analytics", "/shares", "/settings", "/documentation"):
+    for route in ("/", "/login", "/dashboard", "/vault", "/crusher", "/analytics", "/shared", "/shares", "/settings", "/documentation"):
         app.add_api_route(route, page, methods=["GET"], include_in_schema=False)
 
     @app.get("/api/owner/documentation", dependencies=[Depends(owner)])

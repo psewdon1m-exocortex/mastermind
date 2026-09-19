@@ -4,6 +4,13 @@ Runtime packages the official Obsidian 1.13.7 AppImage, pinned KasmVNC 1.5.0, Op
 
 Native UI, themes, layout, shortcuts, plugin settings and file management follow Obsidian. Bridge uses native CSS variables and UI primitives. Shell appearance does not modify the editor. On a new native profile, the owner completes Obsidian's trust prompt; Mastermind does not silently rewrite browser storage to enable imported plugins. A release is ready only after the Bridge handshake.
 
+Runtime joins the internal service network and a dedicated `runtime-egress`
+bridge for outbound DNS/HTTPS. This lets native community-theme/plugin catalogs,
+downloads and the owner's existing plugin network behavior work. Runtime has no
+published host ports; owner access still passes through authenticated Core.
+This egress does not grant Runtime the Core/Worker credentials or change the
+Worker's separate source-fetch policy. Native self-update remains disabled.
+
 ## Managed behavior
 
 Bridge supplies `@note` autocomplete, resolution and hover; Chronos/Saturn cards and resource handling; outgoing/backlink panes; and a graph containing the unified internal relation model. Native wikilinks remain native. Unresolved historical targets remain broken after reindex. Code, comments, frontmatter, email and other grammar exclusions share the Core/TypeScript fixture contract. Offsets are translated from Unicode code points into CodeMirror UTF-16 coordinates.
@@ -18,6 +25,6 @@ The browser reaches KasmVNC only through Core's authenticated owner gateway. Log
 
 ## Portable export
 
-Download Vault copy produces a filesystem copy, preserving original user files. Its own Bridge area contains a credential-free reference-history snapshot. The copy opens in standard pinned Obsidian outside Mastermind. Native Markdown/wikilinks remain readable without Bridge; custom `@` behavior requires Bridge. There is no synchronization back from the exported copy.
+The owner portable-export API produces a filesystem copy, preserving original user files. The Vault tab exposes only Reconnect and Fullscreen; it no longer offers a portable-export button. Its own Bridge area contains a credential-free reference-history snapshot. The copy opens in standard pinned Obsidian outside Mastermind. Native Markdown/wikilinks remain readable without Bridge; custom `@` behavior requires Bridge. There is no synchronization back from the exported copy.
 
 Compatibility tests cover actual keyboard edits, dirty-buffer preservation, native rename propagation, resource reading, reconnect/revocation and sustained native saves. Unit peers are not evidence that the real editor passed; see [verification status](IMPLEMENTATION.md).

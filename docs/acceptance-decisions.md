@@ -31,6 +31,35 @@ remain authoritative for every unaffected requirement.
   image dependency findings. It does not turn the failed security assessment
   into a passing scan or authorize release tags, image publication or deployment.
   The normal security and qualification gates remain required for promotion.
+- On 2026-09-19 the owner revised the Shell: remove the Analytics destination
+  and Dashboard Service status card; put Connectedness and Total items in 2x
+  Dashboard cards, Activity Heatmap in 4x and Crusher access in 1x. Remove the
+  Vault portable-download button, use lowercase page headings, retain sidebar
+  label capitalization and use the supplied brain logos. Part 01 remains the
+  authority for hover bounds, search controls and the Documentation workspace.
+  Existing saved orders retain surviving items and append new cards; no stored
+  Vault or backup schema changes are required.
+- On 2026-09-19 the owner further requested a single-line sidebar wordmark,
+  a 90-degree browser icon rotation, hover on every Dashboard card, and the
+  supplied untitled action-card layout for Crusher access. The sidebar name
+  uses a bounded 36px size to fit the existing 250px sidebar. The icon is the
+  supplied image; the subsequent Shared/UI follow-up replaces the initial SVG with browser-sized PNGs and rotates the displayed tab icon a further 90 degrees.
+  The explicit Create & copy action is the owner's one-gesture clipboard
+  variant: initiate the write from that trusted action with promise-backed
+  generated data, show Copied only after success, retain a selectable value
+  and a fresh Copy action when the browser declines. Six-digit codes and their
+  existing one-use/30-minute contract are unchanged. This replaces the modal.
+  Obsidian Runtime receives its own outbound network for native catalogs and
+  plugin integrations; its ports remain unpublished and its credentials scoped.
+
+- The subsequent 2026-09-19 follow-up renames the owner destination to Shared
+  while retaining legacy bookmarks and saved navigation order. Revoked links
+  disappear from the owner list; internal revocation records remain authoritative.
+  The supplied Shared reference becomes expandable note rows with real metadata;
+  its file-download counter is replaced by the note access status. Sidebar
+  ordinals remain visible next to, rather than behind, reorder handles. Search
+  and notification geometry follow current root Part 01. Local Crusher fixture
+  success is explicitly distinguished from live Google API readiness.
 
 The final three-image build, 510-test Linux suite, bounded native and producer
 regressions, clean host installation and update/rollback recovery have passed
@@ -40,6 +69,39 @@ connected repository. Physical removal of the stopped external copy and unused C
 credentials was rejected by automatic execution review. See the current
 [implementation ledger](IMPLEMENTATION.md) for evidence and exact limitations.
 
-The change needs no data migration and does not change backup compatibility.
+The changes above need no data migration and do not change backup compatibility.
 Rollback continues to use the encrypted pre-update snapshot and tested group
 rollback. Reinstating excluded endurance tests requires a new owner decision.
+
+## Public Crusher and direct Shared editing — 2026-09-19 follow-up
+
+The owner's subsequent twelve-point request supersedes the earlier sidebar
+handle, hash-only copy and password-length decisions:
+
+- Remove navigation dot handles and the visible collapsed-menu arrow. Preserve
+  numbers, row drag and keyboard ordering. Rotate the currently displayed tab
+  artwork another 180 degrees, retaining the three native PNG sizes.
+- Public Crusher has a centered code gate, then a link/file-drop interface with
+  a fullscreen drag overlay and inherited Mastermind accent. No source-type
+  selector is shown. Existing source APIs and progress-only permissions remain.
+- Create share is an explicit create-and-copy gesture and closes its overlay.
+  Clipboard denial retains manual copy and retry. The owner's instruction
+  selects this gesture instead of the generic two-step clipboard pattern.
+- Copy link remains available after reload. A signed deterministic URL is
+  recoverable from the existing record ID and private Share pepper; older raw
+  URLs remain valid aliases. There is no plaintext-token storage or DB migration.
+  Old binaries do not recognize the new v2 URL format, so rollback compatibility
+  must include the URLs as well as schema and backup state.
+- Shared passwords have no minimum or complexity rules; `1` is accepted. Empty
+  means no password. Request bounds, Argon2 and rate limits remain.
+- Shared opens directly as title plus note, with inline Markdown editing when
+  granted. Autosave uses a checked version after native dirty-buffer flush.
+  Conflicts retain the draft and require explicit merge; they never silently
+  overwrite another writer. See [Sharing](sharing.md) for the exact contract.
+
+The next layout follow-up removes the visible Submissions heading and uses
+history/search on the left and source input/drop on the right, shrinking both
+columns when the sidebar is fixed. Narrow content widths stack the panels.
+Visual scrollbars are suppressed on all Mastermind Shell/public pages while
+wheel, touch and keyboard scrolling remain available; the existing native
+Obsidian UI exception remains in force.

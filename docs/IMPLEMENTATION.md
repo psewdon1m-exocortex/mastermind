@@ -4,6 +4,26 @@ Authority: [Part 00](policy/PART_00_SYSTEM_UNIFICATION_SPECIFICATION.md), Parts 
 
 ## Baseline
 
+Latest local AI checkpoint, 2026-09-19: the owner supplied a Google credential
+through a local file. Provisioned one secret Volt field and reference-only
+Kernel bindings; switched the existing qualified image to its normal factory.
+Live Gemini 3.8 Flash completed browser file upload, public webpage, speech
+drag/drop and unambiguous root/main/key placement. Outcomes and scopes are in
+[Crusher live qualification](crusher.md); evidence and synthetic outputs are
+under `artifacts/live-ai-20260919/`. Safe Inbox fallback at 0.85 and branch commit
+at 0.95 both passed. Test notes were individually removed after digest checks.
+Remote audio deletion was confirmed by complete successful listing, not by its
+ambiguous 403 GET response. Final local service health is HEALTHY.
+
+The first real generation exposed the legacy parser's rejection of
+`thoughtSignature` on valid text. Repaired only the deployed legacy image using
+the checked-in `scripts/integration/patch_legacy_google.py`; four isolated
+offline test methods in `verify_google_signature.py` pass, including quota and
+malformed-output failures. Clarified actual Markdown newline generation in both
+the deployed prompt and current source after observing a double-escaped result.
+The in-progress Wyvern source migration was preserved and not deployed. No live
+provider key enters the build context, browser, repository or test evidence.
+
 2026-09-15: Mastermind contained four requirements documents and no implementation. Linux Docker Engine is available on this Windows workstation. Python 3.12.14 and Node 24.14.0 are available. Host .NET SDK/Go are absent; isolated SDK containers are available. Existing containers are unrelated and must not be changed. Kernel/Volt documentation and central Part 12 contain pre-existing edits and must be preserved.
 
 ## Applicability and accepted decisions
@@ -34,6 +54,238 @@ Parts 00, 02–07, 09–10, 12 apply. Part 01 applies to all owned UI; the nativ
 | S8 — End-to-end qualification | S1–S7 | Local related-service stack, representative dataset and final evidence | Complete owner/shared/Crusher/recovery flows, fault tests, resource limits, bounded native regression | IN_PROGRESS |
 
 No stage passes because its code exists. Each gate records exact commands, counts, outcome and remaining limitations below. Blocked integration tests do not become mocked PASS. Product decisions are closed; implementation feasibility is tested as work proceeds.
+
+## Firefox file hashing repair — 2026-09-19
+
+The owner's `File hashing failed.` report reproduced in Firefox 153 for a tiny
+file before any upload. Chromium, installed Chrome 153 and Edge 129 computed
+the same digest successfully. The worker response inherited `default-src 'none'`
+without a script directive; Firefox rejected its static `sha256.js` import.
+Changing only that response header in a controlled browser interception made
+the same Firefox operation succeed. The server now gives only
+`/assets/hash-worker.js` a `script-src 'self'` exception, retaining default deny
+for network/other resources and disallowing inline code/eval. Other assets,
+API responses, Shell and Shared policies retain their existing restrictions.
+Workers use their own response policy as described in the
+[MDN worker CSP documentation](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers#content_security_policy).
+
+Exit checks: **34 API/operator/Shared API tests passed**, including the worker
+policy regression; changed Python source/test lint passed. The served worker
+passed eleven SHA-256 vectors per engine in Chromium and Firefox, covering
+empty files, SHA padding boundaries and 1 MiB chunk boundaries, plus progress
+and cancellation before/during hashing. No request interception was used in
+these final hash tests. Firefox file selection and a separate real drag/drop
+both hashed, uploaded, passed the server's digest check and completed the actual
+local pipeline. Google responses remained the explicit fixture. Both generated
+test notes were verified and removed. Evidence: `artifacts/hashing-fix`.
+
+The local deployment is a single-file image patch over the running Core image;
+its base tag, Dockerfile and build log are retained with that evidence. The
+installed `api.py` digest matches the corrected workspace file. This preserves
+the other in-progress workspace changes without introducing them into the
+running service. Core was replaced and Neptune reattached; Runtime, Worker,
+credentials and canonical Vault were retained. The standard source build also
+contains the fix for the next complete build.
+
+## Crusher columns and hidden scrollbars — 2026-09-19
+
+The owner's three layout follow-ups remove the visible Submissions heading,
+place processing history/search left and source input/drop right, and suppress
+visual scrollbars across the Shell and public pages. Two equal columns use the
+actual available width; at 820px or less they stack with input first. The native
+Obsidian UI remains governed by the existing viewport exception.
+
+The rebuilt local Core passed browser checks at 390/720/1024/1100/1440/1920px,
+with no horizontal overflow or page errors. At 1920px each column measures
+790px with the fixed sidebar and 915px with it hidden. Wheel and Page Down still
+scroll. All Shell routes and nested fields hide scrollbar visuals; the isolated
+public Shared page also retains wheel scrolling. The existing public Crusher
+activation, link/drop, accent and responsive probe passed. Source/test lint,
+JavaScript syntax and repository validation passed. No backend behavior changed.
+Evidence: `artifacts/crusher-layout-20260919/result.json` and screenshots.
+
+The Shell regression probe now opens an automatically hidden sidebar before
+clicking navigation; its earlier assumption of a permanently fixed sidebar was
+incompatible with the owner's saved preference.
+
+## Public Crusher and direct Shared editing — 2026-09-19
+
+Entry: the owner's twelve-point follow-up, supplied screenshots and root Part 01.
+The specific password, clipboard and navigation decisions supersede earlier
+choices as recorded in [acceptance decisions](acceptance-decisions.md).
+
+Deliverables: another 180-degree favicon rotation; sidebar numbers without dot
+handles and invisible edge reveal; public Crusher code gate and inherited accent,
+automatic link classification, file selection/drop and fullscreen drag overlay;
+repeatable authenticated Share copy after reload; create/copy/close overlay and
+optional password accepting `1`; centered public password gate and direct note
+view/editing. The [Sharing contract](sharing.md) records the signed URL format,
+legacy aliases and old-binary rollback limitation, 900ms autosave, five-second
+clean refresh and native-flush/ETag/journal collision boundary. No DB migration
+or plaintext-capability storage was added.
+
+Exit checks on the rebuilt local Core:
+
+- **202 Linux tests passed**, no skips, 37.48s, in a non-root/read-only/network-
+  disabled container with 2 GiB/2 CPU limits. Coverage: Shared and its API,
+  operator behavior, Crusher access/pipeline, Gemini adapters, hierarchy,
+  recovery, native protocol and release packaging. The disposable test volume
+  was removed. The focused Windows Shared/API/recovery run passed **107 tests**.
+- `probe_public_editing.cjs`: real create/copy/close with password `1`, copy after
+  reload, two independent editors, read-only view, text typed during an in-flight
+  save, stale-write conflict, retained draft, explicit merge, protected bytes,
+  clean-page refresh, delayed-read race, revocation and 390/720/1440px layout all
+  passed with no page errors.
+- `probe_native_shared.cjs`: the same note was edited through the actual VNC
+  Obsidian editor while the public editor held a draft. The stale public save
+  was rejected, native text remained canonical, the public draft survived and
+  hidden reference bytes stayed unchanged. The final noninteractive run passed;
+  only its disposable note and Share were cleaned up.
+- `probe_crusher_drop_ui.cjs`: actual visitor activation/scope denial, code gate,
+  automatic URL classification, file chooser, full-screen drag overlay, accent
+  and three responsive widths passed. Upload/job HTTP responses in this layout
+  probe are explicitly browser fixtures.
+- `probe_crusher_readiness.cjs --file-ui`: a separate real browser file selection,
+  incremental hashing, Core upload/digest verification and acceptance traversed
+  all ten real pipeline states and committed one note. The digest/provenance and
+  progress-only response were checked, then only that note was deleted. Google
+  HTTP remains the explicit controlled REST fixture; no paid provider was enabled.
+- Updated Shared/search/notifications and Shell regression probes passed:
+  copy/policy/revoke, legacy URL route, PNG sizes, dot-free navigation, search,
+  notices, Dashboard, native Vault connectivity, responsive layouts and searchable
+  Documentation. Python source/test lint, repository validation and the reviewed
+  136-entry exposure inventory passed.
+
+Evidence: `artifacts/public-editing-20260919` (Linux log, JSON results and screenshots),
+`artifacts/shared-ui-20260919`, `artifacts/ui-refresh-20260919`.
+Final clipboard-denial verification also passed: creation closed the overlay,
+kept one record and exposed the complete selectable URL with a retry action.
+The final status snapshot is **HEALTHY**, Runtime/Bridge running and unpaused,
+semantic index **READY**, 87/87 notes, no pending native Activity.
+Core was rebuilt and replaced; Neptune was reattached to the new Core network
+namespace. Runtime, Worker and the neighboring local services were retained.
+No endurance test, 8 GiB transfer, repository push or production publication ran.
+
+The broader ad-hoc `ruff check src tests scripts` invocation also reports 20
+pre-existing lint findings in unrelated qualification scripts. The supported
+source/test lint scope passes; those historical script findings are not fixed
+or represented as a passing whole-repository lint result here.
+
+## Shared, search, notifications and Crusher readiness — 2026-09-19
+
+Entry: the owner's eight UI/provider follow-up points and root Part 01 search,
+notice and navigation contracts. Existing uncommitted work was retained.
+
+Deliverables: canonical Shared destination with legacy bookmark compatibility;
+expandable note rows, actual file modification time/size, policy/copy/revoke;
+revoked records excluded before pagination with revocation tombstones retained;
+permanent sidebar ordinals beside separate reorder handles; canonical search
+icon/input/clear geometry; five-item green/red dismissible notice stack; native
+16/32/64px PNG favicons cropped to the supplied artwork and turned another 90°
+from the preceding tab icon. The oversized embedded SVG and its special CSP
+exception were retired. Runtime secret/plugin data were not changed.
+
+Exit checks: **144 Linux tests passed** (Shared, operator, Crusher access and
+pipeline, Gemini text/media adapters, hierarchy and release packaging), plus the
+focused Windows Shared/operator run (**77 passed**). Browser checks verified
+real Share create/copy/policy/revoke, invalidation of the previous visitor session,
+404 for the revoked capability, search geometry/filter/clear/Escape, sorting,
+keyboard expansion and 390/720/1000/1920px layouts. Notifications verified the
+five-item cap, semantic colors, dismissal and 4.5s/8s durations. Dashboard access,
+hover, navigation, Vault and Documentation regression probes passed with no
+browser page errors. The final deployed build also passed login layout,
+clipboard/focus/reachability checks and discovery of the new provider-readiness
+article through Documentation search. Evidence is in `artifacts/shared-ui-20260919`,
+`artifacts/ui-refresh-20260919` and `artifacts/dashboard-cards-20260919`.
+
+A new bounded text job traversed all ten states, committed a real note, and
+exposed only progress through its public job response. The probe verified the
+committed digest and removed its own note. **Live Google access is not enabled**:
+Core runs the explicit local REST fixture with `integration-text-model` and
+`integration-video-model`. Pipeline success must not be reported as live model
+quality or production readiness. [Crusher documentation](crusher.md) describes
+this boundary and the remaining live-provider setup. No paid call, remote push,
+large transfer or endurance test was performed.
+
+## Dashboard cards and native network — 2026-09-19
+
+The sidebar wordmark is one line; the browser icon composes the unchanged supplied
+PNG with a clockwise 90-degree SVG rotation. Heatmap and Crusher access now use
+the Dashboard hover behavior. The former broad Crusher button-width rule no
+longer stretches the 32px top-right reorder handle over the title.
+The initial embedded SVG favicon was superseded by browser-sized PNG assets in the Shared/UI follow-up above. The special data-image CSP exception has been removed.
+
+Crusher access follows the owner's compact 1x reference: ordinal, title, Create
+& copy, then the complete code and copy/expiration status inside the same card.
+Repeated copy reuses the current code, expiration resets the card, and raw values
+remain only in the owner browser until reload/logout. Clipboard denial retains
+selection and retry. No credential format or database migration changed.
+
+The native catalog failure reproduced as DNS resolution failure in Runtime's
+internal-only Docker network. Development and production Compose now declare
+`runtime-egress`; the local Runtime received the additional network without
+recreating its container. HTTPS fetched the official theme and plugin catalogs;
+the actual Obsidian theme browser rendered 758 themes and their previews.
+Runtime still has no host port bindings, and the internal service network remains
+internal. Compose validation passed for both topologies.
+
+`node scripts/probe_dashboard_cards.cjs` passed live creation, clipboard copy,
+keyboard recopy, visitor code activation, handle bounds, card hover, mobile
+layout, and unchanged favicon artwork. Browser fixtures covered denied clipboard,
+pending duplicates, expiry and server rejection, with zero browser/CSP errors.
+Screenshots and JSON: `artifacts/dashboard-cards-20260919/`.
+Crusher/operator/release packaging regression passed **41 tests on Linux with no
+skips**, in a non-root read-only container with network disabled. The first run's
+small tmpfs could not satisfy the existing free-space reservation check; rerun
+used a disposable disk-backed test volume, then removed it. No large transfer
+was run. Log: `artifacts/dashboard-cards-linux-tests-20260919.log`.
+Repository validation (30 documents), Python lint and JavaScript syntax passed.
+The existing Shell refresh probe also passed navigation hover, search, the
+Documentation workspace and Vault. The later favicon policy change passed the
+29 API/operator checks, a focused final policy check and the repeated live
+Dashboard probe including a separate SVG-document console check.
+These changes are deployed to the local stand; no GitHub publication is claimed.
+
+## Login conformance — 2026-09-19
+
+The login follows central Part 01 §§4.1 and 10.1: a centered 560×268 panel,
+72px wordmark, undistorted 100px icon box, 511×31 visible Access Key field with
+a 44px hit target, and 511×50 submit button. Availability has independent neutral,
+success and danger states. Pending and rejection preserve panel geometry; errors
+return focus to the key. Reset clears both the displayed and exact opaque value.
+The existing user-provided artwork and configured accent are retained.
+
+`node scripts/probe_login_layout.cjs` passed against the rebuilt local Core:
+reference coordinates, five viewport sizes (including 320px and short landscape),
+availability polling/recovery, reduced motion, pending duplicate prevention,
+opaque Unicode/CRLF clipboard handling, error focus, reset, and actual sign-in
+with the current configured key followed by logout. Rejected credentials and
+unavailable health responses were browser fixtures; the final successful login,
+health/readiness and status requests used the real local service. No key rotation.
+Evidence and reviewed screenshots: `artifacts/login-refresh-20260919/`.
+API/operator regression: 28 passed; Python lint, JavaScript syntax and diff checks
+passed. Core, Runtime and Worker are healthy. These are local results.
+
+## Shell revision — 2026-09-19
+
+The owner's ten UI corrections are implemented on the local development stand:
+hover bounds, grouped continuous Documentation, Dashboard card consolidation,
+removal of the Analytics tab and Vault export button, lowercase page headings,
+the two supplied logos, Dashboard Crusher invitations and a shared search unit
+with an accessible clear icon. Total items counts knowledge files, including
+attachments, while hidden configuration/plugin content stays outside the count.
+Saved layout preferences are normalized without rewriting Vault or backup data.
+
+Validation: 34 targeted Linux API/preferences/filesystem tests passed in the
+non-root read-only Core image with network disabled and no skips. The browser
+probe checks the live Core/Runtime/Worker stand, all requested card spans,
+actual invitation creation, native readiness, hover bounds, search clearing,
+and Documentation filtering, active topic, keyboard and independent scrolling
+at 1920×1080, 1280×720, 1000×800, 390×844 and 720×420. Browser/CSP errors: none.
+Evidence: `artifacts/ui-refresh-linux-tests-20260919.log` and
+`artifacts/ui-refresh-20260919/result.json`, with reviewed screenshots alongside.
+The 2026-09-16 hosted CI evidence below remains bound to its original revision;
+this UI revision is locally verified and does not claim a new GitHub run.
 
 ## GitHub migration — 2026-09-16
 

@@ -25,6 +25,7 @@ services:
     pids_limit: 256
     networks:
     - private
+    - runtime-egress
     healthcheck:
       test:
       - CMD
@@ -76,6 +77,8 @@ services:
     - ./secrets/core:/run/mastermind:ro
     - /run/exocortex:/run/exocortex:ro
     - /run/neptune:/run/neptune:ro
+    - /run/wyvern:/run/wyvern:ro
+    - /etc/exocortex/wyvern/clients/mastermind:/run/wyvern-link:ro
     tmpfs:
     - /tmp:rw,nosuid,nodev,size=64m,mode=1777
     cap_drop:
@@ -149,6 +152,7 @@ networks:
     internal: true
   edge: {}
   worker-egress: {}
+  runtime-egress: {}
 volumes:
   core-data: null
   vault-data: null

@@ -37,7 +37,6 @@ class SecretStore:
 # Versioned bindings are a Mastermind extension to the deployment Register profile.
 # Provision them through Volt/Kernel; never infer an unrelated existing record.
 SHELL_BINDINGS = {
-    "ai_provider_key": "services.mastermind.secrets.ai_provider_key",
     "chronos_service_token": "services.mastermind.secrets.chronos_service_token",
     "share_pepper_v1": "services.mastermind.secrets.share_pepper_v1",
     "recovery_identity": "services.mastermind.secrets.recovery_identity_v1",

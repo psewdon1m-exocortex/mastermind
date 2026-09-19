@@ -178,7 +178,8 @@ def validate_profile(rendered, images, directory):
         mounted, targets, binds = {}, set(), set()
         allowed = {str(directory/"secrets"/name): "/run/mastermind"}
         if name == "core":
-            allowed.update({"/run/exocortex": "/run/exocortex", "/run/neptune": "/run/neptune"})
+            allowed.update({"/run/exocortex": "/run/exocortex", "/run/neptune": "/run/neptune",
+                            "/run/wyvern": "/run/wyvern", "/etc/exocortex/wyvern/clients/mastermind": "/run/wyvern-link"})
         for volume in service.get("volumes", []):
             if volume.get("target") in targets:
                 raise ValueError("Duplicate component mount target")
@@ -249,6 +250,10 @@ def install(directory):
     # data. Only this explicit host-install action makes the bundled tool executable.
     os.chmod(updater/"updater-linux-amd64", 0o755)
     run(["sh", str(updater/"install.sh"), "mastermind", str(directory/".env"), str(updater/"updater-linux-amd64")], timeout=180)
+    capabilities = json.loads(run(["updater", "wyvern", "capabilities"], capture=True))
+    if capabilities.get("schema") != "exocortex.wyvern.updater.v1" or capabilities.get("api_version") != 1:
+        raise ValueError("The host Updater does not support Wyvern v1")
+    run(["updater", "wyvern", "bootstrap", "--head", "mastermind", "--manifest", str(directory/"vendor/wyvern/wyvern-release.json")], timeout=600)
     update_env(directory/".env", {"UPDATER_SOCKET_GID": str(grp.getgrnam("updater").gr_gid),
                                  "NEPTUNE_SOCKET_GID": str(grp.getgrnam("neptune-clients").gr_gid)})
     rendered = json.loads(compose(directory, "config", "--format", "json", capture=True))

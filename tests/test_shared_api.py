@@ -95,3 +95,13 @@ def test_policy_change_invalidates_open_public_page(shared_api):
     assert owner.patch("/api/v1/shares/" + identifier, json={"revoke": True}).status_code == 200
     assert visitor.get(path).status_code == 404
     assert visitor.get(path + "/api/note").status_code == 404
+
+
+def test_copy_link_is_owner_only_and_preserves_access(shared_api):
+    owner, visitor, _, path, identifier = shared_api
+    route = "/api/v1/shares/" + identifier + "/link"
+    assert visitor.get(route).status_code == 401
+    copy = owner.get(route)
+    assert copy.status_code == 200 and copy.headers["cache-control"] == "no-store"
+    assert copy.json()["url"].endswith(path)
+    assert visitor.get(path + "/api/policy").status_code == 200

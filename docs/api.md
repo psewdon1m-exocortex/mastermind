@@ -15,7 +15,7 @@ Production uses the canonical HTTPS origin. JSON errors expose stable sanitized 
 | `/api/owner/updates`, `/api/owner/updates/check`, `/api/owner/updates/rollback` | Approved exact release discovery, recorded previous version and one typed whole-group operation |
 | `/api/owner/resources` and `/resources/content` | Neptune scoped listing/metadata/content; single Range, ETag/If-Range, bounded streaming |
 | `/runtime/index.html`, `/runtime/assets/*`, `/runtime/websockify` | Owner-only native gateway; ongoing session verification after WebSocket upgrade |
-| `/api/v1/shares` and `/{id}` | Owner creation/configuration/revocation of a path-bound Share |
+| `/api/v1/shares`, `/{id}` and `/{id}/link` | Owner creation/configuration/revocation and repeatable copy of a path-bound Share URL |
 | `/s/{token}` and `/api/{policy,session,note}` beneath it | Share-specific public projection and granted edit capability; no resource access |
 | `/api/v1/crusher/access` | Owner issues a one-use activation code |
 | `/api/v1/crusher/sessions`, `/uploads`, `/jobs` | Scoped submission session or owner; public reads expose progress only |

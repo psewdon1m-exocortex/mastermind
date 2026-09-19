@@ -31,6 +31,10 @@ def install_shared(app, service, owner, bounded_json):
     async def policy(identifier: str, request: Request):
         return await asyncio.to_thread(service.shared.change, identifier, await bounded_json(request))
 
+    @app.get("/api/v1/shares/{identifier}/link", dependencies=[Depends(owner)])
+    def copy_link(identifier: str):
+        return service.shared.copy_link(identifier)
+
     @app.get("/s/{token}")
     def page(token: str):
         service.shared.describe(token)
@@ -52,12 +56,12 @@ def install_shared(app, service, owner, bounded_json):
 
     @app.get("/s/{token}/api/policy")
     def describe(token: str):
-        return service.shared.describe(token)
+        return {**service.shared.describe(token), "accent": service.operator.preferences()["accent"]}
 
     @app.post("/s/{token}/api/session")
     async def unlock(token: str, request: Request):
         origin(request)
-        data = await bounded_json(request, 4096)
+        data = await bounded_json(request, 32*1024)
         if set(data) - {"password"}:
             raise DomainError("INVALID_REQUEST", "Unlock fields are invalid.", 422)
         session = await asyncio.to_thread(service.shared.unlock, token, data.get("password"), request.client.host)

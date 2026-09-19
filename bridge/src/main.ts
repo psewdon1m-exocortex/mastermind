@@ -11,6 +11,7 @@ import {GraphView, LinksView} from "./views";
 import {MediaBroker, ResourceCard, openResource} from "./resources";
 import {Portable} from "./portable";
 import {installCommands} from "./commands";
+import {NativeLinks} from "./native_links";
 
 type Ref = {start: number; end: number; kind: string; target: string; display: string; exists: boolean};
 type Suggestion = {name: string; path: string};
@@ -116,6 +117,7 @@ export default class MastermindBridge extends Plugin {
   activePath?: string;
   media=new MediaBroker(this);
   portable?:Portable;
+  nativeLinks?:NativeLinks;
 
   core<T>(route: string, data?: unknown, signal?:AbortSignal): Promise<T> {
     if(this.portable)return this.portable.request<T>(route,data);
@@ -154,6 +156,7 @@ export default class MastermindBridge extends Plugin {
       this.registerEvent(this.app.vault.on("rename",remember));
       this.registerEvent(this.app.vault.on("modify",()=>this.portable!.invalidate()));
     }else{this.installManagedRename();installCommands(this);}
+    this.nativeLinks=this.addChild(new NativeLinks(this));
     this.registerView("mastermind-graph", leaf => new GraphView(leaf, this));
     for (const direction of ["backlinks", "outgoing"] as const) {
       this.registerView("mastermind-"+direction, leaf => new LinksView(leaf, this, direction));

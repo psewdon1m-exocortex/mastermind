@@ -23,13 +23,14 @@ Core resolves these bindings through Kernel; Register contains Volt references, 
 
 | Core name | Kernel binding suffix below `services.mastermind.secrets.` |
 | --- | --- |
-| `ai_provider_key` | `ai_provider_key` |
 | `chronos_service_token` | `chronos_service_token` |
 | `share_pepper_v1` | `share_pepper_v1` |
 | `recovery_identity` | `recovery_identity_v1` |
 | `recovery_recipient` | `recovery_recipient_v1` |
 | `backup_signing_private` | `backup_signing_private_v1` |
 | `backup_signing_public` | `backup_signing_public_v1` |
+
+LLM provider credentials belong to Wyvern Adapters in Volt and are resolved only by its scoped Kernel runtime identity. Mastermind mounts its own protected Wyvern link and the data socket, chooses allowed function bindings in Settings and receives no Google API key. The Wyvern admin socket and other clients' links are not mounted.
 
 Kernel bootstrap, service-local Runtime/Bridge/Worker credentials, initial owner key and typed host-agent tokens are private deployment files outside the Vault. Updater writes only the two Core Neptune control/export copies; producer credentials remain in the host agent's own private files. Exact credential readers reject unsafe file types and never trim a header token. Do not rotate a backup identity or Share pepper by discarding the prior recovery material. Preserve the required versioned keys and qualify the actual consumer before activation.
 

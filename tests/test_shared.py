@@ -98,7 +98,7 @@ def test_public_edit_preserves_hidden_bytes_and_creates_no_owner_activity(shared
 
 def test_token_password_session_scope_and_policy(shared):
     token, session, created = opened(shared, password="separate share password")
-    assert len(token) == 43
+    assert token.startswith("v2_") and len(token) == 67
     stored = json.dumps(shared.state.rows("SELECT * FROM shares"))
     assert token not in stored and "separate share password" not in stored
     assert all("url" not in row and "token_hmac" not in row for row in shared.list())
@@ -115,6 +115,53 @@ def test_token_password_session_scope_and_policy(shared):
     with pytest.raises(DomainError) as denied:
         shared.save(token, renewed["token"], view["projection_id"], [], view["sha256"])
     assert denied.value.status == 403
+
+
+@pytest.mark.parametrize("password", [None, "", "1", "short", "with\nline break", "😀"])
+def test_optional_password_has_no_complexity_or_minimum_length(shared, password):
+    token, session, _ = opened(shared, password=password)
+    assert shared.project(token, session["token"])["permission"] == "edit"
+    assert shared.describe(token)["password_required"] == bool(password)
+
+
+def test_repeatable_signed_link_and_legacy_link_share_one_revocation_authority(shared):
+    import secrets
+    token, _, created = opened(shared)
+    assert shared.copy_link(created["share_id"])["url"].endswith(token)
+    assert token not in json.dumps(shared.state.rows("SELECT * FROM shares"))
+    legacy = secrets.token_urlsafe(32)
+    with shared.state.transaction() as db:
+        db.execute("UPDATE shares SET token_hmac=? WHERE id=?", (shared.mac("share-token", legacy), created["share_id"]))
+    copied = shared.copy_link(created["share_id"])["url"].rsplit("/", 1)[1]
+    for value in (legacy, copied):
+        assert shared.active(value)["id"] == created["share_id"]
+    forged = copied[:-1] + ("A" if copied[-1] != "A" else "B")
+    with pytest.raises(DomainError):
+        shared.active(forged)
+    shared.change(created["share_id"], {"revoke": True})
+    for value in (legacy, copied):
+        with pytest.raises(DomainError):
+            shared.active(value)
+    with pytest.raises(DomainError):
+        shared.copy_link(created["share_id"])
+
+
+def test_independent_editors_cannot_silently_overwrite_each_other(shared):
+    token, first, _ = opened(shared)
+    second = shared.unlock(token, None, "192.0.2.8")
+    a, b = shared.project(token, first["token"]), shared.project(token, second["token"])
+    av = [part["value"] for part in a["segments"] if part["kind"] == "text"]
+    bv = [part["value"] for part in b["segments"] if part["kind"] == "text"]
+    av[0] = "First editor saved\n\n"
+    shared.save(token, first["token"], a["projection_id"], av, a["sha256"])
+    bv[0] = "Second editor draft\n\n"
+    with pytest.raises(SharedConflict) as collision:
+        shared.save(token, second["token"], b["projection_id"], bv, b["sha256"])
+    assert "First editor saved" in shared.vault.read("Folder/Shared.md")
+    assert "Second editor draft" not in shared.vault.read("Folder/Shared.md")
+    assert "First editor saved" in collision.value.projection["html"]
+    assert "@private" not in json.dumps(collision.value.projection)
+    assert "@private" in shared.vault.read("Folder/Shared.md")
 
 
 def test_failed_unlock_limit_is_shared_across_capabilities_and_success_does_not_consume(shared):
@@ -149,6 +196,20 @@ def test_live_path_revival_and_irreversible_revocation(shared):
     with pytest.raises(DomainError) as final:
         shared.change(created["share_id"], {"expires_at": None})
     assert final.value.status == 409
+
+
+def test_revoked_shares_are_removed_before_pagination_and_keep_their_tombstones(shared):
+    token, session, created = opened(shared)
+    kept = shared.create("Folder/Shared.md")
+    shared.change(created["share_id"], {"revoke": True})
+    assert [row["share_id"] for row in shared.list(limit=1)] == [kept["share_id"]]
+    assert shared.list(limit=1, offset=1) == []
+    row = shared.list()[0]
+    assert row["size_bytes"] == len(shared.vault.read("Folder/Shared.md").encode("utf-8"))
+    assert row["modified_at"] > 0 and not row["target_missing"]
+    assert shared.state.one("SELECT revoked_at FROM shares WHERE id=?", (created["share_id"],))["revoked_at"]
+    with pytest.raises(DomainError):
+        shared.project(token, session["token"])
 
 
 def test_policy_rechecked_after_quiesce(shared, monkeypatch):
@@ -195,7 +256,7 @@ def test_projection_is_bound_to_session_and_bounded(shared):
     assert shared.state.one("SELECT COUNT(*) AS n FROM projections")["n"] <= 10
 
 
-@pytest.mark.parametrize("password", ["short", "a"*129, "valid\npassword", "😀"*100])
+@pytest.mark.parametrize("password", ["a"*4097, "😀"*1025, 123])
 def test_password_policy(shared, password):
     with pytest.raises(DomainError) as failure:
         shared.password(password)

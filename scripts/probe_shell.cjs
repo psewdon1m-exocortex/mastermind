@@ -10,10 +10,10 @@ const {chromium}=require('./lib/browser.cjs');
     page.on('console',message=>{if(message.type()==='error'&&message.text().includes('Content Security Policy'))errors.push(message.text());});
     await page.goto(origin+'/');await page.getByLabel('Access Key',{exact:true}).waitFor();await page.screenshot({path:path.join(output,'login.png')});
     await page.getByLabel('Access Key',{exact:true}).fill(fs.readFileSync(path.join(root,'.local/secrets/core/bootstrap_access_key'),'utf8'));
-    await page.getByRole('button',{name:'Enter service',exact:true}).click();await page.getByRole('heading',{name:'Dashboard',exact:true}).waitFor();
+    await page.getByRole('button',{name:'Enter service',exact:true}).click();await page.getByRole('heading',{name:'dashboard',exact:true}).waitFor();
     await page.waitForTimeout(3500);await page.screenshot({path:path.join(output,'dashboard.png')});
-    for(const view of ['Analytics','Shares','Crusher','Settings','Documentation']){
-      await page.locator('.sidebar').getByRole('link',{name:view,exact:true}).click();await page.getByRole('heading',{name:view,exact:true}).waitFor();await page.waitForTimeout(1000);
+    for(const view of ['Shared','Crusher','Settings','Documentation']){
+      await page.locator('.sidebar').getByRole('link',{name:view,exact:true}).click();await page.getByRole('heading',{name:view.toLowerCase(),exact:true}).waitFor();await page.waitForTimeout(1000);
       await page.screenshot({path:path.join(output,view.toLowerCase()+'.png'),fullPage:view==='Settings'});
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,view+' desktop horizontal overflow');
     }

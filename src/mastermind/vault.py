@@ -17,6 +17,19 @@ class Vault:
         return [(rel, path) for rel, path in file_inventory(self.config.vault)
                 if rel.lower().endswith(".md") and not any(p.startswith(".") for p in rel.split("/"))]
 
+    def item_counts(self):
+        """Count knowledge files without reading attachments or plugin contents."""
+        with self.coordinator.lock:
+            if self.coordinator.recovery_required:
+                raise DomainError("RECOVERY_REQUIRED", "Canonical reads are blocked until recovery completes.", 503)
+            notes = attachments = 0
+            for relative, _ in file_inventory(self.config.vault, include_hidden=False):
+                if relative.lower().endswith(".md"):
+                    notes += 1
+                else:
+                    attachments += 1
+            return {"total": notes + attachments, "notes": notes, "attachments": attachments}
+
     def inventory(self):
         seen, conflicts, result = {}, [], {}
         for relative, path in self.files():

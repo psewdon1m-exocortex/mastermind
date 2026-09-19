@@ -1,12 +1,15 @@
 """One-note capabilities. Public callers never choose a Vault path or a resolver."""
+import base64
 import hashlib
 import hmac
 import json
 import math
+import os
 import re
 import secrets
 import threading
 import time
+from pathlib import PurePosixPath
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
@@ -14,7 +17,7 @@ from argon2.exceptions import InvalidHashError, VerificationError
 from . import share_projection
 from .auth import digest
 from .errors import DomainError
-from .fs import safe_relative, sha_bytes
+from .fs import open_under, safe_relative, sha_bytes
 
 PASSWORDS = PasswordHasher(memory_cost=19456, time_cost=2, parallelism=1, hash_len=32, salt_len=16)
 SESSION_TTL = 1800
@@ -38,11 +41,10 @@ class Shared:
         return hmac.new(pepper, (purpose + "\0" + value).encode("utf-8"), hashlib.sha256).hexdigest()
 
     def password(self, value):
-        if value is None:
+        if value is None or value == "":
             return None
-        if not isinstance(value, str) or not 12 <= len(value) <= 128 or len(value.encode("utf-8")) > 256 \
-                or "\r" in value or "\n" in value:
-            raise DomainError("INVALID_PASSWORD", "Share password must contain 12–128 characters, at most 256 UTF-8 bytes, without line breaks.", 422)
+        if not isinstance(value, str) or len(value.encode("utf-8")) > 4096:
+            raise DomainError("INVALID_PASSWORD", "The password exceeds the supported request size.", 422)
         if not self.auth.kdf_slots.acquire(blocking=False):
             raise DomainError("RATE_LIMITED", "Authentication is busy; try again later.", 429)
         try:
@@ -63,7 +65,8 @@ class Shared:
         safe_relative(path)
         self.policy(permission, expires_at)
         verifier = self.password(password)
-        token, identifier, now = secrets.token_urlsafe(32), secrets.token_hex(16), time.time()
+        identifier, now = secrets.token_hex(16), time.time()
+        token = self.link_token(identifier)
         token_hmac = self.mac("share-token", token)
         with self.lock, self.state.transaction() as db:
             self.vault.read(path)
@@ -75,22 +78,43 @@ class Shared:
         return {"share_id": identifier, "url": self.vault.config.public_url.rstrip("/") + "/s/" + token,
                 "permission": permission, "expires_at": expires_at}
 
+    def link_token(self, identifier):
+        """Recoverable, domain-separated capability with a full 256-bit MAC.
+
+        Original random capabilities keep working. This signed alias targets the
+        same Share record, so policy, revocation and restore retain one authority.
+        No raw capability or reversible credential is persisted in the database.
+        """
+        signature = bytes.fromhex(self.mac("share-link-v2", identifier))
+        return "v2_" + base64.urlsafe_b64encode(bytes.fromhex(identifier) + signature).decode().rstrip("=")
+
+    def copy_link(self, identifier):
+        self.ready()
+        row = self.state.one("SELECT id,revoked_at FROM shares WHERE id=?", (identifier,))
+        if not row or row["revoked_at"] is not None:
+            raise DomainError("NOT_FOUND", "Share not found.", 404)
+        return {"url": self.vault.config.public_url.rstrip("/") + "/s/" + self.link_token(identifier)}
+
     def list(self, limit=100, offset=0):
         self.ready()
         rows = self.state.rows("SELECT id AS share_id,path,permission,password_hash IS NOT NULL AS password_required,"
-                               "created_at,updated_at,expires_at,revoked_at,policy_version FROM shares "
+                               "created_at,updated_at,expires_at,revoked_at,policy_version FROM shares WHERE revoked_at IS NULL "
                                "ORDER BY created_at DESC LIMIT ? OFFSET ?", (min(max(limit, 1), 500), max(offset, 0)))
         with self.lock:
             for row in rows:
                 row["state"] = "revoked" if row["revoked_at"] else "expired" if row["expires_at"] \
                     and row["expires_at"] <= time.time() else "active"
                 try:
-                    self.vault.read(row["path"])
+                    text = self.vault.read(row["path"])
+                    with open_under(self.vault.config.vault, row["path"]) as source:
+                        row["modified_at"] = os.fstat(source.fileno()).st_mtime
+                    row["size_bytes"] = len(text.encode("utf-8"))
                     row["target_missing"] = False
                 except DomainError as error:
                     if error.status != 404:
                         raise
                     row["target_missing"] = True
+                    row["modified_at"] = row["size_bytes"] = None
         return rows
 
     def change(self, identifier, values):
@@ -123,9 +147,18 @@ class Shared:
 
     def active(self, token):
         self.ready()
-        if not isinstance(token, str) or not re.fullmatch(r"[A-Za-z0-9_-]{43}", token):
+        if not isinstance(token, str):
             raise DomainError("NOT_FOUND", "Share not found.", 404)
-        row = self.state.one("SELECT * FROM shares WHERE token_hmac=?", (self.mac("share-token", token),))
+        if re.fullmatch(r"v2_[A-Za-z0-9_-]{64}", token):
+            raw = base64.urlsafe_b64decode(token[3:])
+            identifier = raw[:16].hex()
+            if not hmac.compare_digest(token, self.link_token(identifier)):
+                raise DomainError("NOT_FOUND", "Share not found.", 404)
+            row = self.state.one("SELECT * FROM shares WHERE id=?", (identifier,))
+        elif re.fullmatch(r"[A-Za-z0-9_-]{43}", token):
+            row = self.state.one("SELECT * FROM shares WHERE token_hmac=?", (self.mac("share-token", token),))
+        else:
+            raise DomainError("NOT_FOUND", "Share not found.", 404)
         if not row or row["revoked_at"] is not None or row["expires_at"] is not None and row["expires_at"] <= time.time():
             raise DomainError("NOT_FOUND", "Share not found.", 404)
         return row
@@ -145,7 +178,7 @@ class Shared:
                     raise DomainError("RATE_LIMITED", "Too many attempts; try again later.", 429)
                 started = time.monotonic()
                 try:
-                    accepted = isinstance(password, str) and len(password.encode("utf-8")) <= 256 \
+                    accepted = isinstance(password, str) and len(password.encode("utf-8")) <= 4096 \
                         and PASSWORDS.verify(row["password_hash"], password)
                 except (InvalidHashError, VerificationError):
                     accepted = False
@@ -201,6 +234,7 @@ class Shared:
                 db.execute("INSERT INTO projections VALUES(?,?,?,?,?)",
                            (identifier, row["id"], sha, min(now+SESSION_TTL, session["expires_at"]), encoded))
             return {"projection_id": identifier, "sha256": sha, "permission": row["permission"],
+                    "title": PurePosixPath(row["path"]).stem,
                     **share_projection.public(record)}
 
     def save(self, token, session_token, projection_id, values, expected):

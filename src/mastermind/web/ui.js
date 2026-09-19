@@ -5,7 +5,15 @@ export const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;'
 export const humanBytes=n=>n==null?'Unknown':n>=1073741824?(n/1073741824).toFixed(1)+' GiB':n>=1048576?(n/1048576).toFixed(1)+' MiB':n.toLocaleString()+' B';
 export const stamp=n=>n?new Date(n*1000).toLocaleString():'Never verified';
 export const duration=n=>`${Math.floor(n/86400)}d ${Math.floor(n%86400/3600)}h ${Math.floor(n%3600/60)}m ${Math.floor(n%60)}s`;
-export function notice(message,error=false){const node=document.createElement('div');node.className='notice'+(error?' error':'');node.textContent=message;$('#notices').replaceChildren(node);setTimeout(()=>node.remove(),7000);}
+export function notice(message,error=false){
+  const stack=$('#notices'),node=document.createElement('div');node.className='notice'+(error?' error':'');
+  node.setAttribute('role',error?'alert':'status');node.setAttribute('aria-atomic','true');
+  const text=document.createElement('span');text.textContent=message;
+  const close=document.createElement('button');close.type='button';close.className='notice-close';close.setAttribute('aria-label','Dismiss notification');close.innerHTML=closeIcon;
+  node.append(text,close);stack.append(node);while(stack.children.length>5)stack.firstElementChild.remove();
+  let timer;const dismiss=()=>{clearTimeout(timer);node.remove();};const resume=()=>{clearTimeout(timer);timer=setTimeout(dismiss,error?8000:4500);};
+  close.onclick=dismiss;node.onpointerenter=()=>clearTimeout(timer);node.onpointerleave=resume;node.onfocusin=()=>clearTimeout(timer);node.onfocusout=resume;resume();
+}
 export async function api(route,{method='GET',body,headers={},signal=state.viewController?.signal,allow401=false}={}){
   const response=await fetch(route,{method,credentials:'same-origin',signal,headers:{...(body!==undefined?{'Content-Type':'application/json'}:{}),
     ...(state.session&&method!=='GET'?{'X-CSRF-Token':state.session.csrf}:{}),...headers},...(body!==undefined?{body:JSON.stringify(body)}:{})});
@@ -15,18 +23,28 @@ export async function api(route,{method='GET',body,headers={},signal=state.viewC
 export function bind(root,event,selector,handler){const listener=async e=>{const target=e.target.closest(selector);if(!target||!root.contains(target))return;
   try{await handler(e,target);}catch(error){if(error.name!=='AbortError')notice(error.message,true);}};root.addEventListener(event,listener);return()=>root.removeEventListener(event,listener);}
 export async function pending(button,action){if(button.disabled)return;const label=button.textContent,width=button.style.width;button.style.width=button.offsetWidth+'px';button.disabled=true;button.setAttribute('aria-busy','true');button.textContent='Working…';try{return await action();}finally{button.textContent=label;button.style.width=width;button.disabled=false;button.removeAttribute('aria-busy');}}
-export function search(label='Search',placeholder=''){return `<label class="search-box"><span class="sr-only">${escape(label)}</span><input type="search" placeholder="${escape(placeholder||label)}" aria-label="${escape(label)}"><button type="button" class="clear" aria-label="Clear search" hidden>×</button></label>`;}
-export function wireSearch(root,handler){const input=$('input[type=search]',root),clear=$('.clear',root);const update=()=>{clear.hidden=!input.value;handler(input.value);};input.addEventListener('input',update);clear.addEventListener('click',()=>{input.value='';update();input.focus();});input.addEventListener('keydown',e=>{if(e.key==='Escape'&&input.value){e.stopPropagation();input.value='';update();}});return input;}
+export const closeIcon='<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>';
+export function search(label='Search',placeholder='Search'){return `<div class="search-box" role="search" aria-label="${escape(label)}"><svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg><input type="search" placeholder="${escape(placeholder)}" aria-label="${escape(label)}"><button type="button" class="clear" aria-label="Clear search" aria-hidden="true" tabindex="-1" disabled>${closeIcon}</button></div>`;}
+export function wireSearch(root,handler){
+  const input=$('input[type=search]',root),clear=$('.clear',root);
+  const sync=()=>{const inactive=!input.value||input.disabled||input.readOnly;clear.classList.toggle('is-hidden',!input.value);clear.disabled=inactive;clear.tabIndex=inactive?-1:0;clear.setAttribute('aria-hidden',String(inactive));};
+  const update=()=>{sync();handler(input.value);};
+  const reset=()=>{if(input.disabled||input.readOnly)return;input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));requestAnimationFrame(()=>input.focus({preventScroll:true}));};
+  input.addEventListener('input',update);clear.addEventListener('click',reset);
+  input.addEventListener('keydown',e=>{if(e.key==='Escape'&&input.value){e.preventDefault();e.stopPropagation();reset();}});
+  const observer=new MutationObserver(sync);observer.observe(input,{attributes:true,attributeFilter:['disabled','readonly']});state.viewController?.signal.addEventListener('abort',()=>observer.disconnect(),{once:true});sync();return input;
+}
 export function card(id,title,body,{wide=false,quarter=false}={}){return `<section class="card${wide?' wide':''}${quarter?' quarter':''}" data-card="${id}"><header class="card-header"><span class="ordinal"></span><h2>${escape(title)}</h2></header>${handle(title)}<div class="card-body">${body}</div></section>`;}
 export function handle(label){return `<button type="button" class="drag" draggable="true" aria-label="Reorder ${escape(label)}" title="Drag, or use Alt + Arrow Up / Down"><span class="dots" aria-hidden="true"><i></i><i></i><i></i><i></i></span></button>`;}
 export async function preferences(change){function apply(result){state.prefs=result;document.documentElement.style.setProperty('--accent',result.accent);document.dispatchEvent(new Event('preferences-changed'));return result;}try{return apply(await api('/api/owner/settings',{method:'PATCH',body:{revision:state.prefs.revision,...change}}));}catch(error){if(error.code==='SETTINGS_CONFLICT')apply(await api('/api/owner/settings'));throw error;}}
-export function reorder(root,key,selector='[data-card]'){
+export function reorder(root,key,selector='[data-card]',direct=false){
+  const grip=direct?'[data-nav]':'.drag';
   const attr=selector==='[data-nav]'?'nav':'card';let dragged=null;
   const items=()=>$$(selector,root);function apply(order){for(const id of order){const node=items().find(item=>item.dataset[attr]===id);if(node)root.append(node);}items().forEach((item,index)=>{const n=$('.ordinal',item);if(n)n.textContent=String(index+1).padStart(2,'0');});}
   apply(state.prefs.orders[key]);
   async function persist(order,focus){try{await preferences({orders:{[key]:order}});apply(order);notice(`Order saved. ${focus} is item ${order.indexOf(focus)+1}.`);}catch(error){apply(state.prefs.orders[key]);throw error;}}
-  bind(root,'keydown','.drag',async(e,target)=>{if(!e.altKey||!['ArrowUp','ArrowDown'].includes(e.key))return;e.preventDefault();const row=target.closest(selector),id=row.dataset[attr],order=items().map(item=>item.dataset[attr]),index=order.indexOf(id),next=index+(e.key==='ArrowUp'?-1:1);if(next<0||next>=order.length)return;[order[index],order[next]]=[order[next],order[index]];await persist(order,id);target.focus();});
-  root.addEventListener('dragstart',e=>{const h=e.target.closest('.drag');if(!h)return;dragged=h.closest(selector);e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',dragged.dataset[attr]);});
+  bind(root,'keydown',grip,async(e,target)=>{if(!e.altKey||!['ArrowUp','ArrowDown'].includes(e.key))return;e.preventDefault();const row=target.closest(selector),id=row.dataset[attr],order=items().map(item=>item.dataset[attr]),index=order.indexOf(id),next=index+(e.key==='ArrowUp'?-1:1);if(next<0||next>=order.length)return;[order[index],order[next]]=[order[next],order[index]];await persist(order,id);(direct?$('a',target):target).focus();});
+  root.addEventListener('dragstart',e=>{const h=e.target.closest(grip);if(!h)return;dragged=h.closest(selector);e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',dragged.dataset[attr]);});
   root.addEventListener('dragover',e=>{const item=e.target.closest(selector);if(!dragged||!item||dragged===item)return;e.preventDefault();items().forEach(node=>delete node.dataset.drop);const b=item.getBoundingClientRect();item.dataset.drop=e.clientY<b.y+b.height/2?'before':'after';});
   bind(root,'drop',selector,async(e,target)=>{e.preventDefault();if(!dragged||target===dragged)return;const id=dragged.dataset[attr],order=items().map(item=>item.dataset[attr]).filter(v=>v!==id),at=order.indexOf(target.dataset[attr]);order.splice(at+(target.dataset.drop==='after'?1:0),0,id);items().forEach(node=>delete node.dataset.drop);dragged=null;await persist(order,id);});
   root.addEventListener('dragend',()=>{dragged=null;items().forEach(node=>delete node.dataset.drop);});
@@ -35,7 +53,7 @@ let activeDialog=null;
 export function closeDialogs(){activeDialog?.close(true);}
 export function dialog(title,body,{onClose=()=>{},dirtyGuard=true}={}){
   closeDialogs();
-  const previous=document.activeElement,overlay=document.createElement('div');overlay.className='overlay';overlay.innerHTML=`<section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title"><header class="dialog-header"><h2 id="dialog-title">${escape(title)}</h2><button type="button" aria-label="Close dialog">×</button></header><div class="dialog-body">${body}<p class="error-message" role="alert"></p></div></section>`;
+  const previous=document.activeElement,overlay=document.createElement('div');overlay.className='overlay';overlay.innerHTML=`<section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title"><header class="dialog-header"><h2 id="dialog-title">${escape(title)}</h2><button type="button" aria-label="Close dialog">${closeIcon}</button></header><div class="dialog-body">${body}<p class="error-message" role="alert"></p></div></section>`;
   $('#overlay-root').replaceChildren(overlay);$('#app').inert=true;const panel=$('.dialog',overlay),error=$('.error-message',overlay);let dirty=false,busy=false,closed=false;panel.addEventListener('input',()=>dirty=true);
   function close(force=false){if(closed)return;if(busy&&!force){error.textContent='This step is still running. Its status will be available in Settings.';return;}
     if(dirty&&dirtyGuard&&!force){error.textContent='This form contains unsaved input.';if(!$('.discard',panel)){const discard=document.createElement('button');discard.className='discard danger';discard.textContent='Discard input and close';discard.onclick=()=>close(true);error.after(discard);}return;}
@@ -67,5 +85,12 @@ export function opaqueInput(input){let raw='',display='';const normalize=value=>
 }
 
 // The same absolute growth in both dimensions; offsets exclude transforms.
-function growth(event){const target=event.target.closest?.('button,.nav-row,.hoverable');if(!target||target.matches('.drag,.day,.clear,.edge-toggle')||target.closest('.nav-bottom,.dialog-header'))return;const node=target.closest('.nav-row')||target,w=node.offsetWidth,h=node.offsetHeight;if(!w||!h)return;const g=Math.min(w,h)*.05;node.style.setProperty('--grow-x',(w+g)/w);node.style.setProperty('--grow-y',(h+g)/h);const b=node.getBoundingClientRect(),p=node.parentElement.getBoundingClientRect();node.style.transformOrigin=(Math.abs(b.left-p.left)<4?'left':Math.abs(b.right-p.right)<4?'right':'center')+' center';node.classList.add('hover-scale');}
+function grow(node){const w=node.offsetWidth,h=node.offsetHeight;if(!w||!h)return;const g=Math.min(w,h)*.05;node.style.setProperty('--grow-x',(w+g)/w);node.style.setProperty('--grow-y',(h+g)/h);const b=node.getBoundingClientRect(),p=node.parentElement.getBoundingClientRect();node.style.transformOrigin=(Math.abs(b.left-p.left)<g+4?'left':Math.abs(b.right-p.right)<g+4?'right':'center')+' center';node.classList.add('hover-scale');}
+function growth(event){
+  const field=event.target.closest?.('.search-box');if(field){grow(field);field.style.transformOrigin='center';return;}
+  const card=event.target.closest?.('.card.hoverable');if(card)grow(card);
+  const target=event.target.closest?.('button,.nav-row,.hoverable');
+  if(!target||target===card||target.matches('.drag,.day,.clear,.edge-toggle,.card-action,.notice-close,.shared-toggle')||target.closest('.nav-bottom,.dialog-header,.search-box,.docs-nav,.shared-head'))return;
+  grow(target.closest('.nav-row')||target);
+}
 document.addEventListener('pointerover',growth);document.addEventListener('focusin',growth);

@@ -1,4 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" fill="none">
-<path d="M30 144V48L96 108L162 48V144M30 48L96 24L162 48M30 144L96 168L162 144M96 24V108L96 168M30 144L96 108L162 144" stroke="#00A8FF" stroke-width="3"/>
-<g fill="#00A8FF"><circle cx="30" cy="48" r="7"/><circle cx="162" cy="48" r="7"/><circle cx="30" cy="144" r="7"/><circle cx="162" cy="144" r="7"/><circle cx="96" cy="24" r="7"/><circle cx="96" cy="108" r="9"/><circle cx="96" cy="168" r="7"/></g>
-</svg>

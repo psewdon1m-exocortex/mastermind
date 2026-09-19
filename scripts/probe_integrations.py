@@ -81,7 +81,7 @@ def seed_register():
     checked(kernel.put("/api/register/entries", json={"entries": bindings}))
     machine = client("kernel")  # Separate machine principal; no operator cookie.
     consumer = Kernel(BASE, lambda: (FIXTURE / "kernel.token").read_text(), client=machine)
-    key = SHELL_BINDINGS["ai_provider_key"]
+    key = SHELL_BINDINGS["chronos_service_token"]
     assert consumer.resolve([key])[key] == values[key]
     assert consumer.origin_for("saturn") == "https://saturn.mastermind.test:443"
     assert all("volt://" in item["value"] for item in checked(kernel.get("/api/register"))["entries"])

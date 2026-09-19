@@ -21,6 +21,7 @@ class Config:
     updater_socket: str | None = None
     updater_token_file: Path | None = None
     updater_head_id: str = "mastermind"
+    wyvern_link_file: Path = Path("/run/wyvern-link/link.json")
     secret_directory: Path | None = None
     bridge_artifacts: Path | None = None
     max_note_bytes: int = 8 * 1024**2
@@ -75,6 +76,7 @@ class Config:
             updater_socket=os.environ.get("MASTERMIND_UPDATER_SOCKET"),
             updater_token_file=path("MASTERMIND_UPDATER_TOKEN_FILE"),
             updater_head_id=os.environ.get("MASTERMIND_UPDATER_HEAD_ID", "mastermind"),
+            wyvern_link_file=Path(os.environ.get("MASTERMIND_WYVERN_LINK_FILE", "/run/wyvern-link/link.json")),
             secret_directory=path("MASTERMIND_SECRET_DIRECTORY"),
             bridge_artifacts=Path(os.environ.get("MASTERMIND_BRIDGE_ARTIFACTS", "/app/bridge")),
             timezone=os.environ.get("MASTERMIND_TIMEZONE", "UTC"),

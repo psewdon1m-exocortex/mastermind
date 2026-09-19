@@ -1,5 +1,6 @@
 import {state,$,$$,api,escape,card,reorder,poll,humanBytes,stamp,bind,pending,dialog,confirmation,notice,preferences,download,opaqueInput} from './ui.js';
 import {hashFile} from './crusher.js';
+import {wyvernCard} from './wyvern.js';
 
 export async function startOperation(kind,file=null,resume=null){
   let identifier=resume,stop=()=>{},finished=false;
@@ -69,6 +70,8 @@ export async function settings(root){
   ${card('backup','Backup',`<div class="group"><h3>System snapshot</h3><p>Encrypted full Vault and mandatory service state. Includes Obsidian plugins and their original data. Recovery keys are stored separately.</p><button class="action" data-backup>Create and download snapshot</button></div><div class="group"><h3>Restore snapshot</h3><p>Upload a recovery ZIP, inspect its contents and explicitly confirm replacement.</p><label class="sr-only" for="restore-file">Recovery ZIP</label><input id="restore-file" type="file" accept=".zip" hidden><button class="action" data-restore-file>Inspect and restore snapshot</button></div><div class="group"><h3>Neptune archive and mirror</h3><p>Independent pipelines. Schedules and remote runs belong to Saturn Synchronization.</p><div data-agents>Checking local agent…</div><div class="row"><button data-agent-refresh>Refresh status</button><button data-agent-init>Initialize / Repair</button></div></div><div class="group"><h3>Recent maintenance operations</h3><div data-operations class="list"></div></div>`,{wide:true})}
   ${card('updates','Updates',`<div class="group"><h3>Update pipeline</h3><p>Core, Runtime and Worker update together through the local Updater.</p><p>Installed version: <strong class="accent" data-version>Loading…</strong></p><div class="status-line"><span>Local update helper</span><span data-updater>Not verified</span></div><div class="status-line"><span>Approved release registry</span><span data-registry>Not checked</span></div><button class="action" data-update-check>Check for updates</button><p data-update-state></p></div>`,{wide:true})}
   ${card('logs','Logs',`<div class="row"><p class="grow">Bounded event stream · timestamps in your browser timezone.</p><button data-logs-download>Download archived logs</button></div><div class="logs" role="log" aria-label="Service events" aria-live="off"><div class="log-row heading"><span>TYPE</span><span>BODY</span><span>TIME</span></div><div data-log-rows></div></div>`,{wide:true})}</div>`;
+  $('.grid',root).insertAdjacentHTML('beforeend',card('wyvern','Wyvern','<div data-wyvern>Checking LLM gateway…</div>',{wide:true}));
+  void wyvernCard(root);
   reorder($('.grid',root),'settings');let connection={},logCursor=null,events=[],agentTick=0,initialization={state:'IDLE'};
   const preview=value=>{if(/^#[\da-f]{6}$/i.test(value)){document.documentElement.style.setProperty('--accent',value);$('[data-color]',root).value=value;$('[data-hex]',root).value=value;}};
   $('[data-color]',root).oninput=e=>preview(e.target.value);$('[data-hex]',root).oninput=e=>preview(e.target.value);

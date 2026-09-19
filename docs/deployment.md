@@ -24,6 +24,12 @@ Then run `sudo mastermind-install install`. The installer validates immutable lo
 
 The installer owns `mastermind_core-data`, `mastermind_vault-data`, `mastermind_runtime-data`, `mastermind_work-data`; foreign volumes using those names cause refusal. The single application listener is `127.0.0.1:18390`. Runtime and Worker ports have no host mappings.
 
+Runtime also joins its own `runtime-egress` bridge so Obsidian can resolve and
+download community themes/plugins and use the owner's configured integrations.
+Keeping it only on the internal `private` network prevents those native features
+from loading. Development and production Compose both declare this egress;
+it is separate from Worker egress and adds no published Runtime listener.
+
 Before starting Core, provision the seven `services.mastermind.secrets.*` bindings listed in [security](security.md) through Volt references in Kernel. Generate recovery and signing identities independently of release/storage keys and retain their recovery escrow outside the Vault and backup ZIP.
 
 ## First native session and ingress

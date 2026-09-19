@@ -32,7 +32,7 @@ def regular(path, maximum):
     return path.read_bytes()
 
 
-def verify(manifest, envelope, public_key, version=None):
+def verify(manifest, envelope, public_key, version=None, *, validate=True):
     body = regular(manifest, 2*1024**2)
     signed = json.loads(regular(envelope, 16384))
     regular(public_key, 16384)
@@ -51,6 +51,8 @@ def verify(manifest, envelope, public_key, version=None):
         if result.returncode:
             raise ValueError("Release signature verification failed")
     value = json.loads(body)
+    if not validate:
+        return value
     group = value.get("mastermind", {})
     if value.get("schema_version") != 1 or value.get("service") != "mastermind" \
             or not VERSION.fullmatch(value.get("version", "")) or version and value["version"] != version \

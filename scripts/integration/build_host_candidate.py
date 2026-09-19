@@ -88,6 +88,7 @@ def main():
     python = sys.executable
     print(run(python, str(source / "scripts/build_release.py"), "build", "--output", str(output), "--components", str(lock),
         "--public-key", str(FIXTURE / "mastermind.pem"), "--updater-bundle", str(FIXTURE / "updater"),
+        "--wyvern-bundle", str(FIXTURE / "wyvern"),
         "--repository", "psewdon1m-exocortex/mastermind", "--source-sha", revision))
     print(run(python, "scripts/build_release.py", "sign", str(output / "mastermind-release.json"), "--key-file", str(FIXTURE / "mastermind-signing.key")))
     print(run(python, "scripts/integration/prepare_release_transport.py"))

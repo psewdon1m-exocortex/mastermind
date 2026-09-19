@@ -122,7 +122,7 @@ class Supervisor:
                "MASTERMIND_BRIDGE_STATE": str(self.home / "bridge-state.json"),
                "MASTERMIND_START_PAUSED": "1" if self.verifying else "0"}
         # Obsidian community plugins already execute Node code. The Linux container
-        # (non-root, no capabilities, no-new-privileges, private mounts/network) is
+        # (non-root, no capabilities, no-new-privileges, scoped mounts, no host ports) is
         # the isolation boundary; a setuid Chromium helper cannot elevate here.
         self.obsidian = subprocess.Popen([
             "/opt/obsidian/obsidian", "--no-sandbox", "--disable-dev-shm-usage",

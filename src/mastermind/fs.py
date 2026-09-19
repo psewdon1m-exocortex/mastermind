@@ -110,10 +110,13 @@ def atomic_json(path: Path, value):
                                  separators=(",", ":")).encode("utf-8"))
 
 
-def file_inventory(root: Path):
+def file_inventory(root: Path, *, include_hidden=True):
     """Yield regular files, validating hidden user data without reading its content."""
     for directory, dirs, names in os.walk(root, followlinks=False):
         check()
+        if not include_hidden:
+            dirs[:] = [name for name in dirs if not name.startswith(".")]
+            names = [name for name in names if not name.startswith(".")]
         dirs.sort()
         names.sort()
         for name in dirs:

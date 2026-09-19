@@ -86,9 +86,23 @@ def build(args):
                 raise ValueError("Qualified Linux installer inputs must already use LF: "+name)
             files[name] = body
     required_vendor = {"vendor/updater/"+name for name in ("install.sh", "updater-linux-amd64", "systemd/updater.service",
-                      "release-trust/updater.pem", "release-trust/neptune.pem", "release-trust/gryphon.pem")}
+                      "release-trust/updater.pem", "release-trust/neptune.pem", "release-trust/gryphon.pem", "release-trust/wyvern.pem")}
     if not required_vendor.issubset(files):
         raise ValueError("The qualified signed Updater installer/trust bundle is incomplete")
+    capabilities = json.loads(subprocess.check_output([str(args.updater_bundle/"updater-linux-amd64"), "wyvern", "capabilities"]))
+    if capabilities != {"schema": "exocortex.wyvern.updater.v1", "api_version": 1}:
+        raise ValueError("Qualified Updater must implement Wyvern v1")
+    import sys
+    sys.path.insert(0, str(ROOT/"packaging"))
+    from release_verify import verify
+    wyvern = verify(args.wyvern_bundle/"wyvern-release.json", args.wyvern_bundle/"wyvern-release.json.sig.json", args.updater_bundle/"release-trust/wyvern.pem", validate=False)
+    if wyvern.get("schema") != "exocortex.wyvern.release.v1" or wyvern.get("product") != "wyvern" or wyvern.get("api_version") != 1 \
+            or wyvern.get("config_schema") != "exocortex.wyvern.config.v1" \
+            or not re.fullmatch(r"ghcr\.io/[a-z0-9_.-]+/[a-z0-9_.-]+@sha256:[a-f0-9]{64}", wyvern.get("image", "")) \
+            or not {"text", "structured_output", "token_count", "image", "pdf", "audio", "video", "youtube"} <= set(wyvern.get("capabilities", [])):
+        raise ValueError("A signed Wyvern v1 release is required")
+    for name in ("wyvern-release.json", "wyvern-release.json.sig.json"):
+        files["vendor/wyvern/"+name] = (args.wyvern_bundle/name).read_bytes()
     bundle = output/"mastermind-compose.tar.gz"
     with bundle.open("wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as zipped, \
             tarfile.open(fileobj=zipped, mode="w|") as archive:
@@ -104,11 +118,11 @@ def build(args):
     manifest = {"schema_version": 1, "service": "mastermind", "version": version,
         "image": {"reference": image, "digest": image_digest},
         "compose_bundle": {"url": base+"/"+bundle.name, "sha256": digest(bundle.read_bytes())},
-        "database_schema": 1, "minimum_updater_version": "0.4.7",
+        "database_schema": 1, "minimum_updater_version": "0.6.0",
         "mastermind": {"profile": "mastermind.components.v1", "source_sha": args.source_sha, "platform": "linux/amd64",
             "components": components, "bridge_version": version, "obsidian_version": "1.13.7",
             "model_sha256": model["files"]["model.onnx"]["sha256"], "minimum_source_schema": 1, "maximum_source_schema": 1,
-            "dependencies": {"kernel": "0.2.10", "volt": "0.1.5", "saturn": "0.1.15", "chronos": "0.1.1", "neptune": "0.1.7", "updater": "0.4.7"},
+            "dependencies": {"kernel": "0.3.0", "volt": "0.2.0", "saturn": "0.1.15", "chronos": "0.1.1", "neptune": "0.1.7", "updater": "0.6.0", "wyvern": wyvern["version"]},
             "health_profile": "mastermind.functional.v1"},
         "files": {name: digest(body) for name, body in sorted(files.items())},
         "qualification": {"published": False, "producer_patch_lock": "docs/compatibility.json"}}
@@ -125,7 +139,7 @@ def main():
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
     command = commands.add_parser("build")
-    for name in ("output", "components", "public-key", "updater-bundle"):
+    for name in ("output", "components", "public-key", "updater-bundle", "wyvern-bundle"):
         command.add_argument("--"+name, type=Path, required=True)
     command.add_argument("--repository", required=True)
     command.add_argument("--source-sha", required=True)

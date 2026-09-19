@@ -842,6 +842,15 @@
     {
       "component": "core",
       "method": "GET",
+      "path": "/shared",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "public_bootstrap",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
       "path": "/shares",
       "source": "src/mastermind/operator_routes.py",
       "exposure": "canonical_https",
@@ -1049,6 +1058,15 @@
     {
       "component": "core",
       "method": "GET",
+      "path": "/api/v1/shares/{identifier}/link",
+      "source": "src/mastermind/shared_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
       "path": "/s/{token}",
       "source": "src/mastermind/shared_routes.py",
       "exposure": "canonical_https",
@@ -1206,6 +1224,33 @@
       "source": "src/mastermind/worker.py",
       "exposure": "private_network",
       "principal": "worker_control",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/wyvern",
+      "source": "src/mastermind/wyvern_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/owner/wyvern/bindings",
+      "source": "src/mastermind/wyvern_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/owner/wyvern/connect",
+      "source": "src/mastermind/wyvern_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
       "indexable": false
     }
   ]

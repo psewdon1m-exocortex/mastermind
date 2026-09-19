@@ -45,7 +45,9 @@ def filename(title):
 
 def footer(record, identifier, placement):
     values = {"job_id": identifier, "source_type": record["source"]["type"], "source": record["source_label"],
-              "processed_at": datetime.now(UTC).isoformat(), "provider": "Gemini", "model": record["models"]["text"],
+              "processed_at": datetime.now(UTC).isoformat(), "provider": record.get("provider_targets", {}).get("text", {}).get("driver", "unknown"),
+              "model": record.get("provider_targets", {}).get("text", {}).get("model", record["models"]["text"]),
+              "adapter": record.get("provider_targets", {}).get("text", {}).get("adapter_id", "unknown"),
               "placement_confidence": placement["confidence"], "suggested_destination": placement["suggested"] or ""}
     lines = [key + ": " + json.dumps(value, ensure_ascii=True).replace(">", "\\u003e").replace("<", "\\u003c")
              for key, value in values.items()]
@@ -57,7 +59,7 @@ class Crusher:
         self.service, self.state = service, service.state
         self.access = service.crusher_access
         self.worker = worker or WorkerClient(service.config, service.secrets)
-        self.provider = provider or Gemini(service.kernel, service.secrets)
+        self.provider = provider or Gemini(link_file=service.config.wyvern_link_file)
         engine = self
 
         class PlacementProvider:
@@ -135,6 +137,13 @@ class Crusher:
         try:
             result = action()
         except DomainError as error:
+            if error.code == "WYVERN_MEDIA_EXPIRED" and self.record.get("media_reuploads", 0) < 2:
+                self.record["media_reuploads"] = self.record.get("media_reuploads", 0)+1
+                for media_step in ("media-upload", "media-ready", "media-understand", "understand-media"):
+                    self.record["results"].pop(media_step, None)
+                self.record["next_attempt_at"] = time.time()+5
+                self.save()
+                raise Scheduled from None
             if error.code in RETRYABLE and attempts < 2:
                 delay = (5, 30)[attempts]
                 retry = error.headers.get("Retry-After")
@@ -230,7 +239,11 @@ class Crusher:
             raise DomainError("SOURCE_TOKEN_LIMIT", "The job exhausted its fixed source input budget.", 422)
         budget["source_transmitted"] += count
         self.save()
-        return self.provider.generate(model, task, packet, schema)
+        result = self.provider.generate(model, task, packet, schema)
+        if isinstance(self.provider, Gemini):
+            self.record["provider_targets"] = dict(self.provider.targets)
+            self.save()
+        return result
 
     def validate(self, generated):
         title, text = filename(generated["title"]), generated["markdown"]
@@ -299,6 +312,8 @@ class Crusher:
 
     def process(self):
         self.record.setdefault("budget", {"unique": {}, "transmitted": 0, "source_transmitted": 0})
+        if isinstance(self.provider, Gemini) and self.record.get("results", {}).get("models", {}).get("text") not in (None, "text"):
+            self.record["results"].pop("models", None)
         self.record["models"] = self.checkpoint("models", self.provider.models)
         self.stage("ACQUIRING")
         self.checkpoint("acquire", self.acquire)

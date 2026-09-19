@@ -12,7 +12,7 @@ REF = "volt://7183e550-f61b-4c3c-827f-434aa07ba3af/1"
 
 
 def fixture_peer():
-    values = {"services": {"mastermind": {"secrets": {"ai_provider_key": REF}}}}
+    values = {"services": {"mastermind": {"secrets": {"chronos_service_token": REF}}}}
     snapshot = {"schema": "exocortex.register.snapshot.v1", "values": values,
                 "checksum": "sha256:" + hashlib.sha256(json.dumps({"values": values},
                     ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()}
@@ -23,9 +23,9 @@ def fixture_peer():
         assert request.headers["authorization"] == "Bearer fixture-credential"
         if request.method == "GET":
             return httpx.Response(state["status"], json=state["snapshot"])
-        assert json.loads(request.content) == {"keys": [SHELL_BINDINGS["ai_provider_key"]]}
+        assert json.loads(request.content) == {"keys": [SHELL_BINDINGS["chronos_service_token"]]}
         return httpx.Response(state["status"], json={"schema": "exocortex.register.resolution.v1", "values": {
-            SHELL_BINDINGS["ai_provider_key"]: {"value": state["value"], "secret": True, "volt_revision": 1}}})
+            SHELL_BINDINGS["chronos_service_token"]: {"value": state["value"], "secret": True, "volt_revision": 1}}})
     return state, httpx.Client(transport=httpx.MockTransport(handler))
 
 
@@ -34,22 +34,22 @@ def test_exact_memory_cache_expiry_rotation_and_cold_start(tmp_path):
     clock = [0]
     kernel = Kernel("https://kernel.local", lambda: "fixture-credential", client=client, clock=lambda: clock[0])
     store = ShellSecrets(tmp_path, kernel)
-    assert store.read("ai_provider_key") == "  opaque\n秘密\t  "
+    assert store.read("chronos_service_token") == "  opaque\n秘密\t  "
     assert peer["calls"] == 2
     peer["status"] = 503
-    assert store.read("ai_provider_key") == peer["value"]
+    assert store.read("chronos_service_token") == peer["value"]
     clock[0] = 61
     with pytest.raises(DomainError):
-        store.read("ai_provider_key")
+        store.read("chronos_service_token")
     # A local plaintext file cannot become a fallback when Kernel resolution fails.
-    (tmp_path / "ai_provider_key").write_text("forbidden-fallback")
-    assert not store.available("ai_provider_key")
+    (tmp_path / "chronos_service_token").write_text("forbidden-fallback")
+    assert not store.available("chronos_service_token")
     peer.update(status=200, value="rotated")
-    assert store.read("ai_provider_key") == "rotated"
+    assert store.read("chronos_service_token") == "rotated"
     kernel.invalidate()
     peer["status"] = 503
-    assert not store.available("ai_provider_key")
-    assert list(tmp_path.iterdir()) == [tmp_path / "ai_provider_key"]
+    assert not store.available("chronos_service_token")
+    assert list(tmp_path.iterdir()) == [tmp_path / "chronos_service_token"]
     kernel.close()
     assert kernel.cache == {}
 
@@ -61,7 +61,7 @@ def test_untrusted_register_responses_are_bounded_and_do_not_replace_cache(fault
     if fault == "hash":
         peer["snapshot"]["checksum"] = "sha256:" + "0" * 64
     elif fault == "plaintext":
-        peer["snapshot"]["values"]["services"]["mastermind"]["secrets"]["ai_provider_key"] = "not-a-volt-ref"
+        peer["snapshot"]["values"]["services"]["mastermind"]["secrets"]["chronos_service_token"] = "not-a-volt-ref"
     elif fault == "missing":
         peer["snapshot"]["values"] = {}
     elif fault == "schema":
@@ -71,7 +71,7 @@ def test_untrusted_register_responses_are_bounded_and_do_not_replace_cache(fault
     elif fault == "redirect":
         peer["status"] = 302
     with pytest.raises(DomainError):
-        kernel.resolve([SHELL_BINDINGS["ai_provider_key"]])
+        kernel.resolve([SHELL_BINDINGS["chronos_service_token"]])
     assert kernel.cache == {}
 
 
