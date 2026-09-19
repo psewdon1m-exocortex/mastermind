@@ -89,9 +89,9 @@ class Semantic:
                 self.refresh()
             if self.failure:
                 return False
-            # Crusher is foreground work. A rebuild yields after every batch and
-            # does not take the source pipeline's sole processing slot.
-            if self.state.one("SELECT 1 FROM jobs WHERE state NOT IN ('COMPLETED','FAILED') LIMIT 1"):
+            # Source extraction/inference has priority. Waiting/placing jobs must
+            # not prevent the very index progress they may need.
+            if self.state.one("SELECT 1 FROM jobs WHERE state IN ('ACQUIRING','EXTRACTING','UNDERSTANDING','GENERATING') LIMIT 1"):
                 return False
             with self.service.coordinator.lock:
                 self.service.data_ready()
@@ -156,7 +156,7 @@ class Semantic:
                             (note["path"], offset, span["start"], span["end"], note["sha"], self.model, VECTOR.pack(*vector)))
             return True
 
-    def search(self, query, limit=20):
+    def search(self, query, limit=20, *, allowed_paths=None, deadline=None, include_vector=False, source_chunks=None, evidence_queries=None):
         if not isinstance(query, str) or not query.strip() or len(query.encode()) > 4096 or not 1 <= limit <= 50:
             raise DomainError("INVALID_QUERY", "Use a nonempty query up to 4 KiB and 1–50 results.", 422)
         self.service.data_ready()
@@ -165,14 +165,42 @@ class Semantic:
             self.refresh()
         if self.failure:
             raise DomainError(self.failure, "Local semantic search is unavailable.", 503)
-        response = self.worker.embed([query], query=True)
+        source_chunks = source_chunks or []
+        evidence_queries = evidence_queries or []
+        if not isinstance(source_chunks, list) or len(source_chunks) > 8 or any(
+                not isinstance(chunk, str) or len(chunk.encode()) > 6400 for chunk in source_chunks):
+            raise DomainError("INVALID_QUERY", "Use at most eight bounded source feature chunks.", 422)
+        if not isinstance(evidence_queries, list) or len(evidence_queries) > 7 or any(
+                not isinstance(chunk, str) or len(chunk.encode()) > 6400 for chunk in evidence_queries):
+            raise DomainError("INVALID_QUERY", "Use at most seven bounded evidence queries.", 422)
+        options = {}
+        if deadline is not None:
+            remaining = deadline-time.monotonic()
+            if remaining <= 0:
+                raise DomainError("CONTEXT_DEADLINE", "Semantic search exceeded the query deadline.", 408)
+            if isinstance(self.worker, WorkerClient):
+                options["timeout"] = max(.01, remaining)
+        response = self.worker.embed([query, *source_chunks, *evidence_queries], query=True, **options)
         if response["model_sha256"] != self.model:
             raise DomainError("REINDEX_REQUIRED", "The query model does not match the stored index.", 409)
         query_vector, best, cursor = response["vectors"][0], {}, ("", -1)
+        segment_vectors = response["vectors"][1+len(source_chunks):]
+        segment_best = [{} for _ in segment_vectors]
+        if source_chunks:
+            count = len(source_chunks)
+            query_vector = [0.5*value + 0.5*sum(vector[i] for vector in response["vectors"][1:1+count])/count
+                            for i, value in enumerate(query_vector)]
+            norm = math.sqrt(sum(value*value for value in query_vector))
+            query_vector = [value/max(norm, 1e-12) for value in query_vector]
+        scope = " AND c.path IN (SELECT value FROM json_each(?))" if allowed_paths is not None else ""
+        scope_args = (json.dumps(sorted(allowed_paths)),) if allowed_paths is not None else ()
         while True:
+            if deadline is not None and time.monotonic() >= deadline:
+                raise DomainError("CONTEXT_DEADLINE", "Semantic search exceeded the query deadline.", 408)
             rows = self.state.rows("SELECT c.* FROM semantic_chunks c JOIN notes n ON n.path=c.path AND n.sha=c.source_sha "
                 "JOIN semantic_documents s ON s.path=c.path AND s.completed=1 AND s.source_sha=c.source_sha "
-                "WHERE c.model_sha=? AND (c.path,c.ordinal)>(?,?) ORDER BY c.path,c.ordinal LIMIT 256", (self.model, *cursor))
+                "WHERE c.model_sha=? AND (c.path,c.ordinal)>(?,?)"+scope+" ORDER BY c.path,c.ordinal LIMIT 256",
+                (self.model, *cursor, *scope_args))
             if not rows:
                 break
             for row in rows:
@@ -185,6 +213,9 @@ class Semantic:
                     raise DomainError("REINDEX_REQUIRED", "The derived vector index failed integrity; rebuild it.", 503) from None
                 if row["path"] not in best or score > best[row["path"]][0]:
                     best[row["path"]] = (score, row)
+                for feature, segment in zip(segment_vectors, segment_best, strict=True):
+                    score = sum(a*b for a, b in zip(vector, feature, strict=True))
+                    segment[row["path"]] = max(score, segment.get(row["path"], -1))
             cursor = rows[-1]["path"], rows[-1]["ordinal"]
         results = []
         for score, row in sorted(best.values(), key=lambda item: (-item[0], item[1]["path"])):
@@ -203,7 +234,10 @@ class Semantic:
                             "start": row["start"], "end": row["end"], "excerpt": excerpt})
             if len(results) == limit:
                 break
-        return {"results": results, "index": self.status()}
+        segments = [[{"path": path, "score": round(score, 6)} for path, score in sorted(
+            values.items(), key=lambda v: (-v[1], v[0]))[:20]] for values in segment_best]
+        return {"results": results, "index": self.status(), "segment_evidence": segments,
+                **({"query_vector": query_vector} if include_vector else {})}
 
     def run(self):
         while not self.stop_event.wait(0.25):

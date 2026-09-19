@@ -137,9 +137,10 @@ def test_foreground_job_yields_rebuild_and_public_sources_are_never_context(sema
     index.vault.write("Source.md", "Knowledge from owner Vault", None, create=True)
     with index.state.transaction() as db:
         db.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?,?,NULL,NULL)",
-            ("a"*32, "public-source", "idempotency-fixture", "source-sha", "QUEUED", "QUEUED", 0, 0, 0, json.dumps({"source": "private input"})))
+            ("a"*32, "public-source", "idempotency-fixture", "source-sha", "UNDERSTANDING", "UNDERSTANDING", 40, 0, 0, json.dumps({"source": "private input"})))
     assert not index.once() and not index.worker.batches
     with index.state.transaction() as db:
-        db.execute("UPDATE jobs SET state='FAILED'")
+        db.execute("UPDATE jobs SET state='PLACING'")
     drain(index)
+    assert index.status()["status"] == "READY"
     assert all("private input" not in text for texts, _ in index.worker.batches for text in texts)

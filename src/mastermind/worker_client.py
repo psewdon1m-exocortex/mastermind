@@ -47,11 +47,14 @@ class WorkerClient:
                                     "SOURCE_SIZE_INVALID", "SOURCE_TIMEOUT", "SSRF_REJECTED", "SOURCE_URL_INVALID",
                                     "SOURCE_REDIRECT_LIMIT", "SOURCE_ENCODING", "SOURCE_HEADERS_INVALID", "INSUFFICIENT_SPACE",
                                     "EXTRACTION_FAILED", "EXTRACTION_SANDBOX_FAILED", "EXTRACTION_TIMEOUT", "SOURCE_ENCRYPTED",
-                                    "ARCHIVE_UNSAFE", "ARCHIVE_LIMIT", "EXTRACTION_LIMIT", "SOURCE_EMPTY", "EMBEDDINGS_UNAVAILABLE"}:
+                                    "ARCHIVE_UNSAFE", "ARCHIVE_LIMIT", "EXTRACTION_LIMIT", "SOURCE_EMPTY", "EMBEDDINGS_UNAVAILABLE",
+                                    "CURATOR_UNAVAILABLE", "CURATOR_TIMEOUT", "CURATOR_CONTEXT_LIMIT", "CURATOR_OUTPUT_LIMIT"}:
                         code = "WORKER_UNAVAILABLE"
                     raise DomainError(code, "The private Worker could not complete this source operation.",
                                       response.status_code if response.status_code in (408, 409, 413, 422, 423, 429, 503, 507) else 503)
                 return value
+        except httpx.TimeoutException:
+            raise DomainError("WORKER_TIMEOUT", "The private Worker exceeded its response deadline.", 408) from None
         except (httpx.HTTPError, OSError, ValueError, TypeError, UnicodeError):
             raise DomainError("WORKER_UNAVAILABLE", "The private Worker connection or response failed.", 503) from None
 
@@ -85,9 +88,9 @@ class WorkerClient:
             raise DomainError("EXTRACTION_FAILED", "The Worker extraction result is invalid.", 503)
         return value
 
-    def embed(self, texts, *, query=False):
+    def embed(self, texts, *, query=False, timeout=10):
         import math
-        value = self.request("POST", "/embeddings", {"texts": texts, "query": query})
+        value = self.request("POST", "/embeddings", {"texts": texts, "query": query}, timeout=min(10, timeout))
         vectors = value.get("vectors")
         if not isinstance(vectors, list) or len(vectors) != len(texts) or any(
             not isinstance(vector, list) or len(vector) != 384 or any(type(number) not in (int, float)

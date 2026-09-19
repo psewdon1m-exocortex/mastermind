@@ -1,0 +1,69 @@
+{
+  "version": "context-indexing.calibration.20260919.v1",
+  "policy_version": "crusher.placement.v1",
+  "qualified": true,
+  "corpus_sha256": "49c5eb290497a851c250d40acfac357fdb1a1c5fb5ee740750654d12a492e49f",
+  "calibration_report_sha256": "73c1fbf5e86bf781f55160b2a4d43fbc51907fa3e83ae077cb411001cb0f6e73",
+  "embedding_sha256": "ca456c06b3a9505ddfd9131408916dd79290368331e7d76bb621f1cba6bc8665",
+  "variants": {
+    "complete": {
+      "score": 0.45,
+      "gap": 0.015,
+      "lexical": 0
+    },
+    "vector": {
+      "score": 0.15,
+      "gap": 0.04,
+      "lexical": 0
+    },
+    "complete:curator": {
+      "score": 0.45,
+      "gap": 0.015,
+      "lexical": 0
+    }
+  },
+  "rejection_guard_version": "explicit-topic-exclusions.v1",
+  "evidence": {
+    "calibration": "45d5ae1c1dc2fd02144a43531adbc6001d34e6157366f524bb810a5e98ec5f74",
+    "held_out": "34232582699908755636800ea0a13593ff67b1f44e7d01c0d21bb07fef1fe37c",
+    "curator_regression": "d97b59ae6fc26fb4e3bf206ad933f3a5a3b42d90816a4be4d83e4c225f6a22d1",
+    "final_guard_regression": "03d6c073a372284359d5fb5ab5be5164a6f594f53adb41e4ac5449de3a9d4720",
+    "baseline": "891098ef2fb88c3215c6136004aafb1e45ea732f593e85fea185a037438a90f1"
+  },
+  "comparison": {
+    "cases": 30,
+    "legacy": {
+      "cases": 30,
+      "auto_decisions": 10,
+      "coverage": 0.3333333333333333,
+      "precision": 1.0,
+      "must_pool_auto": 0
+    },
+    "context_indexing": {
+      "cases": 30,
+      "auto_decisions": 10,
+      "precision": 1.0,
+      "descriptive_precision_interval_95": [
+        0.7225,
+        1.0
+      ],
+      "coverage": 0.3333333333333333,
+      "must_pool_auto": 0,
+      "pool_rate": 0.6666666666666667,
+      "candidate_recall_at_200": 1.0,
+      "top_1": 1.0,
+      "top_3": 1.0,
+      "latency_p50_ms": 75.0,
+      "latency_p95_ms": 127,
+      "curator_invocations": 0,
+      "curator_refinements": 0
+    }
+  },
+  "limitations": [
+    "Authored grouped synthetic corpus, not a universal accuracy estimate.",
+    "Legacy comparison was measured after frozen calibration and never used to tune thresholds.",
+    "Curator source-conflict guard was repaired after held-out failure; its repeat is a regression check, not unseen data.",
+    "Live technical-anchor counterexample added a conservative topic-exclusion rejection guard. Thresholds are unchanged; final replay is regression, not a fresh held-out evaluation.",
+    "Final Curator-on corpus invokes no refinements; no placement benefit is established. Keep default off."
+  ]
+}

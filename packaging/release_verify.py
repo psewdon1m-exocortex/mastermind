@@ -62,6 +62,7 @@ def verify(manifest, envelope, public_key, version=None, *, validate=True):
             or set(group.get("components", {})) != {"core", "runtime", "worker"} \
             or any(not IMAGE.fullmatch(image) for image in group["components"].values()) \
             or group.get("health_profile") != "mastermind.functional.v1" \
+            or type(group.get("saved_copy_protocol")) is not int or group["saved_copy_protocol"] != 2 \
             or not HASH.fullmatch(group.get("model_sha256", "")):
         raise ValueError("Release identity or component profile is invalid")
     if group["components"]["core"] != value.get("image", {}).get("reference", "")+"@"+value.get("image", {}).get("digest", ""):

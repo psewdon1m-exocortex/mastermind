@@ -31,6 +31,9 @@ class OwnerOperations:
             record = self.read(folder.name, include_expired=True)
             if record["state"] in {"RUNNING", "RECEIVING"}:
                 self.save(record, state="INTERRUPTED", stage="INTERRUPTED", error="OPERATION_INTERRUPTED")
+            if record["kind"] != "restore":
+                (folder / "download.zip").unlink(missing_ok=True)
+                self.save(record, stage="TRANSFER_ENDED", download_consumed=True)
         self.cleanup()
 
     def read(self, identifier, *, include_expired=False):
@@ -46,11 +49,13 @@ class OwnerOperations:
         record = checked_json(content)
         if record.get("id") != identifier:
             raise DomainError("RECOVERY_REQUIRED", "Owner operation identity is invalid.", 503)
-        if not include_expired and record["expires_at"] <= time.time():
+        if not include_expired and record["expires_at"] <= time.time() and record["state"] not in {"RUNNING", "RECEIVING"}:
             raise DomainError("NOT_FOUND", "The staged operation has expired.", 404)
         return record
 
     def save(self, record, **values):
+        if values.get("state") == "COMPLETED" and record.get("state") != "COMPLETED":
+            values["expires_at"] = time.time() + 15*60
         record.update(values, updated_at=time.time())
         atomic_write_under(self.directory, record["id"] + "/operation.json",
                            json.dumps(record, ensure_ascii=False, separators=(",", ":")).encode())
@@ -60,7 +65,7 @@ class OwnerOperations:
     def public(record):
         return {key: value for key, value in record.items() if key in {
             "id", "kind", "state", "stage", "created_at", "updated_at", "expires_at", "error", "inspection",
-            "size", "sha256", "result", "filename", "progress"}}
+            "size", "sha256", "result", "filename", "progress", "download_consumed"}}
 
     def cleanup(self):
         with self.lock:
@@ -74,7 +79,8 @@ class OwnerOperations:
         with self.lock:
             self.cleanup()
             return sorted((self.public(record) for folder in self.directory.iterdir()
-                           if (record := self.read(folder.name, include_expired=True))["expires_at"] > time.time()),
+                           if (record := self.read(folder.name, include_expired=True))["expires_at"] > time.time()
+                           or record["state"] in {"RUNNING", "RECEIVING"}),
                           key=lambda record: record["created_at"], reverse=True)
 
     def create(self, kind, size=None):
@@ -96,7 +102,7 @@ class OwnerOperations:
                 folder.mkdir(mode=0o700)
                 record = {"id": identifier, "kind": kind, "state": "WAITING_UPLOAD" if kind == "restore" else "RUNNING",
                           "stage": "UPLOAD" if kind == "restore" else "PREPARING", "created_at": now,
-                          "expires_at": now+24*3600, "progress": 0, **({"size": size} if kind == "restore" else {})}
+                          "expires_at": now+15*60, "progress": 0, **({"size": size} if kind == "restore" else {})}
                 self.save(record)
             if kind != "restore":
                 self.launch(record)
@@ -147,6 +153,9 @@ class OwnerOperations:
             code = error.code if isinstance(error, DomainError) else "OPERATION_FAILED"
             self.save(record, state="FAILED", stage="FAILED", error=code)
         finally:
+            if record["state"] in {"FAILED", "INTERRUPTED"} or record["kind"] == "restore" and record["state"] == "COMPLETED":
+                for name in ("download.zip", "upload.zip"):
+                    (folder / name).unlink(missing_ok=True)
             try:
                 self.service.audit.emit("owner."+record["kind"], actor="owner", target=record["id"],
                                         outcome="error" if record["state"] == "FAILED" else "success",
@@ -228,7 +237,7 @@ class OwnerOperations:
     def download(self, identifier):
         with self.lock:
             record = self.read(identifier)
-            if record["state"] != "COMPLETED" or record["kind"] == "restore":
+            if record["state"] != "COMPLETED" or record["kind"] == "restore" or record.get("download_consumed"):
                 raise DomainError("DOWNLOAD_UNAVAILABLE", "This operation has no completed download.", 409)
             if sum(self.leases.values()) >= 4:
                 raise DomainError("DOWNLOAD_BUSY", "Download capacity is busy.", 429)
@@ -238,6 +247,10 @@ class OwnerOperations:
     def release(self, identifier):
         with self.lock:
             self.leases[identifier] = max(0, self.leases.get(identifier, 0)-1)
+            if self.leases[identifier] == 0:
+                (self.directory / identifier / "download.zip").unlink(missing_ok=True)
+                record = self.read(identifier, include_expired=True)
+                self.save(record, stage="TRANSFER_ENDED", download_consumed=True)
 
     def close(self):
         self.stopping = True

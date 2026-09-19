@@ -36,6 +36,7 @@ class Coordinator:
         self.fault = lambda point: None
         self.on_native_checkpoint = lambda checkpoint: None
         self.on_paused = lambda: None
+        self.on_configuration_change = lambda fields: None
 
     @contextmanager
     def boundary(self, operation_id=None, *, resume_if=lambda: True):
@@ -117,6 +118,7 @@ class Coordinator:
             raise
 
     def finish(self, plan):
+        from .context_indexing.identity import canonical_change
         with self.state.transaction() as db:
             record = db.execute("SELECT state FROM operations WHERE id=?", (plan["id"],)).fetchone()
             if record and record["state"] == "COMMITTED":
@@ -131,6 +133,7 @@ class Coordinator:
                 db.execute("DELETE FROM outbox")
                 db.execute("INSERT INTO outbox VALUES('*',?,?)", (generation, time.time()))
             metadata = plan["metadata"]
+            configuration_fields = canonical_change(self.state, metadata, plan["changes"])
             for old_path, new_path in metadata.get("moves", []):
                 db.execute("UPDATE shares SET path=?,updated_at=? WHERE path=?",
                            (new_path, time.time(), old_path))
@@ -150,6 +153,8 @@ class Coordinator:
                                "updated_at=?,record=? WHERE id=?",
                                (time.time(), json.dumps(value), metadata["job_id"]))
             db.execute("UPDATE operations SET state='COMMITTED' WHERE id=?", (plan["id"],))
+        if configuration_fields:
+            self.on_configuration_change(configuration_fields)
 
     def rollback(self, plan):
         folder = self.directory / plan["id"]

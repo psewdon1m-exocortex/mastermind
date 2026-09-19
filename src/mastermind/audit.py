@@ -88,6 +88,15 @@ class Audit:
                     size -= path.stat().st_size
                     path.unlink()
 
+    def history(self, before=None, limit=100):
+        if before is not None and (type(before) is not int or before < 1):
+            from .errors import DomainError
+            raise DomainError("CURSOR_INVALID", "Invalid history cursor", 422)
+        rows = self.state.rows("SELECT sequence,event FROM audit " +
+            ("WHERE sequence<? " if before is not None else "") + "ORDER BY sequence DESC LIMIT ?",
+            ((before,) if before is not None else ()) + (min(max(limit, 1), 100),))
+        return [{"sequence": r["sequence"], **json.loads(r["event"])} for r in rows]
+
     def page(self, after=0, limit=200):
         if after is None:
             rows = self.state.rows("SELECT sequence,event FROM audit ORDER BY sequence DESC LIMIT ?",

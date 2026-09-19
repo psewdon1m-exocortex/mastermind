@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from . import __version__
 from .backup import checked_json
+from .curator_runtime import LocalCurator
 from .embeddings import Embeddings
 from .errors import DomainError
 from .fs import atomic_json, open_under, remove_private_tree, sha_file
@@ -30,6 +31,8 @@ class Worker:
         self.directory, self.credential_file = directory, credential_file
         self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.embeddings = Embeddings(model_directory, inventory)
+        self.curator = LocalCurator(os.environ.get("MASTERMIND_CURATOR_DIRECTORY", "/opt/mastermind/curator"),
+                                    os.environ.get("MASTERMIND_CURATOR_INVENTORY", "/app/curator-model.lock.json"))
         self.lock = threading.RLock()
         self.active = None
         self.ready = False
@@ -44,6 +47,18 @@ class Worker:
         self.ready = True
         self.housekeeping = threading.Thread(target=self.maintain, daemon=True, name="worker-cleanup")
         self.housekeeping.start()
+        self.start_curator()
+
+    def start_curator(self):
+        with self.lock:
+            if self.active is not None:
+                return
+            self.active = "curator-start"
+        try:
+            self.curator.start()
+        finally:
+            with self.lock:
+                self.active = None
 
     def cleanup_expired(self):
         with self.lock:
@@ -57,6 +72,8 @@ class Worker:
         while not self.stop.wait(60):
             try:
                 self.cleanup_expired()
+                if self.active is None and not self.curator.status()["ready"]:
+                    self.start_curator()
             except (OSError, DomainError):
                 pass  # Retry bounded cleanup; never expose source names in logs.
 
@@ -291,6 +308,7 @@ def create_app():
         yield
         worker.stop.set()
         await task
+        await asyncio.to_thread(worker.curator.close)
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.worker = worker
@@ -329,7 +347,32 @@ def create_app():
         value = await body(request, 16*64*1024+4096)
         if set(value) - {"texts", "query"} or not isinstance(value.get("query", False), bool):
             raise DomainError("INVALID_REQUEST", "Embedding fields are invalid.", 422)
-        return await asyncio.to_thread(worker.embeddings.embed, value.get("texts"), query=value.get("query", False))
+        with worker.lock:
+            if worker.active is not None:
+                raise DomainError("WORKER_BUSY", "Another Worker operation is active.", 423)
+            worker.active = "embeddings"
+        try:
+            return await asyncio.to_thread(worker.embeddings.embed, value.get("texts"), query=value.get("query", False))
+        finally:
+            with worker.lock:
+                worker.active = None
+
+    @app.get("/curator/status", dependencies=[Depends(private)])
+    def curator_status():
+        return worker.curator.status()
+
+    @app.post("/curator/assist", dependencies=[Depends(private)])
+    async def curator_assist(request: Request):
+        value = await body(request, 16*1024)
+        with worker.lock:
+            if worker.active is not None:
+                raise DomainError("WORKER_BUSY", "Another Worker operation is active.", 423)
+            worker.active = "curator"
+        try:
+            return await asyncio.to_thread(worker.curator.assist, value)
+        finally:
+            with worker.lock:
+                worker.active = None
 
     @app.post("/chunks", dependencies=[Depends(private)])
     async def chunks(request: Request):

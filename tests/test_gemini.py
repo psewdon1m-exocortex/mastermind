@@ -1,6 +1,8 @@
 import json
+
 import httpx
 import pytest
+
 from mastermind.errors import DomainError
 from mastermind.gemini import Gemini, Understanding
 from mastermind.wyvern import Wyvern

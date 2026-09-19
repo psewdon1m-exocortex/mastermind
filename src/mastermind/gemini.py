@@ -46,8 +46,8 @@ characters. Do not double-encode newlines into literal backslash-n text."""
 
 
 class Gemini:
-    def __init__(self, kernel=None, secrets_store=None, *, client=None, gateway=None, link_file=None):
-        self.gateway = gateway or Wyvern(link_file, client=client)
+    def __init__(self, kernel=None, secrets_store=None, *, client=None, gateway=None, link_file=None, intent_state=None):
+        self.gateway = gateway or Wyvern(link_file, client=client, intent_state=intent_state)
         self.targets = {}
 
     def close(self):

@@ -120,6 +120,10 @@ class Backup:
             return self._snapshot(folder)
 
     def _snapshot(self, folder):
+        from . import wyvern_intent
+        from .wyvern import Wyvern
+        wyvern_snapshot_intent = Wyvern(self.config.wyvern_link_file, intent_state=self.state).export_intent()
+        intent = self.policy.export_intent() if hasattr(self, "policy") else None
         self.vault.index(force=True)
         tree = folder / "vault"
         tree.mkdir(mode=0o700)
@@ -145,6 +149,13 @@ class Backup:
         database = folder / "snapshot.sqlite3"
         with self.state.lock, closing(sqlite3.connect(database)) as copy:
             self.state.db.backup(copy, pages=256, progress=lambda *_: check())
+            # Capture external own-client intent in the logical snapshot only.
+            copy.execute("INSERT INTO metadata(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                         (wyvern_intent.KEY, json.dumps(wyvern_snapshot_intent, sort_keys=True)))
+            copy.execute("DELETE FROM settings WHERE key IN ('_backup_policy_restore','_backup_policy_intent')")
+            if intent is not None:
+                copy.execute("INSERT INTO settings VALUES(?,?)", ("_backup_policy_intent", json.dumps(intent)))
+            copy.commit()
         os.chmod(database, 0o600)
         generation = self.state.one("SELECT value FROM metadata WHERE key='generation'")["value"]
         check()
@@ -227,7 +238,7 @@ class Backup:
                     self.zip_file(archive, path, root + "/" + relative)
         recipient_text = self.secrets.read("recovery_recipient")
         transform("encrypt", inner, encrypted, self.secrets, self.config.max_backup_bytes)
-        unsigned = {"format": FORMAT, "service_version": __version__, "schema": 1, **boundary,
+        unsigned = {"format": FORMAT, "service_version": __version__, "schema": 2, **boundary,
                     "payload": {"size": encrypted.stat().st_size, "sha256": sha_file(encrypted)},
                     "encryption": "age/X25519", "key_id": hashlib.sha256(recipient_text.encode()).hexdigest(),
                     "inventory_sha256": sha_file(inventory), "member_count": count,
@@ -287,7 +298,7 @@ class Backup:
                 envelope = checked_json(archive.read("manifest.json"))
                 unsigned = envelope["manifest"]
                 self.trust_key().verify(base64.b64decode(envelope["signature"], validate=True), canonical(unsigned))
-                if unsigned["format"] != FORMAT or unsigned["schema"] != 1 \
+                if unsigned["format"] != FORMAT or unsigned["schema"] not in (1, 2) \
                         or unsigned["encryption"] != "age/X25519":
                     raise DomainError("INCOMPATIBLE_BACKUP", "Backup format or schema is not supported.", 422)
                 if members["payload.age"].file_size != unsigned["payload"]["size"]:
@@ -408,8 +419,18 @@ class Backup:
                             count += 1
                         if count != counts[path]:
                             raise DomainError("INVALID_ARCHIVE", "State record count does not match inventory.", 422)
-                if restored.one("SELECT value FROM metadata WHERE key='schema'") != {"value": "1"}:
+                if restored.one("SELECT value FROM metadata WHERE key='schema'") not in ({"value": "1"}, {"value": "2"}):
                     raise DomainError("INCOMPATIBLE_BACKUP", "State schema is not supported.", 422)
+                from . import wyvern_intent
+                intent = wyvern_intent.read(restored)
+                if intent is not None:
+                    intent = {**intent, "state": "pending_verification" if intent["state"] != "unconfigured" else "unconfigured"}
+                else:
+                    # Legacy archives did not contain gateway intent: retain the target's intent.
+                    intent = wyvern_intent.read(self.state)
+                if intent is not None:
+                    db.execute("INSERT INTO metadata(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                               (wyvern_intent.KEY, json.dumps(intent, sort_keys=True)))
                 for row in restored.rows("SELECT path FROM shares UNION SELECT path FROM activity"):
                     safe_relative(row["path"])
                 if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok":

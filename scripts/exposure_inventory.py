@@ -10,7 +10,8 @@ METHODS = {"get", "post", "put", "patch", "delete", "websocket"}
 
 def discovered(root=ROOT):
     rows = []
-    for path in sorted((root / "src/mastermind").glob("*.py")):
+    for path in sorted((root / "src/mastermind").rglob("*.py")):
+        module = path.relative_to(root / "src/mastermind").as_posix()
         tree = ast.parse(path.read_text("utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -18,13 +19,13 @@ def discovered(root=ROOT):
                     if isinstance(decorator, ast.Call) and isinstance(decorator.func, ast.Attribute) and \
                             isinstance(decorator.func.value, ast.Name) and decorator.func.value.id == "app" and decorator.func.attr in METHODS:
                         route = ast.literal_eval(decorator.args[0])
-                        rows.append((path.name, decorator.func.attr.upper(), route))
+                        rows.append((module, decorator.func.attr.upper(), route))
             if isinstance(node, ast.For) and isinstance(node.target, ast.Name) and node.target.id == "route" and \
                     any(isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute) and call.func.attr == "add_api_route" for call in ast.walk(node)):
-                rows.extend((path.name, "GET", route) for route in ast.literal_eval(node.iter))
+                rows.extend((module, "GET", route) for route in ast.literal_eval(node.iter))
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) and \
                     node.func.value.id == "app" and node.func.attr == "mount":
-                rows.append((path.name, "GET", ast.literal_eval(node.args[0]) + "/{path:path}"))
+                rows.append((module, "GET", ast.literal_eval(node.args[0]) + "/{path:path}"))
     return sorted(rows)
 
 

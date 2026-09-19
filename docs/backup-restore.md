@@ -30,3 +30,13 @@ The recovery journal distinguishes pre-commit rejection from a committed generat
 Defaults: 8 GiB compressed, 32 GiB expanded, 100,000 members, depth 64, 8 GiB per member, maximum ratio 1000:1; backup/recovery spool 96 GiB. Reservations also account for the retained old state and filesystem space available to UID 10001. The representative qualification fixture is approximately 350 MiB. Passing that fixture does not waive maximum-size bounds or promise sufficient disk on every host.
 
 Keep the compatible release, backup trust public key, age identity, required pepper versions and deployment bootstrap credentials outside the archive. Restoring Kernel/Volt or host agents is a separate operation. After a restore, verify note and attachment hashes, native open/Bridge, Activity/Share behavior and both fresh Neptune pipelines. [IMPLEMENTATION](IMPLEMENTATION.md) records actual acceptance results and incomplete gates.
+
+## Context-indexing state
+
+Schema 2 adds derived context metadata, branch profiles and bounded traces.
+Recovery imports support schemas 1 and 2. Pool/template configuration and job
+receipts are mandatory state; template files and Crusher outputs are canonical
+Vault data. Derived context/semantic projections are rebuilt. Older Core must
+not open schema 2; rollback requires the managed update preimage or a compatible
+restore. The context-indexing tests include a real encrypted round trip of the
+new configuration, template and `root/crusher` output.

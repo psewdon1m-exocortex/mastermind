@@ -129,7 +129,7 @@ def test_complete_encrypted_roundtrip_and_restore_policy(recovery, tmp_path):
     assert auth.login(" exact\nkey ", "after-restore")
     assert backup.vault.list("Private")[0]["path"] == "Branch/Topic.md"
     assert backup.vault.graph()["connectedness"] == 100
-    assert list(restore.directory.glob("*/pre-restore.zip"))
+    assert not list(restore.directory.glob("*/pre-restore.zip"))
     assert not list(backup.spool.directory.iterdir())
 
 
@@ -318,15 +318,14 @@ def test_restore_unknown_writer_preserves_changed_file_and_blocks_writes(recover
         backup.vault.write("New.md", "must not write", None, create=True)
 
 
-def test_retained_restore_generations_expire_after_24_hours(recovery, tmp_path):
+def test_terminal_restore_generations_are_removed_immediately(recovery, tmp_path):
     backup, restore, auth = recovery
     populate(backup, auth)
     archive = tmp_path / "base.zip"
     backup.create(archive)
     restore.apply(archive)
+    assert not list(restore.directory.iterdir())
     restore.cleanup(now=time.time()+3600)
-    assert list(restore.directory.iterdir())
-    restore.cleanup(now=time.time()+86401)
     assert not list(restore.directory.iterdir())
     assert not list(backup.config.vault.parent.glob(".old-*"))
     assert backup.vault.list()

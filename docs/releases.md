@@ -1,6 +1,16 @@
 # Releases and updates
 
-The candidate numeric version is `0.1.0`; earlier `0.0.x` versions are unpublished local qualification fixtures. Branch pushes, a plain validation tag such as `v0.1.0`, and the protected deployable tag `mastermind-v0.1.0` are distinct workflows. Only the exact service-qualified tag may publish a release. Build artifacts once, test them, sign those same bytes and promote the immutable digests.
+The candidate numeric version is `0.1.0`; earlier `0.0.x` versions are unpublished local qualification fixtures. Branch pushes, a plain validation tag such as `v0.1.0`, and the protected deployable tag `mastermind-v0.1.0` are distinct workflows. Only the exact service-qualified tag may publish a deployable service release. Build service artifacts once, test them, sign those same bytes and promote the immutable digests.
+
+## Standalone Bridge downloads
+
+The separate [Bridge workflow](../.github/workflows/bridge.yml) builds and verifies
+manual-install plugin packages on pull requests, `main` pushes and manual dispatch.
+Only `bridge-v<version>` tag pushes publish a standalone Bridge prerelease. This
+channel retains the shared Bridge/Core version, contains no service images or
+bootstrap, and never promotes the service's stable/latest release. It does not
+change the protected whole-service gates below. Package inventory, installation,
+publication and retry instructions are in the [Bridge README](../bridge/README.md).
 
 ## Artifact contract
 
@@ -43,3 +53,13 @@ After preflight and an artifact secret scan, a fresh hosted job in the protected
 The separate `mastermind-release-publication` environment has no release private key. It first creates a prerelease with `make_latest=false`, preserving the existing tag and refusing asset replacement. It downloads every required asset anonymously into a new temporary directory, repeats RSA-PSS/checksum/bootstrap/provenance checks, and pulls all three immutable images with an empty Docker client configuration. Only after the final Part 12 report passes does it attach the final evidence and mark the existing prerelease stable/latest. A failure leaves the candidate staged and does not move stable discovery. A retry can fill missing staging assets only when all existing bytes match; an already-final release cannot be overwritten or reinterpreted. This follows the central distinction between staging and final discovery. Actual production DNS, certificates and provider activation remain separate deployment checks.
 
 Repository/environment settings and GitHub-hosted attestations cannot be exercised by local unit tests. The local tests cover real RSA signatures and archive verification plus adversarial evidence, identity, staging and failure controls; actual local bootstrap/update tests are recorded separately in the implementation ledger. No workflow, tag, key or artifact is published by running the local verification scripts.
+
+## Context-indexing candidate
+
+The local candidate uses state schema 2 (migration input schema 1). Release
+packaging binds `curator-model.lock.json` as well as the existing embedding lock.
+The Worker embeds pinned Qwen3 GGUF weights, verified llama.cpp runner inventory
+and their licenses. Preparation fetches these artifacts; runtime never downloads
+an alternative. A previous schema-1-only Core cannot be run against schema-2 state.
+See [qualification](CONTEXT_INDEXING_IMPLEMENTATION.md) for local evidence; this
+checkpoint does not publish a signed release or assert a remote CI result.

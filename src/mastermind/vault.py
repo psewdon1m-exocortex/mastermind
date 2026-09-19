@@ -4,7 +4,7 @@ import time
 from .deadline import check
 from .errors import DomainError
 from .fs import file_inventory, name_key, open_under, resolve, sha_bytes, sha_file
-from .references import masked, note_tags, parse
+from .references import masked, note_tags, parse, prepare_names
 
 
 class Vault:
@@ -77,6 +77,8 @@ class Vault:
             processed = 0
             dirty = set(previous.keys() - inventory.keys())
             with self.state.transaction() as db:
+                from .context_indexing.identity import observed_deletions
+                observed_deletions(self.state, previous.keys()-inventory.keys())
                 for relative in previous.keys() - inventory.keys():
                     check()
                     db.execute("DELETE FROM note_fts WHERE path=?", (relative,))
@@ -87,6 +89,7 @@ class Vault:
                     check()
                     db.execute("INSERT OR IGNORE INTO reference_history VALUES('internal',?,?)", (key, display))
                 history = list(set(history) | set(current.values()))
+                reference_names = None
                 for relative, (path, key) in inventory.items():
                     check()
                     stat = path.stat()
@@ -109,7 +112,9 @@ class Vault:
                     db.execute("INSERT INTO note_fts VALUES(?,?,?,?)",
                                (relative, path.stem, masked(text).replace("\0", ""), " ".join(tags)))
                     db.execute("DELETE FROM edges WHERE source=?", (relative,))
-                    for ref in parse(text, current, history, saturn):
+                    if "@" in text and reference_names is None:
+                        reference_names = prepare_names(current, history)
+                    for ref in parse(text, current, history, saturn, prepared_names=reference_names):
                         db.execute("INSERT OR REPLACE INTO edges VALUES(?,?,?,?)",
                                    (relative, ref.target, ref.kind, int(not ref.exists)))
                         if ref.kind == "saturn":
@@ -184,23 +189,6 @@ class Vault:
         n = len(notes)
         return {"nodes": notes, "edges": [list(e) for e in sorted(edges)], "broken": broken,
                 "connectedness": round(len(edges) / (n*(n-1)/2) * 100, 2) if n > 1 else 0.0}
-
-    def links(self, relative, direction="outgoing"):
-        path = resolve(self.config.vault, relative)
-        if direction == "backlinks":
-            return self.state.rows("SELECT DISTINCT n.path,n.name,'internal' AS kind,0 AS broken "
-                                   "FROM edges e JOIN notes n ON n.path=e.source "
-                                   "WHERE e.kind='internal' AND e.target_key=? ORDER BY n.name_key", (name_key(path.stem),))
-        return self.state.rows("SELECT e.target_key,e.kind,e.broken,n.path,COALESCE(n.name,h.display,e.target_key) AS name "
-                               "FROM edges e LEFT JOIN notes n ON e.kind='internal' AND n.name_key=e.target_key "
-                               "LEFT JOIN reference_history h ON h.kind=e.kind AND h.name_key=e.target_key "
-                               "WHERE e.source=? ORDER BY e.kind,name", (relative,))
-
-    def graph_projection(self):
-        result = self.graph()
-        result["external"] = self.state.rows("SELECT source,target_key,kind,broken FROM edges "
-                                             "WHERE kind IN ('chronos','saturn') ORDER BY source,kind,target_key")
-        return result
 
     def event(self, event):
         if event["kind"] not in ("CREATE", "EDIT", "RENAME", "MOVE"):

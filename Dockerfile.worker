@@ -22,6 +22,13 @@ COPY runtime/worker-chromium /app/runtime/worker-chromium
 RUN chmod 755 /app/runtime/worker-chromium
 COPY embedding-model.lock.json /app/embedding-model.lock.json
 COPY --from=embedding model.onnx tokenizer.json /opt/mastermind/model/
+COPY curator-model.lock.json /app/curator-model.lock.json
+COPY --from=curator Qwen3-0.6B-Q8_0.gguf LICENSE-Qwen.txt /opt/mastermind/curator/
+COPY --from=curator linux-x64 /opt/mastermind/curator/linux-x64
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && chmod -R a+rX /opt/mastermind/curator \
+    && chmod 755 /opt/mastermind/curator/linux-x64/llama-b11053/*
 ENV PYTHONPATH=/app/src PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 USER 10001:10001
 ENTRYPOINT ["python", "-m", "uvicorn", "mastermind.worker:create_app", "--factory", "--host", "0.0.0.0", "--port", "8092", "--no-access-log"]

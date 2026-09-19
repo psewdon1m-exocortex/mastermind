@@ -12,6 +12,7 @@ from contextlib import closing, contextmanager
 from dataclasses import replace
 
 from .backup import canonical
+from .backup_policy import restored_record
 from .bridge_artifacts import install_bridge_files
 from .coordinator import Coordinator
 from .errors import DomainError
@@ -84,6 +85,11 @@ class Restore:
         staged = State(database)
         try:
             with staged.transaction() as db:
+                intent = staged.setting("_backup_policy_intent")
+                pending = restored_record(intent)
+                db.execute("DELETE FROM settings WHERE key IN ('_backup_policy_restore','_backup_policy_intent')")
+                if pending:
+                    db.execute("INSERT INTO settings VALUES(?,?)", ("_backup_policy_restore", json.dumps(pending)))
                 db.execute("UPDATE metadata SET value=? WHERE key='activity_epoch'", (secrets.token_hex(16),))
                 # Restored tokens remain path-bound. Known later revocations are monotonic.
                 for share in self.state.rows("SELECT token_hmac,revoked_at FROM shares WHERE revoked_at IS NOT NULL"):
@@ -122,7 +128,14 @@ class Restore:
             return self._apply(source, create_safety_backup=create_safety_backup)
         finally:
             self.active = False
-            self.operation_lock.release()
+            try:
+                self.cleanup()
+            except Exception:  # noqa: BLE001 -- cleanup must not replace the settled restore outcome.
+                # The data outcome has already been decided. Cleanup failure is
+                # reported separately and retried by maintenance.
+                self.last_warning = "RESTORE_CLEANUP_REQUIRED"
+            finally:
+                self.operation_lock.release()
 
     def _apply(self, source, *, create_safety_backup=True):
         self.last_warning = None
@@ -287,8 +300,8 @@ class Restore:
                 continue
             file = folder / "journal.json"
             if not file.is_file():
-                # A failed preflight contains no live generation; retained safety backups expire after 24 h.
-                if folder.stat().st_mtime < now - 86400:
+                # A failed preflight contains no switched generation.
+                if folder.stat().st_mtime <= now:
                     _, old, new = self.locations(folder.name)
                     verification = self.config.vault.parent / (".verify-" + folder.name)
                     # No generation switch occurs before journal publication.
@@ -300,7 +313,7 @@ class Restore:
                     remove_private_tree(folder, self.directory)
                 continue
             journal = json.loads(file.read_text("utf-8"))
-            if journal["phase"] not in ("COMMITTED", "ROLLED_BACK") or journal["created_at"] >= now - 86400:
+            if journal["phase"] not in ("COMMITTED", "ROLLED_BACK"):
                 continue
             _, old, new = self.locations(folder.name)
             verification = self.config.vault.parent / (".verify-" + folder.name)

@@ -1,14 +1,15 @@
 import json
 import secrets
 import threading
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
 
 from mastermind import __version__
 from mastermind.errors import DomainError
-from mastermind.fs import atomic_json, atomic_write, sha_file
-from mastermind.restore import tree_digest
+from mastermind.fs import atomic_json, atomic_write, remove_private_tree, sha_file
+from mastermind.restore import database_digest, tree_digest
 from mastermind.state import State
 from mastermind.update_recovery import migrate, rollback, update_record
 from mastermind.updates import Updates
@@ -25,7 +26,7 @@ def prepared(recovery):
     archive = folder / "mastermind-backup.zip"
     backup.pack(snapshot, boundary, archive)
     record = {"request_id": request_id, "phase": "APPLY_REQUESTED", "version": __version__,
-              "previous_version": __version__, "previous_schema": 1, "size": archive.stat().st_size,
+              "previous_version": __version__, "previous_schema": 2, "size": archive.stat().st_size,
               "sha256": sha_file(archive), "preimage_vault_sha256": tree_digest(snapshot / "vault"),
               "preimage_db_sha256": sha_file(snapshot / "snapshot.sqlite3")}
     atomic_json(folder.parent / "active.json", record)
@@ -39,8 +40,16 @@ def prepared(recovery):
 
 
 @pytest.mark.parametrize("point", ["prepared", "old_vault_moved", "vault_restored", "database_retained", "database_restored", "committed"])
-def test_update_rollback_recovers_after_each_durable_boundary(recovery, point):
+@pytest.mark.parametrize("saved_copy", [False, True])
+def test_update_rollback_recovers_after_each_durable_boundary(recovery, point, saved_copy):
     config, request_id, archive = prepared(recovery)
+    if saved_copy:
+        config = replace(config, secret_directory=recovery[0].secrets.directory)
+        folder, record = update_record(config, request_id)
+        record.update(saved_copy_protocol=2, preimage_db_logical_sha256=database_digest(folder / "snapshot/snapshot.sqlite3"))
+        atomic_json(folder / "update.json", record)
+        atomic_json(folder.parent / "active.json", record)
+        remove_private_tree(folder / "snapshot", folder)
     atomic_write(config.vault / "root.md", b"new candidate data\n")
     changed = State(config.state / "mastermind.sqlite3")
     changed.set_setting("candidate_only", True)
@@ -61,6 +70,9 @@ def test_update_rollback_recovers_after_each_durable_boundary(recovery, point):
     finally:
         restored.close()
     assert update_record(config, request_id)[1]["rollback_data_restored"]
+    if saved_copy:
+        assert not (archive.parent / "snapshot").exists()
+        assert not (archive.parent / "unpack").exists()
 
 
 def test_migration_requires_exact_image_and_unchanged_preimage(recovery):
@@ -68,17 +80,17 @@ def test_migration_requires_exact_image_and_unchanged_preimage(recovery):
     with pytest.raises(DomainError):
         migrate(config, request_id, "99.0.0", 1)
     with pytest.raises(DomainError):
-        migrate(config, request_id, __version__, 2)
+        migrate(config, request_id, __version__, 3)
     atomic_write(config.vault / "root.md", b"unexpected writer")
     with pytest.raises(DomainError) as conflict:
-        migrate(config, request_id, __version__, 1)
+        migrate(config, request_id, __version__, 2)
     assert conflict.value.code == "RECOVERY_REQUIRED"
 
 
 def test_valid_migration_is_idempotent_and_keeps_barrier(recovery):
     config, request_id, _ = prepared(recovery)
-    migrate(config, request_id, __version__, 1)
-    migrate(config, request_id, __version__, 1)
+    migrate(config, request_id, __version__, 2)
+    migrate(config, request_id, __version__, 2)
     assert update_record(config, request_id)[1]["phase"] == "MIGRATED"
 
 
@@ -146,7 +158,7 @@ def test_version_rollback_only_selects_verified_current_own_head_update(service)
         updates.close()
 
 
-def test_update_retention_removes_only_expired_terminal_preimages(service):
+def test_update_cleanup_removes_terminal_preimages_immediately_but_preserves_unresolved_recovery(service):
     config, _, _, _ = service
     updates = Updates(SimpleNamespace(config=config, stop_event=threading.Event()))
     now = 1000000
@@ -160,6 +172,6 @@ def test_update_retention_removes_only_expired_terminal_preimages(service):
             atomic_json(folder / "update.json", {"request_id": identifier, "phase": phase, "updated_at": now - age})
         (updates.directory / "operator-unmanaged.txt").write_text("preserve")
         updates.cleanup(now=now)
-        assert {path.name for path in updates.directory.iterdir()} == {f"{index:032x}" for index in (3, 4, 5)} | {"operator-unmanaged.txt"}
+        assert {path.name for path in updates.directory.iterdir()} == {f"{index:032x}" for index in (4, 5)} | {"operator-unmanaged.txt"}
     finally:
         updates.close()

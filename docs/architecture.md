@@ -28,3 +28,12 @@ Obsidian owns native `[[links]]` propagation through its FileManager. Bridge and
 Owner sessions, public Crusher sessions/status tickets, Share capabilities, Runtime/Bridge, Worker, Chronos reader, Neptune export/control and Updater own-head credentials are separate principals. Kernel discovery supplies service origins and the Shell's Volt references. Existing Obsidian plugin secrets remain opaque Vault data.
 
 Archive and mirror are independent Neptune pipelines. Only the encrypted archive includes mandatory service state. Mirror is a protected Vault tree and an interactive reader uses a separate read-only scope. [Security](security.md), [backup](backup-restore.md) and [compatibility](compatibility.md) describe these boundaries in detail.
+
+## Context-indexing
+
+The [local retrieval engine](context-indexing.md) belongs to Core and uses the
+private Worker for pinned E5 embeddings and optional CPU Curator inference.
+Its generic evidence retrieval is independent of Crusher placement eligibility.
+Crusher writes a frozen-template note in `root/crusher`, linking to a verified
+branch or the pool. Source understanding/generation use a scoped Wyvern UDS
+Adapter; no retrieved Vault evidence is sent to that external provider.

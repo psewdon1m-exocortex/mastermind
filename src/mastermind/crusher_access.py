@@ -45,6 +45,7 @@ class CrusherAccess:
         self.lock = threading.RLock()
         self.upload_slots = threading.BoundedSemaphore(2)
         self.uploading = set()
+        self.configuration_snapshot = lambda: None
 
     def code(self):
         self.ready()
@@ -211,6 +212,15 @@ class CrusherAccess:
         else:
             accepted_label, required = "Uploaded file", 0
         source_digest = sha_bytes(json.dumps(source, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode())
+        # Snapshot before acquiring the State transaction: canonical reads use the
+        # opposite (coordinator, State) lock order. Replays do not depend on current config.
+        previous = self.state.one("SELECT * FROM jobs WHERE principal=? AND idempotency_key=?", (principal, key))
+        if previous:
+            self.check_principal(principal)
+            if previous["source_digest"] != source_digest:
+                raise DomainError("IDEMPOTENCY_CONFLICT", "This key was already used for a different source.", 409)
+            return self.receipt(previous)
+        configuration = self.configuration_snapshot()
         now, identifier = time.time(), secrets.token_hex(16)
         with self.lock, self.state.transaction() as db:
             self.check_principal(principal)
@@ -225,6 +235,9 @@ class CrusherAccess:
                 raise DomainError("QUEUE_FULL", "The Crusher acceptance queue is full.", 429)
             record = {"source": source.copy(), "source_label": accepted_label, "deadline": now+3600,
                       "transitions": [{"state": "QUEUED", "at": now}], "attempts": {}, "results": {}}
+            if configuration is not None:
+                record["context_snapshot"] = configuration
+                record["pipeline_version"] = "context-indexing.v1"
             upload = None
             if kind == "upload":
                 upload = self.upload_row(source["upload_id"], principal)

@@ -2,9 +2,15 @@
 
 Authority: [Part 00](policy/PART_00_SYSTEM_UNIFICATION_SPECIFICATION.md), Parts 01–12 and the owner's explicit decisions recorded in [final requirements](../mastermind_service_requirements_final.md). Scope: complete standalone Mastermind, necessary Neptune/Updater changes, local integration and browser verification. No production deployment or publication is implied by local test success.
 
+## Context-indexing checkpoint
+
+The new context-indexing implementation and CP0–CP7 evidence are tracked in
+[the dedicated ledger](CONTEXT_INDEXING_IMPLEMENTATION.md). Its current placement,
+template and provider boundaries supersede the historical placement below.
+
 ## Baseline
 
-Latest local AI checkpoint, 2026-09-19: the owner supplied a Google credential
+Historical pre-context-indexing AI checkpoint, 2026-09-19: the owner supplied a Google credential
 through a local file. Provisioned one secret Volt field and reference-only
 Kernel bindings; switched the existing qualified image to its normal factory.
 Live Gemini 3.8 Flash completed browser file upload, public webpage, speech
@@ -529,3 +535,21 @@ The retained snapshot barrier now includes the coordinator's paused checkpoint i
 
 - Main-disk checkpoint: revision 919b5a4 passed full local CI with 502 Linux tests, no skips, actual Chrome 153 JavaScript/private-fetch denial, offline model/sandbox and source/history scans. Its six-save/two-mutation/export native regression passed in 94.094 seconds (368,913,646 exported bytes), and real lost-ack tests passed. Screenshot review then exposed rejected native Activity: the API still required literal Bridge 0.0.1. The corrected endpoint uses the service version; the extended native gate requires a newly persisted final edit session after all snapshot operations. API/activity/release regression: 61 tests passed, one Windows skip. This source fix needs rebuilt images and a fresh native run.
 - Fresh 919b5a4 image scan is REVIEW_REQUIRED: Core 51 High/0 Critical, Runtime 70 High/2 Critical, Worker 73 High/9 Critical. These are raw package matches including duplicates and known version-database errors; no blanket exemption or security PASS is claimed. The unused Worker Xvfb package is being removed before the next image check. All five local producer images rebuilt successfully; current producer replay matches all four exported patches.
+
+## 2026-09-19 — Native reference views
+
+The native reference adapter and removal of the redundant Bridge views passed the pinned **Obsidian 1.13.7** qualification in a separate credential-free Docker Runtime. `scripts/qualify_native_references.py` installs the built Bridge into its synthetic Vault, runs both probes and removes only its own container. It does not upgrade the running managed service. Artifacts are in `artifacts/native-references/` (ignored, local evidence).
+
+- `probe_native_references.cjs`: **13 checks passed, no page errors**, 5.623 seconds in the final run. Real global/local graph nodes and labels; native Backlinks snippets and backlink counts; native Outgoing links; graph/direct-leaf/context-menu resource activation; six keyboard saves; simultaneous `[[Target]]` and `@Target` rename; create/delete history; disable/re-enable; editor reload; migration of saved legacy panes. Original Markdown survives; no virtual resource files are created. External cards were tested in their expected portable unavailable state, not against live Chronos/Saturn contents.
+- `probe_native_reference_scaling.cjs`: **1000 generated notes**, 12.741 seconds including editor reload and native indexing. One edit re-parsed **one** note and updated its edge in **101 ms**; no extra parsing during the two-second idle observation. Debouncing structural events reduced dictionary requests from **1007 to 3** in this fixture. This measures the reference adapter, not a sustained rendering or service soak.
+- Bridge typecheck, build, **549 parser parity cases**, UTF-16 projection checks for those cases, resource-target round trips and portable behavior passed. **71 Python tests** passed across API, exposure inventory, portable exports, native protocol, storage and hierarchy. Repository validation and all **137** classified route boundaries passed. No whole-service release, production restart or renewed long-duration soak is claimed by these checks.
+
+To reproduce, build `bridge/dist` and install repository Node dependencies, then run `python scripts/qualify_native_references.py --image mastermind-runtime:development` against a built pinned Runtime image. The test-only CDP port is bound to `127.0.0.1:19393`; production Runtime still has no published debug port. The harness refuses an existing fixture directory without its ownership marker. The managed gateway probe `scripts/probe_native_graph.cjs` now checks native graph nodes and idle reference parsing, but was not run against the unchanged live service in this qualification.
+
+### Local development deployment — 2026-09-19
+
+At the owner's subsequent request, Core and Runtime were rebuilt and recreated on the actual local development stand. The native supervisor saved/verified open buffers and stopped the editor before replacement; queued Activity was delivered to Core. A SHA-256 inventory confirmed all **98 user files unchanged** after startup. Previous images remain tagged `before-native-references-20260919` for local rollback.
+
+The new Bridge reports ready with no indexing error, **89 indexed notes**, and the already-open native Local graph contains **6 nodes / 5 edges** for Native resources. The private dictionary returns HTTP 200. The saved native Existing files only setting was already disabled. The gateway check confirmed real Chronos and Saturn cards, loaded SVG, video/audio metadata and the PDF frame. Evidence: `artifacts/native-reference-live.json` and `artifacts/native-reference-live-local.png`.
+
+This development Neptune fixture shares Core's network namespace (`network_mode: container:mastermind-development-core-1`); it must be recreated after Core replacement. Doing so restored Saturn metadata/content access. Worker was restarted separately while idle. This is a local development deployment, not a signed production release or endurance qualification.

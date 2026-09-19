@@ -67,6 +67,7 @@ class Kernel:
         self.cache = {}
         self.lock = threading.RLock()
         self.failure = None
+        self.public_keys = set()
 
     def close(self):
         with self.lock:
@@ -132,6 +133,7 @@ class Kernel:
                     raise ValueError
                 values = data["values"]
                 selected = {}
+                public_keys = set()
                 for key in keys:
                     item = values[key]
                     value = item["value"]
@@ -139,6 +141,10 @@ class Kernel:
                             or type(item.get("secret")) is not bool or type(item.get("volt_revision")) is not int:
                         raise ValueError
                     selected[key] = value
+                    if item["secret"] is False:
+                        public_keys.add(key)
+                self.public_keys.difference_update(keys)
+                self.public_keys.update(public_keys)
                 expires = self.clock() + self.ttl
                 self.cache.update({key: (expires, value) for key, value in selected.items()})
                 self.failure = None
@@ -149,6 +155,17 @@ class Kernel:
             except (httpx.HTTPError, ValueError, KeyError, TypeError, OSError, RecursionError):
                 self.failure = "KERNEL_UNAVAILABLE"
                 raise DomainError(self.failure, "Kernel could not resolve the required configuration.", 503) from None
+
+    def management_url(self, service):
+        if service not in ("wyvern", "gryphon"):
+            raise ValueError("Unknown management service")
+        key = "services." + service + ".management_url"
+        with self.lock:
+            value = self.resolve([key], fresh=True)[key]
+            url = urlsplit(value)
+            if key not in self.public_keys or url.scheme != "https" or not url.hostname or url.username or url.password:
+                raise DomainError("MANAGEMENT_UNAVAILABLE", "Kernel has no public HTTPS management destination", 503)
+            return value
 
     def origin_for(self, service):
         if service not in ("chronos", "saturn", "updater", "neptune"):

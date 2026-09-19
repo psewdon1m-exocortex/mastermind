@@ -44,6 +44,13 @@ server {
         proxy_read_timeout 12h;
         proxy_send_timeout 12h;
     }
+    location ~ ^/api/owner/updates/[a-f0-9]+/saved-backup$ {
+        client_max_body_size 8g;
+        client_body_timeout 120s;
+        include /opt/exocortex/mastermind/packaging/nginx/mastermind-proxy.conf;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
     location ~ ^/api/owner/operations/[a-f0-9]+/content$ {
         client_max_body_size 8g;
         client_body_timeout 120s;

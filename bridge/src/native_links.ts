@@ -1,43 +1,18 @@
-import {apiVersion, CachedMetadata, Component, LinkCache, Notice, setIcon, TFile, WorkspaceLeaf} from "obsidian";
+import {apiVersion, CachedMetadata, Component, LinkCache, Menu, Notice, setIcon, TFile, WorkspaceLeaf} from "obsidian";
 import type MastermindBridge from "./main";
-import {parse, Ref} from "./portable_parser";
+import {parse} from "./portable_parser";
+import {nativeReferences, resourceReference} from "./native_projection";
 
 type Dictionary = {current: Record<string,string>; history: string[]; saturn: string[]};
 type Entry = {links: LinkCache[]; native: CachedMetadata; combined: CachedMetadata};
-type NativeCache = MastermindBridge["app"]["metadataCache"] & {resolveLinks(path:string):void};
-const PREFIX = "mastermind-resource:";
-
-export function resourceLink(ref: Pick<Ref,"kind"|"target">): string {
-  // Encode delimiters used by Obsidian, and keep .md from being stripped by its resolver.
-  return PREFIX + ref.kind + ":" + encodeURIComponent(ref.target) + ":resource";
-}
-
-export function resourceReference(link: string): Ref | undefined {
-  const match = /^mastermind-resource:(chronos|saturn):(.*):resource$/.exec(link);
-  if (!match) return;
-  try {
-    const target = decodeURIComponent(match[2]);
-    if (!target || target.length > 4096) return;
-    return {start:0,end:0,kind:match[1],target,display:"@"+match[1]+": "+target,exists:true};
-  } catch {return;}
-}
-
-export function nativeReferences(text:string, refs:Ref[]): LinkCache[] {
-  const offsets=[0];
-  for(const character of text)offsets.push(offsets[offsets.length-1]+character.length);
-  const lines=[0];for(let i=0;i<text.length;i++)if(text[i]==="\n")lines.push(i+1);
-  const point=(offset:number)=>{
-    let low=0,high=lines.length;
-    while(low+1<high){const middle=(low+high)>>>1;if(lines[middle]<=offset)low=middle;else high=middle;}
-    return{offset,line:low,col:offset-lines[low]};
-  };
-  return refs.filter(ref=>text[offsets[ref.start]]==="@").map(ref=>({
-    link:ref.kind==="internal"?ref.display:resourceLink(ref),
-    original:text.slice(offsets[ref.start],offsets[ref.end]),displayText:ref.display,
-    position:{start:point(offsets[ref.start]),end:point(offsets[ref.end])}
-  }));
-}
-
+type NativeCache = MastermindBridge["app"]["metadataCache"] & {
+  resolveLinks(path:string):void;
+  getBacklinksForFile(file:TFile):{add(path:string,link:LinkCache):void};
+};
+type NativeWorkspace = MastermindBridge["app"]["workspace"] & {
+  handleLinkContextMenu(menu:Menu,link:string,source:string,...rest:unknown[]):boolean;
+};
+type NativeLeaf = WorkspaceLeaf & {openLinkText(link:string,source:string,options?:unknown):Promise<void>};
 /** Ephemeral augmentation of native link reads. Never writes synthetic links/files or raw caches. */
 export class NativeLinks extends Component {
   private cache:NativeCache;
@@ -52,9 +27,10 @@ export class NativeLinks extends Component {
   private running=false;
   private stopped=false;
   private flushTimer?:ReturnType<typeof setTimeout>;
+  private dictionaryTimer?:ReturnType<typeof setTimeout>;
   private viewTimer?:ReturnType<typeof setTimeout>;
-  private graphLeaves=new WeakSet<WorkspaceLeaf>();
-  private observed=new WeakSet<HTMLElement>();
+  private patchedRenderers=new WeakSet<object>();
+  private observers=new Map<WorkspaceLeaf,{element:HTMLElement;observer:MutationObserver}>();
   private patchedNodePrototypes=new WeakSet<object>();
   ready=false;
   failure="";
@@ -68,7 +44,9 @@ export class NativeLinks extends Component {
 
   onload(){
     // These native internals were qualified on the exact bundled version. Do not guess on upgrades.
-    if(apiVersion!=="1.13.7"||typeof this.cache.resolveLinks!=="function"){
+    if(apiVersion!=="1.13.7"||typeof this.cache.resolveLinks!=="function"||
+      typeof this.cache.getBacklinksForFile!=="function"||
+      typeof (WorkspaceLeaf.prototype as NativeLeaf).openLinkText!=="function"){
       this.failure="Native reference integration requires qualified Obsidian 1.13.7";
       new Notice(this.failure);return;
     }
@@ -86,7 +64,19 @@ export class NativeLinks extends Component {
     };
     cache.getFirstLinkpathDest=resolveReference;
     this.register(()=>{if(cache.getFirstLinkpathDest===resolveReference)cache.getFirstLinkpathDest=resolve;});
-    const workspace=this.bridge.app.workspace,open=workspace.openLinkText;
+    const backlinks=cache.getBacklinksForFile;
+    const getBacklinks:typeof backlinks=function(this:NativeCache,file){
+      const result=backlinks.call(this,file);
+      // Leave iterateAllRefs/raw caches alone: the native rename writer only understands native syntax.
+      for(const [path,entry] of self.entries){
+        if(self.originalGet.call(this,path)!==entry.native)continue;
+        for(const link of entry.links)if(this.getFirstLinkpathDest(link.link,path)===file)result.add(path,link);
+      }
+      return result;
+    };
+    cache.getBacklinksForFile=getBacklinks;
+    this.register(()=>{if(cache.getBacklinksForFile===getBacklinks)cache.getBacklinksForFile=backlinks;});
+    const workspace=this.bridge.app.workspace as NativeWorkspace,open=workspace.openLinkText;
     const openReference:typeof open=function(this:typeof workspace,link,source,...options){
       const ref=resourceReference(link);
       if(ref)return self.bridge.openReference(ref,source);
@@ -94,8 +84,29 @@ export class NativeLinks extends Component {
     };
     workspace.openLinkText=openReference;
     this.register(()=>{if(workspace.openLinkText===openReference)workspace.openLinkText=open;});
+    const leafPrototype=WorkspaceLeaf.prototype as NativeLeaf,leafOpen=leafPrototype.openLinkText;
+    const openInLeaf:typeof leafOpen=function(this:WorkspaceLeaf,link,source,...options){
+      const ref=resourceReference(link);
+      if(ref&&this.view.app===self.bridge.app)return self.bridge.openReference(ref,source);
+      return leafOpen.call(this,link,source,...options);
+    };
+    leafPrototype.openLinkText=openInLeaf;
+    this.register(()=>{if(leafPrototype.openLinkText===openInLeaf)leafPrototype.openLinkText=leafOpen;});
+    const contextMenu=workspace.handleLinkContextMenu;
+    const resourceMenu:typeof contextMenu=function(this:NativeWorkspace,menu,link,source,...rest){
+      const ref=resourceReference(link);if(!ref)return contextMenu.call(this,menu,link,source,...rest);
+      menu.addItem(item=>item.setTitle("Open "+ref.display).setIcon(ref.kind==="chronos"?"clock":"file-box")
+        .onClick(()=>void self.bridge.openReference(ref,source)));
+      return true;
+    };
+    workspace.handleLinkContextMenu=resourceMenu;
+    this.register(()=>{if(workspace.handleLinkContextMenu===resourceMenu)workspace.handleLinkContextMenu=contextMenu;});
     this.registerEvent(cache.on("changed",file=>this.enqueue(file.path)));
-    const changed=()=>{this.dictionaryDirty=true;this.revision++;void this.loadDictionary();};
+    const changed=()=>{
+      this.dictionaryDirty=true;this.revision++;
+      if(this.dictionaryTimer)clearTimeout(this.dictionaryTimer);
+      this.dictionaryTimer=setTimeout(()=>{this.dictionaryTimer=undefined;void this.loadDictionary();},250);
+    };
     this.registerEvent(this.bridge.app.vault.on("create",file=>{if(file instanceof TFile&&file.extension==="md")changed();}));
     this.registerEvent(this.bridge.app.vault.on("delete",file=>{
       this.entries.delete(file.path);this.pending.delete(file.path);
@@ -107,7 +118,17 @@ export class NativeLinks extends Component {
     }));
     this.registerEvent(workspace.on("layout-change",()=>this.scheduleViews()));
     this.registerInterval(window.setInterval(()=>void this.loadDictionary(),10000));
-    workspace.onLayoutReady(()=>{if(!this.stopped){void this.loadDictionary();this.scheduleViews();}});
+    workspace.onLayoutReady(()=>{if(!this.stopped){void this.migrateViews();void this.loadDictionary();this.scheduleViews();}});
+  }
+
+  private async migrateViews(){
+    const native:Record<string,string>={"mastermind-graph":"graph","mastermind-backlinks":"backlink","mastermind-outgoing":"outgoing-link"};
+    const changes:Promise<void>[]=[];
+    this.bridge.app.workspace.iterateAllLeaves(leaf=>{
+      const state=leaf.getViewState(),type=native[state.type];
+      if(type)changes.push(leaf.setViewState({type,state:{file:this.bridge.app.workspace.getActiveFile()?.path}}));
+    });
+    await Promise.all(changes);
   }
 
   private async loadDictionary(){
@@ -158,7 +179,10 @@ export class NativeLinks extends Component {
           if(links.length)this.entries.set(path,{links,native,combined:{...native,links:[...(native.links||[]),...links]}});
           else this.entries.delete(path);
           if(links.length||previous){this.cache.resolveLinks(path);this.cache.trigger("resolve",file);}
-        }catch{this.entries.delete(path);this.failure="A note could not be indexed";}
+        }catch{
+          if(this.entries.delete(path)){this.cache.resolveLinks(path);this.cache.trigger("resolve",file);}
+          this.failure="A note could not be indexed";
+        }
         if(performance.now()-turn>12){await new Promise(resolve=>setTimeout(resolve,0));turn=performance.now();}
       }
       this.ready=true;this.scheduleViews();
@@ -171,31 +195,37 @@ export class NativeLinks extends Component {
   }
 
   private updateViews(){
+    const live=new Set<WorkspaceLeaf>();
     this.bridge.app.workspace.iterateAllLeaves(leaf=>{
       const view=leaf.view as typeof leaf.view & {renderer?:any;engine?:any;dataEngine?:any;contentEl:HTMLElement};
       const engine=view.engine||view.dataEngine;
       if(["graph","localgraph"].includes(view.getViewType())&&view.renderer&&engine){
-        if(!this.graphLeaves.has(leaf)){
-          this.graphLeaves.add(leaf);
-          const renderer=view.renderer,original=renderer.setData,self=this;
+        const prototype=Object.getPrototypeOf(view.renderer);
+        if(!this.patchedRenderers.has(prototype)){
+          this.patchedRenderers.add(prototype);
+          const original=prototype.setData,self=this;
           const setData=function(this:any,...args:any[]){
             const result=original.apply(this,args);self.labelNodes(this);return result;
           };
-          renderer.setData=setData;
-          this.register(()=>{if(renderer.setData===setData)renderer.setData=original;});
+          prototype.setData=setData;
+          this.register(()=>{if(prototype.setData===setData)prototype.setData=original;});
         }
         this.labelNodes(view.renderer);engine.render();
       }
       if(view.getViewType()==="outgoing-link"){
         const element=view.contentEl;
-        if(!this.observed.has(element)){
-          this.observed.add(element);
+        if(!element)return; // A restored/deferred native leaf has no content until it is loaded.
+        live.add(leaf);
+        const previous=this.observers.get(leaf);
+        if(previous?.element!==element){
+          previous?.observer.disconnect();
           const observer=new MutationObserver(()=>this.labelOutgoing(element));
-          observer.observe(element,{childList:true,subtree:true});this.register(()=>observer.disconnect());
+          observer.observe(element,{childList:true,subtree:true});this.observers.set(leaf,{element,observer});
         }
         this.labelOutgoing(element);
       }
     });
+    for(const [leaf,{observer}] of this.observers)if(!live.has(leaf)){observer.disconnect();this.observers.delete(leaf);}
   }
 
   private labelNodes(renderer:any){
@@ -217,7 +247,7 @@ export class NativeLinks extends Component {
   private labelOutgoing(element:HTMLElement){
     for(const label of element.querySelectorAll<HTMLElement>(".outgoing-link-item .tree-item-inner-text")){
       const ref=resourceReference(label.textContent||"");if(!ref)continue;
-      label.setText(ref.display);
+      if(label.textContent!==ref.display)label.setText(ref.display);
       const row=label.closest<HTMLElement>(".outgoing-link-item")!;
       row.setAttribute("aria-label",ref.display);row.title=ref.display;
       const icon=row.querySelector<HTMLElement>(".tree-item-icon");if(icon)setIcon(icon,ref.kind==="chronos"?"clock":"file-box");
@@ -225,14 +255,21 @@ export class NativeLinks extends Component {
   }
 
   diagnostics(){return{ready:this.ready,failure:this.failure,notes:this.entries.size,pending:this.pending.size,
+    running:this.running,dictionary_pending:this.dictionaryLoading||!!this.dictionaryTimer,
     parsed:this.parsed,parse_ms:this.parseMs,dictionary_requests:this.dictionaryRequests};}
 
   onunload(){
     this.stopped=true;this.revision++;this.ready=false;
+    for(const {observer} of this.observers.values())observer.disconnect();this.observers.clear();
     if(this.flushTimer)clearTimeout(this.flushTimer);if(this.viewTimer)clearTimeout(this.viewTimer);
+    if(this.dictionaryTimer)clearTimeout(this.dictionaryTimer);
     // Component restores methods after onunload. Empty projection now makes the remaining reads native.
     const paths=[...this.entries.keys()];this.entries.clear();this.pending.clear();
     for(const path of paths){const file=this.bridge.app.vault.getFileByPath(path);
       if(file){this.cache.resolveLinks(path);this.cache.trigger("resolve",file);}}
+    this.bridge.app.workspace.iterateAllLeaves(leaf=>{
+      const view=leaf.view as typeof leaf.view & {engine?:any;dataEngine?:any};
+      if(["graph","localgraph"].includes(view.getViewType()))(view.engine||view.dataEngine)?.render();
+    });
   }
 }

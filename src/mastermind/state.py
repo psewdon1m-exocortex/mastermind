@@ -23,6 +23,10 @@ CREATE TABLE IF NOT EXISTS semantic_chunks(path TEXT NOT NULL,ordinal INTEGER NO
  end INTEGER NOT NULL,source_sha TEXT NOT NULL,model_sha TEXT NOT NULL,vector BLOB NOT NULL,
  PRIMARY KEY(path,ordinal));
 CREATE TABLE IF NOT EXISTS semantic_run(id INTEGER PRIMARY KEY CHECK(id=1),deadline REAL NOT NULL,error TEXT);
+CREATE TABLE IF NOT EXISTS context_documents(path TEXT PRIMARY KEY,source_sha TEXT NOT NULL,record TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS context_profiles(path TEXT PRIMARY KEY,source_sha TEXT NOT NULL,record TEXT NOT NULL);
+CREATE VIRTUAL TABLE IF NOT EXISTS context_profile_fts USING fts5(path UNINDEXED,body,tokenize='unicode61');
+CREATE TABLE IF NOT EXISTS context_traces(id TEXT PRIMARY KEY,created_at REAL NOT NULL,bytes INTEGER NOT NULL,record TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS activity(id TEXT PRIMARY KEY,session_id TEXT,kind TEXT NOT NULL,path TEXT NOT NULL,
  occurred_at REAL NOT NULL);
 CREATE UNIQUE INDEX IF NOT EXISTS activity_session ON activity(session_id) WHERE session_id IS NOT NULL;
@@ -53,8 +57,9 @@ CREATE TABLE IF NOT EXISTS projections(id TEXT PRIMARY KEY,share_id TEXT NOT NUL
 MANDATORY_TABLES = (
     "metadata", "settings", "reference_history", "activity", "edit_sessions", "shares", "jobs", "operations", "outbox"
 )
-DERIVED_TABLES = ("notes", "note_fts", "edges", "semantic_documents", "semantic_chunks", "semantic_run")
-EPHEMERAL_TABLES = ("sessions", "codes", "rate_limits", "uploads", "projections")
+DERIVED_TABLES = ("notes", "note_fts", "edges", "semantic_documents", "semantic_chunks", "semantic_run",
+                  "context_documents", "context_profiles", "context_profile_fts")
+EPHEMERAL_TABLES = ("sessions", "codes", "rate_limits", "uploads", "projections", "context_traces")
 
 
 class State:
@@ -70,7 +75,7 @@ class State:
         self.db.row_factory = sqlite3.Row
         if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='metadata'").fetchone():
             version = self.db.execute("SELECT value FROM metadata WHERE key='schema'").fetchone()
-            if version and version[0] != "1":
+            if version and version[0] not in ("1", "2"):
                 self.db.close()
                 raise DomainError("SCHEMA_UNSUPPORTED", "This Core image cannot open the stored schema.", 503)
         self.db.execute("PRAGMA journal_mode=WAL")
@@ -78,6 +83,8 @@ class State:
         self.db.execute("PRAGMA foreign_keys=ON")
         self.db.executescript(SCHEMA)
         self.db.execute("INSERT OR IGNORE INTO metadata VALUES('schema','1')")
+        # New durable job snapshots cannot be interpreted safely by schema-1 Core images.
+        self.db.execute("UPDATE metadata SET value='2' WHERE key='schema'")
         self.db.execute("INSERT OR IGNORE INTO metadata VALUES('generation','0')")
         self.db.execute("INSERT OR IGNORE INTO metadata VALUES('activity_epoch',?)", (uuid.uuid4().hex,))
         self.closed = False
@@ -113,6 +120,19 @@ class State:
         with self.transaction() as db:
             db.execute("INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                        (key, json.dumps(value, ensure_ascii=False)))
+
+    def backup_policy_pending(self):
+        return self.setting("_backup_policy_restore")
+
+    def set_backup_policy_pending(self, value, *, expected_request_id=None):
+        with self.transaction() as db:
+            if expected_request_id is not None:
+                row = db.execute("SELECT value FROM settings WHERE key='_backup_policy_restore'").fetchone()
+                current = json.loads(row[0]) if row else None
+                if not current or current.get("requestId") != expected_request_id:
+                    return False
+            db.execute("INSERT INTO settings VALUES('_backup_policy_restore',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (json.dumps(value),))
+            return True
 
     def close(self):
         with self.lock:

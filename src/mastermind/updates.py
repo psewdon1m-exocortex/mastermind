@@ -1,4 +1,8 @@
-"""Retained snapshot barrier and restart-safe handoff to the own Updater head."""
+"""Saved-copy group updates with a retained writer barrier and transient ZIP bytes."""
+import asyncio
+import base64
+import hashlib
+import hmac
 import json
 import re
 import secrets
@@ -12,10 +16,12 @@ from . import __version__
 from .deadline import check, remaining, snapshot_budget
 from .errors import DomainError
 from .fs import atomic_json, durable_tree, remove_private_tree, sha_file
-from .restore import tree_digest
+from .restore import database_digest, tree_digest
 from .secret_store import read_credential_file
 
 TERMINAL = {"COMPLETED", "ROLLED_BACK", "FAILED"}
+BEFORE_APPLY = {"PREPARING", "QUIESCING", "SNAPSHOT", "WAITING_SAVED", "DOWNLOADING", "UPLOADING", "SAVED", "SPOOLING"}
+SAVED_WAIT_SECONDS = 20 * 60
 
 
 class Updater:
@@ -67,6 +73,7 @@ class Updates:
         self.record = self.read()
         self.thread = None
         self.updater = Updater(self.config)
+        self.wake = threading.Event()
 
     def read(self):
         if not self.path.exists():
@@ -93,10 +100,11 @@ class Updates:
     def public(self):
         if self.record is None:
             return {"state": "idle"}
-        return {key: self.record[key] for key in ("request_id", "phase", "version", "updated_at", "error", "job_id", "operation")
+        return {key: self.record[key] for key in ("request_id", "phase", "version", "updated_at", "error", "job_id", "operation", "size", "sha256", "download_consumed", "download_complete", "save_expires_at", "progress", "job_state", "job_message", "recovery_uploading")
                 if key in self.record}
 
     def discover(self):
+        helper = self.updater.call("GET", "/v1/health", timeout=5)
         result = self.updater.call("POST", "/v1/releases/check", data={"head_id": self.config.updater_head_id})
         if not isinstance(result, dict) or result.get("installed_version") != __version__ \
                 or not isinstance(result.get("available_version"), str) \
@@ -104,10 +112,11 @@ class Updates:
                 or type(result.get("update_available")) is not bool:
             raise DomainError("UPDATER_PROTOCOL", "Updater release discovery did not match this installed head.", 503)
         compatible = result.get("profile") == "mastermind" and result.get("compatible") is True \
-            and result.get("components") == ["core", "runtime", "worker"]
+                and result.get("components") == ["core", "runtime", "worker"] \
+                and helper.get("service") == "updater" and "mastermind.saved-copy.v2" in helper.get("capabilities", [])
         return {"installed_version": __version__, "available_version": result["available_version"],
                 "update_available": result["update_available"], "compatible": compatible,
-                "checked_at": time.time()}
+                "updater_version": helper.get("version"), "checked_at": time.time()}
 
     def rollback_target(self, job_id):
         if not isinstance(job_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", job_id):
@@ -152,14 +161,13 @@ class Updates:
             return self.public()
 
     def start(self):
+        if self.record and self.record.get("recovery_uploading"):
+            self.save(recovery_uploading=False)
         if not self.record or self.record["phase"] in TERMINAL:
             return
-        if self.record["phase"] == "PREPARING":
-            self.save(phase="FAILED", error="PREPARATION_INTERRUPTED")
-            return
-        # Before a sealed handoff, no privileged mutation could have started.
-        if self.record["phase"] in {"QUIESCING", "SNAPSHOT", "SPOOLING"}:
+        if self.record["phase"] in BEFORE_APPLY:
             self.save(phase="FAILED", error="HANDOFF_INTERRUPTED")
+            self.discard_material()
             return
         self.thread = threading.Thread(target=self.monitor, name="mastermind-update-recovery", daemon=True)
         self.thread.start()
@@ -168,6 +176,9 @@ class Updates:
         request_id, version = self.record["request_id"], self.record["version"]
         root = f"/v1/heads/{self.config.updater_head_id}"
         try:
+            helper = self.updater.call("GET", "/v1/health", timeout=5)
+            if helper.get("service") != "updater" or "mastermind.saved-copy.v2" not in helper.get("capabilities", []):
+                raise DomainError("UPDATER_INCOMPATIBLE", "Upgrade the shared Updater to the saved-copy group protocol first.", 409)
             preparation = {"request_id": request_id, "version": version}
             if self.record.get("rollback_of"):
                 preparation["rollback_of"] = self.record["rollback_of"]
@@ -187,14 +198,24 @@ class Updates:
                 with ExitStack() as retained:
                     with snapshot_budget():
                         retained.enter_context(self.service.coordinator.boundary(request_id, resume_if=lambda: self.record["phase"] in
-                            TERMINAL | {"QUIESCING", "SNAPSHOT", "SPOOLING"}))
-                        spool_id = self.prepare_snapshot(backup, folder, root, request_id)
-                    self.save(phase="APPLY_REQUESTED", spool_id=spool_id)
-                    # This marker precedes the request: loss of its response must keep writers blocked.
+                            TERMINAL | BEFORE_APPLY))
+                        self.prepare_snapshot(backup, folder, root, request_id)
+                    while not self.service.stop_event.is_set():
+                        self.wake.wait(1)
+                        self.wake.clear()
+                        with self.lock:
+                            if self.record["phase"] == "SAVED":
+                                self.save(phase="APPLY_REQUESTED")
+                                break
+                            if self.record["phase"] in TERMINAL:
+                                return
+                            if time.time() >= self.record["save_expires_at"]:
+                                raise DomainError("SAVED_COPY_TIMEOUT", "Save confirmation expired before installation.", 408)
+                    if self.service.stop_event.is_set():
+                        raise DomainError("HANDOFF_INTERRUPTED", "Restart interrupted the saved-copy handoff.", 503)
+                    # This durable marker precedes the request. Lost acknowledgement keeps writers blocked.
                     try:
-                        job = self.updater.call("POST", "/v1/updates", data={"request_id": request_id,
-                            "head_id": self.config.updater_head_id, "service": "mastermind", "version": version,
-                            "preparation_id": prepared["id"], "backup": {"spool_id": spool_id}})
+                        job = self.updater.call("POST", "/v2/updates", data=self.apply_request())
                         self.save(job_id=job["id"])
                     except DomainError as error:
                         if error.status < 500:
@@ -207,6 +228,20 @@ class Updates:
                 self.save(phase="FAILED", error=error.code if isinstance(error, DomainError) else "UPDATE_PREPARATION_FAILED")
             else:
                 self.save(error="UPDATE_RECOVERY_REQUIRED")
+        finally:
+            self.discard_material()
+            self.release_unclaimed(self.record.get("spool_id"))
+
+    def discard_material(self):
+        if not self.record:
+            return
+        folder = self.directory / self.record["request_id"]
+        archive = folder / "mastermind-backup.zip"
+        archive.unlink(missing_ok=True)
+        # Old active journals can still require their retained preimage. New protocol journals never do.
+        snapshot = folder / "snapshot"
+        if snapshot.exists() and (self.record.get("saved_copy_protocol") == 2 or self.record["phase"] in TERMINAL):
+            remove_private_tree(snapshot, folder)
 
     def prepare_snapshot(self, backup, folder, root, request_id):
         self.save(phase="SNAPSHOT")
@@ -216,28 +251,145 @@ class Updates:
             boundary = backup.snapshot(snapshot, inside_boundary=True)
         durable_tree(snapshot)
         self.save(preimage_vault_sha256=tree_digest(snapshot / "vault"),
-                  preimage_db_sha256=sha_file(snapshot / "snapshot.sqlite3"), generation=boundary["generation"],
-                  previous_version=__version__, previous_schema=1)
+                  preimage_db_logical_sha256=database_digest(snapshot / "snapshot.sqlite3"),
+                  generation=boundary["generation"], previous_version=__version__, previous_schema=2,
+                  saved_copy_protocol=2)
         archive = folder / "mastermind-backup.zip"
-        backup.pack(snapshot, boundary, archive)
-        size, digest = archive.stat().st_size, sha_file(archive)
-        self.save(phase="SPOOLING", size=size, sha256=digest)
-        spool = self.updater.call("POST", root + "/backup-spools", data={"request_id": request_id,
-            "filename": "mastermind-backup.zip", "size": size, "sha256": digest})
-        route = root + "/backup-spools/" + spool["spool_id"]
-        def chunks():
-            with archive.open("rb") as source:
-                check()
-                while block := source.read(1024 * 1024):
-                    check()
-                    yield block
-                check()
-        self.updater.call("PUT", route + "/content", source=chunks(), size=size, timeout=3600)
-        sealed = self.updater.call("POST", route + "/seal")
-        if sealed.get("state") != "SEALED" or sealed.get("sha256") != digest or sealed.get("size") != size:
-            raise DomainError("UPDATE_INTEGRITY", "Updater did not seal the exact snapshot.", 409)
-        check()
-        return spool["spool_id"]
+        try:
+            backup.pack(snapshot, boundary, archive)
+            self.save(phase="WAITING_SAVED", size=archive.stat().st_size, sha256=sha_file(archive),
+                      save_expires_at=time.time() + SAVED_WAIT_SECONDS, download_consumed=False, download_complete=False)
+        finally:
+            remove_private_tree(snapshot, folder)
+
+    def download(self, request_id):
+        with self.lock:
+            if not self.record or self.record["request_id"] != request_id or self.record["phase"] != "WAITING_SAVED" \
+                    or self.record.get("download_consumed") or time.time() >= self.record["save_expires_at"]:
+                raise DomainError("BACKUP_UNAVAILABLE", "Create a fresh backup; this download is unavailable.", 409)
+            path = self.directory / request_id / "mastermind-backup.zip"
+            if path.is_symlink() or not path.is_file() or path.stat().st_size != self.record["size"]:
+                raise DomainError("BACKUP_UNAVAILABLE", "The transient backup is unavailable.", 409)
+            stream = path.open("rb")
+            self.save(phase="DOWNLOADING", save_expires_at=time.time() + 3600)
+            return stream, dict(self.record)
+
+    def downloaded(self, request_id, complete):
+        with self.lock:
+            if not self.record or self.record["request_id"] != request_id:
+                return
+            (self.directory / request_id / "mastermind-backup.zip").unlink(missing_ok=True)
+            if self.record["phase"] == "DOWNLOADING":
+                self.save(phase="WAITING_SAVED", download_consumed=True, download_complete=bool(complete),
+                          save_expires_at=time.time() + SAVED_WAIT_SECONDS)
+
+    def cancel(self, request_id):
+        with self.lock:
+            if not self.record or self.record["request_id"] != request_id or self.record["phase"] not in {"WAITING_SAVED", "SAVED"}:
+                raise DomainError("UPDATE_CONFLICT", "Only a prepared update waiting for the saved copy can be cancelled.", 409)
+            self.release_unclaimed(self.record.get("spool_id"))
+            self.save(phase="FAILED", error="CANCELLED_BEFORE_INSTALL")
+            self.discard_material()
+            self.wake.set()
+            return self.public()
+
+    def release_unclaimed(self, spool_id):
+        if not spool_id:
+            return
+        try:
+            self.updater.call("DELETE", "/v1/heads/" + self.config.updater_head_id + "/backup-spools/" + spool_id, timeout=5)
+        except DomainError:
+            pass  # Claimed jobs own cleanup; an outage falls back to the bounded volatile TTL.
+
+    async def upload_saved(self, request_id, request):
+        with self.lock:
+            if not self.record or self.record["request_id"] != request_id:
+                raise DomainError("UPDATE_CONFLICT", "The backup belongs to another update.", 409)
+            recovering = self.record.get("job_state") in {"FAILED", "ROLLBACK_FAILED"} and self.record.get("error") == "UPDATE_RECOVERY_REQUIRED"
+            if not recovering and self.record["phase"] in {"SAVED", "APPLY_REQUESTED"} and self.record.get("operator_saved"):
+                return self.public()
+            if (not recovering and (self.record["phase"] != "WAITING_SAVED" or not self.record.get("download_complete"))) \
+                    or request.headers.get("X-Update-Saved") != "1" \
+                    or request.headers.get("Content-Encoding", "identity") != "identity" \
+                    or request.headers.get("Content-Length") != str(self.record["size"]) \
+                    or request.headers.get("X-Content-SHA256") != self.record["sha256"] \
+                    or (not recovering and time.time() >= self.record["save_expires_at"]):
+                raise DomainError("SAVED_COPY_REQUIRED", "Download, save and select the exact backup before installing.", 409)
+            if self.record.get("recovery_uploading"):
+                raise DomainError("UPDATE_BUSY", "A recovery copy is already being transferred.", 409)
+            if recovering:
+                self.save(recovery_uploading=True)
+            else:
+                self.save(phase="UPLOADING", save_expires_at=time.time() + 3600)
+            record = dict(self.record)
+        root = "/v1/heads/" + self.config.updater_head_id
+        spool = None
+        try:
+            if recovering:
+                job = await asyncio.to_thread(self.updater.call, "GET", "/v1/jobs/" + record["job_id"])
+                if job.get("request_id") != request_id or job.get("head_id") != self.config.updater_head_id or job.get("service") != "mastermind" or job.get("state") not in {"FAILED", "ROLLBACK_FAILED"} or not job.get("mutation_started") or not job.get("rollback_available") or job.get("backup_sha256") != record["sha256"]:
+                    raise DomainError("UPDATE_CONFLICT", "This job does not accept saved-copy recovery.", 409)
+            spool = await asyncio.to_thread(self.updater.call, "POST", root + "/backup-spools", data={
+                "request_id": request_id, "filename": "mastermind-backup.zip", "size": record["size"], "sha256": record["sha256"]})
+            route = root + "/backup-spools/" + spool["spool_id"]
+            digest, count = hashlib.sha256(), 0
+            async def chunks():
+                nonlocal count
+                async for chunk in request.stream():
+                    count += len(chunk)
+                    if count > record["size"]:
+                        raise DomainError("UPDATE_INTEGRITY", "The uploaded ZIP exceeds its receipt.", 413)
+                    digest.update(chunk)
+                    yield chunk
+                if count != record["size"] or digest.hexdigest() != record["sha256"]:
+                    raise DomainError("UPDATE_INTEGRITY", "Select the exact saved ZIP.", 409)
+            headers = {"X-Updater-Token": read_credential_file(self.config.updater_token_file),
+                       "Content-Length": str(record["size"]), "Content-Type": "application/zip"}
+            async with asyncio.timeout(3600), httpx.AsyncClient(base_url="http://updater.local",
+                transport=httpx.AsyncHTTPTransport(uds=self.config.updater_socket), trust_env=False,
+                timeout=httpx.Timeout(60, connect=5), follow_redirects=False) as client, \
+                    client.stream("PUT", route + "/content", headers=headers, content=chunks()) as response:
+                if response.status_code != 204:
+                    raise DomainError("UPDATER_REJECTED", "Updater could not receive the saved backup.", response.status_code)
+            sealed = await asyncio.to_thread(self.updater.call, "POST", route + "/seal")
+            if sealed.get("state") != "SEALED" or sealed.get("size") != record["size"] or sealed.get("sha256") != record["sha256"]:
+                raise DomainError("UPDATE_INTEGRITY", "Updater did not seal the exact saved ZIP.", 409)
+            if recovering:
+                recovered = await asyncio.to_thread(self.updater.call, "POST", "/v2/jobs/" + record["job_id"] + "/rollback-saved-spool",
+                    data={"spool_id": spool["spool_id"], "operator_saved": True})
+                with self.lock:
+                    self.save(job_state=recovered["state"], job_message=recovered.get("message"), recovery_uploading=False, error=None)
+                    return self.public()
+            with self.lock:
+                if self.record["request_id"] != request_id or self.record["phase"] != "UPLOADING":
+                    raise DomainError("UPDATE_CONFLICT", "The upload outlived its update barrier.", 409)
+                self.save(phase="SAVED", spool_id=spool["spool_id"], operator_saved=True)
+                self.wake.set()
+                return self.public()
+        except BaseException:
+            if spool:
+                await asyncio.to_thread(self.release_unclaimed, spool["spool_id"])
+            with self.lock:
+                if self.record["request_id"] == request_id and recovering:
+                    self.save(recovery_uploading=False)
+                if self.record["request_id"] == request_id and self.record["phase"] == "UPLOADING":
+                    self.save(phase="WAITING_SAVED", error="SAVED_UPLOAD_FAILED", save_expires_at=time.time() + SAVED_WAIT_SECONDS)
+            raise
+
+    def apply_request(self):
+        record = self.record
+        if record.get("operator_saved") is not True:
+            raise DomainError("SAVED_COPY_REQUIRED", "The operator must confirm the saved ZIP.", 409)
+        receipt = {"schema": "exocortex.update-backup.v2", "id": record["request_id"],
+                   "head_id": self.config.updater_head_id, "service": "mastermind", "version": record["version"],
+                   "sha256": record["sha256"], "size": record["size"], "filename": "mastermind-backup.zip",
+                   "expires": int(time.time()) + 19 * 60}
+        encode = lambda value: base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+        body = encode(json.dumps(receipt, separators=(",", ":")).encode())
+        mac = hmac.new(read_credential_file(self.config.updater_token_file).encode(), body.encode(), hashlib.sha256).digest()
+        return {"request_id": record["request_id"], "head_id": self.config.updater_head_id, "service": "mastermind",
+                "version": record["version"], "preparation_id": record["preparation_id"],
+                "backup": {"spool_id": record["spool_id"]}, "operator_saved": True, "backup_receipt": body + "." + encode(mac)}
 
     def monitor(self, owns_boundary=False):
         while not self.service.stop_event.wait(1):
@@ -250,9 +402,7 @@ class Updates:
                     if job is None:
                         if self.record["phase"] == "APPLY_REQUESTED":
                             try:
-                                job = self.updater.call("POST", "/v1/updates", data={"request_id": self.record["request_id"],
-                                    "head_id": self.config.updater_head_id, "service": "mastermind", "version": self.record["version"],
-                                    "preparation_id": self.record["preparation_id"], "backup": {"spool_id": self.record["spool_id"]}})
+                                job = self.updater.call("POST", "/v2/updates", data=self.apply_request())
                                 self.save(job_id=job["id"])
                             except DomainError as error:
                                 if error.status < 500:
@@ -267,6 +417,7 @@ class Updates:
                 if job.get("head_id") != self.config.updater_head_id or job.get("request_id") != self.record["request_id"]:
                     raise DomainError("UPDATE_INTEGRITY", "Updater job identity mismatch.", 503)
                 state = job["state"]
+                self.save(job_state=state, job_message=job.get("message"), progress=job.get("progress"))
                 if state in {"COMPLETED", "ROLLED_BACK"} or state == "FAILED" and not job.get("mutation_started"):
                     self.save(phase=state, error=None)
                     if not owns_boundary and self.config.runtime_mode != "offline":
@@ -295,7 +446,14 @@ class Updates:
                 record = json.loads(journal.read_text("utf-8"))
                 if record.get("request_id") != folder.name:
                     raise DomainError("RECOVERY_REQUIRED", "Update retention journal identity changed.", 503)
-                if record.get("phase") in TERMINAL and record.get("updated_at", now) < now - 24 * 3600:
+                if record.get("phase") in TERMINAL:
+                    old = self.config.vault.parent / (".update-old-" + folder.name)
+                    new = self.config.vault.parent / (".update-new-" + folder.name)
+                    if tree_digest(old) not in (None, record.get("replaced_vault_sha256")) or tree_digest(new) not in (None, record.get("preimage_vault_sha256")):
+                        raise DomainError("RECOVERY_REQUIRED", "Update cleanup found an independently changed generation.", 503)
+                    for path in (old, new):
+                        if path.exists():
+                            remove_private_tree(path, path.parent)
                     remove_private_tree(folder, self.directory)
 
     def confirm(self, data):
@@ -306,7 +464,7 @@ class Updates:
         status = self.service.runtime.status()
         if status.get("state") != "stopped" or self.config.runtime_mode != "offline" and not status.get("paused"):
             raise DomainError("VAULT_BUSY", "The native writer barrier is not held.", 423)
-        return {"held": True, "request_id": record["request_id"], "schema": 1}
+        return {"held": True, "request_id": record["request_id"], "schema": 2, "saved_copy_protocol": 2}
 
     def close(self):
         # Stop waits only for the current bounded polling request, never for the

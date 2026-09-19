@@ -257,6 +257,15 @@
     {
       "component": "core",
       "method": "GET",
+      "path": "/api/owner/updates/{request_id}/backup",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
       "path": "/api/runtime/downloads",
       "source": "src/mastermind/api.py",
       "exposure": "canonical_https",
@@ -293,7 +302,7 @@
     {
       "component": "core",
       "method": "GET",
-      "path": "/internal/bridge/graph",
+      "path": "/internal/bridge/reference-dictionary",
       "source": "src/mastermind/api.py",
       "exposure": "private_network",
       "principal": "bridge",
@@ -464,6 +473,15 @@
     {
       "component": "core",
       "method": "POST",
+      "path": "/api/owner/updates/{request_id}/cancel",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
       "path": "/internal/bridge/events",
       "source": "src/mastermind/api.py",
       "exposure": "private_network",
@@ -483,24 +501,6 @@
       "component": "core",
       "method": "POST",
       "path": "/internal/bridge/external/open",
-      "source": "src/mastermind/api.py",
-      "exposure": "private_network",
-      "principal": "bridge",
-      "indexable": false
-    },
-    {
-      "component": "core",
-      "method": "POST",
-      "path": "/internal/bridge/graph-presentation",
-      "source": "src/mastermind/api.py",
-      "exposure": "private_network",
-      "principal": "bridge",
-      "indexable": false
-    },
-    {
-      "component": "core",
-      "method": "POST",
-      "path": "/internal/bridge/links",
       "source": "src/mastermind/api.py",
       "exposure": "private_network",
       "principal": "bridge",
@@ -554,6 +554,15 @@
     {
       "component": "core",
       "method": "POST",
+      "path": "/internal/bridge/related-notes",
+      "source": "src/mastermind/api.py",
+      "exposure": "private_network",
+      "principal": "bridge",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
       "path": "/internal/bridge/rename",
       "source": "src/mastermind/api.py",
       "exposure": "private_network",
@@ -580,9 +589,72 @@
     },
     {
       "component": "core",
+      "method": "PUT",
+      "path": "/api/owner/updates/{request_id}/saved-backup",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
       "method": "WEBSOCKET",
       "path": "/runtime/websockify",
       "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/context-indexing/settings",
+      "source": "src/mastermind/context_indexing/routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/context-indexing/waiting",
+      "source": "src/mastermind/context_indexing/routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "PATCH",
+      "path": "/api/owner/context-indexing/settings",
+      "source": "src/mastermind/context_indexing/routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/owner/context-indexing/initialize",
+      "source": "src/mastermind/context_indexing/routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/owner/context-indexing/jobs/{identifier}/resume",
+      "source": "src/mastermind/context_indexing/routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/owner/context-indexing/validate",
+      "source": "src/mastermind/context_indexing/routes.py",
       "exposure": "canonical_https",
       "principal": "owner",
       "indexable": false
@@ -743,7 +815,43 @@
     {
       "component": "core",
       "method": "GET",
+      "path": "/api/owner/helper-updates/jobs",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/helper-updates/jobs/{identifier}",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
       "path": "/api/owner/metrics",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/neptune/policy",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/neptune/policy/runs",
       "source": "src/mastermind/operator_routes.py",
       "exposure": "canonical_https",
       "principal": "owner",
@@ -896,6 +1004,33 @@
     {
       "component": "core",
       "method": "POST",
+      "path": "/api/owner/helper-updates/check",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/owner/helper-updates/install/{component}",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/owner/neptune/policy/runs",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
       "path": "/api/owner/operations",
       "source": "src/mastermind/operator_routes.py",
       "exposure": "canonical_https",
@@ -915,6 +1050,15 @@
       "component": "core",
       "method": "POST",
       "path": "/api/owner/updates/check",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "PUT",
+      "path": "/api/owner/neptune/policy",
       "source": "src/mastermind/operator_routes.py",
       "exposure": "canonical_https",
       "principal": "owner",
@@ -1148,6 +1292,15 @@
     {
       "component": "worker",
       "method": "GET",
+      "path": "/curator/status",
+      "source": "src/mastermind/worker.py",
+      "exposure": "private_network",
+      "principal": "worker_control",
+      "indexable": false
+    },
+    {
+      "component": "worker",
+      "method": "GET",
       "path": "/healthz",
       "source": "src/mastermind/worker.py",
       "exposure": "private_network",
@@ -1167,6 +1320,15 @@
       "component": "worker",
       "method": "POST",
       "path": "/chunks",
+      "source": "src/mastermind/worker.py",
+      "exposure": "private_network",
+      "principal": "worker_control",
+      "indexable": false
+    },
+    {
+      "component": "worker",
+      "method": "POST",
+      "path": "/curator/assist",
       "source": "src/mastermind/worker.py",
       "exposure": "private_network",
       "principal": "worker_control",
@@ -1230,6 +1392,15 @@
       "component": "core",
       "method": "GET",
       "path": "/api/owner/wyvern",
+      "source": "src/mastermind/wyvern_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/wyvern/management",
       "source": "src/mastermind/wyvern_routes.py",
       "exposure": "canonical_https",
       "principal": "owner",

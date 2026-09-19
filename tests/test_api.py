@@ -37,6 +37,32 @@ def authenticate(client):
     return response
 
 
+def test_context_indexing_settings_are_owner_only_atomic_and_csrf_protected(api):
+    client, service = api
+    base = "/api/owner/context-indexing"
+    assert client.get(base+"/settings").status_code == 401
+    assert client.get(base+"/waiting").status_code == 401
+    authenticate(client)
+    service.vault.write("root.md", "# root", None, create=True)
+    assert client.post(base+"/initialize", json={}).status_code == 200
+    initial = client.get(base+"/settings").json()
+    assert initial["crusher"]["output_dir"] == "root/crusher"
+    assert initial["retrieval"]["curator_enabled"] is False
+    draft = {"expected_revision": initial["revision"], "operation_id": "settings-test-operation-01",
+             "retrieval": {"curator_enabled": True}}
+    assert client.patch(base+"/settings", json=draft, headers={"X-CSRF-Token": "invalid"}).status_code == 403
+    saved = client.patch(base+"/settings", json=draft)
+    assert saved.status_code == 200 and saved.json()["revision"] == initial["revision"]+1
+    assert client.patch(base+"/settings", json=draft).json() == saved.json()
+    assert client.patch(base+"/settings", json={**draft, "operation_id": "settings-test-operation-02"}).status_code == 409
+    invalid = {"expected_revision": saved.json()["revision"], "operation_id": "settings-test-operation-03",
+               "crusher": {"template_path": "missing.md"}, "retrieval": {"curator_enabled": False}}
+    assert client.patch(base+"/settings", json=invalid).status_code == 404
+    assert client.get(base+"/settings").json()["retrieval"]["curator_enabled"] is True
+    assert client.post(base+"/validate", json={"crusher": {"output_dir": "elsewhere"}}).status_code == 422
+    assert client.get("/api/context-indexing/search?query=private").status_code == 404
+
+
 def test_second_core_is_rejected_before_opening_or_migrating_the_database(api, monkeypatch):
     _, service = api
     def forbidden(*args, **kwargs):
@@ -142,6 +168,29 @@ def test_login_origin_size_and_error_payload_do_not_echo_secrets(api):
     response = client.post("/api/auth/login", content=b'{"access_key":"' + b"a"*65536 + b'"}',
                            headers={"Origin": "https://mastermind.test", "Content-Type": "application/json"})
     assert response.status_code == 413
+
+
+def test_native_reference_dictionary_is_bridge_only_and_contains_no_bodies(api):
+    client, service = api
+    route = "/internal/bridge/reference-dictionary"
+    assert client.get(route).status_code == 401
+    authenticate(client)
+    assert client.post("/api/notes", json={"path": "Café.md", "text": "private body"}).status_code == 200
+    with service.state.transaction() as db:
+        db.execute("INSERT OR IGNORE INTO reference_history VALUES('internal','deleted','Deleted')")
+        db.execute("INSERT OR IGNORE INTO reference_history VALUES('saturn','root/a.pdf','root/a.pdf')")
+    assert client.get(route).status_code == 401
+    assert client.get(route, headers={"Authorization": "Bearer neptune-export-test-token"}).status_code == 401
+    response = client.get(route, headers={"Authorization": "Bearer bridge-test-token"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["current"] == {"café": "Café"}
+    assert set(data["history"]) == {"Café", "Deleted"}
+    assert data["saturn"] == ["root/a.pdf"]
+    assert set(data) == {"current", "history", "saturn"}
+    assert "private body" not in response.text
+    service.ready = False
+    assert client.get(route, headers={"Authorization": "Bearer bridge-test-token"}).status_code == 503
 
 
 def test_bridge_references_and_activity_use_separate_scope(api):

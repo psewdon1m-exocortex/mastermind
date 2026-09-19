@@ -105,3 +105,7 @@ columns when the sidebar is fixed. Narrow content widths stack the panels.
 Visual scrollbars are suppressed on all Mastermind Shell/public pages while
 wheel, touch and keyboard scrolling remain available; the existing native
 Obsidian UI exception remains in force.
+
+## 2026-09-19 — Native Obsidian graph and link panes
+
+The owner requested implementing and testing `@note`, Chronos and Saturn in native Obsidian graphs, then removing redundant custom graph structures if successful. Graph view, Local graph, Backlinks and Outgoing links now use the native views with an ephemeral reference adapter. The three separate Mastermind panes/commands, custom canvas renderer, portable graph cache and unused Bridge graph endpoints are removed. External resources remain virtual targets, subject to the native Existing files only filter. No proxy notes or Markdown rewrites are introduced. Native qualification is limited to the pinned Obsidian 1.13.7; live external card transport remains the existing managed integration.

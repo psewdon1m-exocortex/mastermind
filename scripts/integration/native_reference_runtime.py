@@ -4,16 +4,24 @@ import os
 import socket
 import socketserver
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
 
 home = Path("/qualification/home")
+related = "--related" in sys.argv
+vault_path = "/qualification/core/vault/current" if related else "/qualification/vault"
 profile = home / ".config/obsidian"
 profile.mkdir(parents=True, exist_ok=True)
 (profile / "obsidian.json").write_text(json.dumps({"vaults": {"references": {
-    "path": "/qualification/vault", "open": True, "ts": int(time.time()*1000)}}, "updateDisabled": True}))
+    "path": vault_path, "open": True, "ts": int(time.time()*1000)}}, "updateDisabled": True}))
 assert not any(key.startswith("MASTERMIND_") for key in os.environ)
+if related:
+    assert json.loads(Path("/qualification/fixture.json").read_text())["fixture"] == "mastermind-related-notes/v1"
+    os.environ.update(MASTERMIND_CORE_URL="http://related-core:18495",
+                      MASTERMIND_BRIDGE_TOKEN_FILE="/qualification/secrets/bridge_token",
+                      MASTERMIND_BRIDGE_STATE="/qualification/bridge-state.json")
 
 
 class Relay(socketserver.BaseRequestHandler):

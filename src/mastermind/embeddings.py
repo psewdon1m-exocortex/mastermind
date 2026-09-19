@@ -58,9 +58,14 @@ class Embeddings:
             attention = np.asarray([item.attention_mask for item in encoded], dtype=np.int64)
             inputs = {"input_ids": identifiers, "attention_mask": attention,
                       "token_type_ids": np.zeros_like(identifiers)}
-            hidden = self.session.run(None, {item.name: inputs[item.name] for item in self.session.get_inputs()})[0]
-            mask = attention[..., None].astype(np.float32)
-            vectors = (hidden*mask).sum(axis=1) / np.maximum(mask.sum(axis=1), 1)
+            # Bound transient attention tensors while E5 and the local Curator share 2 GiB.
+            batches = []
+            for offset in range(0, len(texts), 2):
+                hidden = self.session.run(None, {item.name: inputs[item.name][offset:offset+2]
+                                                 for item in self.session.get_inputs()})[0]
+                mask = attention[offset:offset+2, ..., None].astype(np.float32)
+                batches.append((hidden*mask).sum(axis=1) / np.maximum(mask.sum(axis=1), 1))
+            vectors = np.concatenate(batches, axis=0)
             vectors /= np.maximum(np.linalg.norm(vectors, axis=1, keepdims=True), 1e-12)
             if vectors.shape != (len(texts), 384) or not np.isfinite(vectors).all():
                 raise DomainError("EMBEDDINGS_INVALID", "The offline model returned invalid vectors.", 503)

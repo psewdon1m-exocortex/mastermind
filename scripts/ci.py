@@ -84,11 +84,13 @@ def main():
         run("bridge-check", [npm, "--prefix", "bridge", "run", "check"])
         run("bridge-tests", [npm, "--prefix", "bridge", "test"])
         run("bridge-build", [npm, "--prefix", "bridge", "run", "build"])
+        run("bridge-release-tests", [sys.executable, "-m", "unittest", "discover", "-s", "bridge/tests", "-p", "test_release.py", "-v"])
         # Portable-export tests consume the freshly built Bridge, which is an
         # ignored build output and therefore deliberately absent from git archive.
         shutil.copytree(ROOT / "bridge/dist", source / "bridge/dist")
         if args.images or args.reuse_images:
             run("offline-model", [sys.executable, "scripts/fetch_embedding_model.py"])
+            run("offline-curator", [sys.executable, "scripts/fetch_curator_model.py"])
             images = {}
             if args.reuse_images:
                 images, result["image_reuse"] = reuse(ROOT, args.reuse_images, revision)
@@ -98,6 +100,7 @@ def main():
                 command = ["docker", "build", "-f", "Dockerfile" + ("" if component == "core" else "." + component), "-t", tag]
                 if component == "worker":
                     command += ["--build-context", "embedding=" + str(ROOT / ".local/models/multilingual-e5-small")]
+                    command += ["--build-context", "curator=" + str(ROOT / ".local/models/curator")]
                 run("image-" + component, [*command, "."])
                 images[component] = subprocess.check_output(["docker", "image", "inspect", "--format", "{{.Id}}", tag], text=True).strip()
                 if not re.fullmatch(r"sha256:[a-f0-9]{64}", images[component]):

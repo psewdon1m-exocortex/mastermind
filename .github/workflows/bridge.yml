@@ -1,0 +1,121 @@
+name: Bridge package and release
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['bridge-v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bridge-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12.14'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24.14.0'
+      - name: Validate versions and release tag before building
+        env:
+          BUILD_REF: ${{ github.ref }}
+          BUILD_REVISION: ${{ github.sha }}
+        run: |
+          python - <<'PY'
+          import os, sys
+          from pathlib import Path
+          sys.path.insert(0, 'scripts')
+          from bridge_release import identity
+          from validate_repository import versions
+          version = versions(Path('.'))
+          tag = os.environ['BUILD_REF'].removeprefix('refs/tags/') if os.environ['BUILD_REF'].startswith('refs/tags/') else 'bridge-v' + version
+          identity(version, os.environ['BUILD_REVISION'], tag)
+          PY
+      - name: Install pinned Bridge dependencies
+        run: npm --prefix bridge ci
+      - name: Check, test and build Bridge
+        run: |
+          npm --prefix bridge run check
+          npm --prefix bridge test
+          npm --prefix bridge run build
+          python -m unittest discover -s bridge/tests -p 'test_release.py' -v
+      - name: Package the exact build and verify the installation archive
+        env:
+          BUILD_REF: ${{ github.ref }}
+          BUILD_REVISION: ${{ github.sha }}
+        run: |
+          python - <<'PY'
+          import os, subprocess, sys
+          from pathlib import Path
+          sys.path.insert(0, 'scripts')
+          from bridge_release import package, verify
+          subprocess.run(['git', 'diff', '--exit-code', 'HEAD'], check=True)
+          if subprocess.check_output(['git', 'ls-files', '--others', '--exclude-standard']).strip():
+              raise SystemExit('Build produced unexpected untracked source files')
+          if subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() != os.environ['BUILD_REVISION']:
+              raise SystemExit('Checkout does not match the workflow source revision')
+          ref = os.environ['BUILD_REF']
+          tag = ref.removeprefix('refs/tags/') if ref.startswith('refs/tags/') else None
+          folder = Path('artifacts/bridge-release')
+          result = package(Path('.'), folder, os.environ['BUILD_REVISION'], tag)
+          verify(folder, result['revision'], result['tag'])
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
+              output.write('Bridge ' + result['version'] + ': verified standalone preview package.\n\n')
+              output.write('Source: `' + result['revision'] + '`. Only bridge-v tag pushes publish a prerelease.\n')
+          PY
+      - name: Scan only the public package for secrets
+        run: |
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --mount "type=bind,source=$PWD/artifacts/bridge-release,target=/release,readonly" \
+            ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+            dir /release --redact --no-banner
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bridge-${{ github.sha }}
+          path: artifacts/bridge-release/
+          if-no-files-found: error
+          retention-days: 30
+          # Re-running the build may replace a CI artifact, never a release asset.
+          overwrite: true
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/bridge-v')
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12.14'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: bridge-${{ github.sha }}
+          path: artifacts/bridge-release/
+      - name: Verify downloaded artifacts before publication
+        env:
+          RELEASE_REVISION: ${{ github.sha }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python scripts/bridge_release.py verify --folder artifacts/bridge-release \
+            --revision "$RELEASE_REVISION" --tag "$RELEASE_TAG"
+      - name: Publish or resume the Bridge prerelease without changing Latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REVISION: ${{ github.sha }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python scripts/bridge_release.py publish --folder artifacts/bridge-release \
+            --revision "$RELEASE_REVISION" --tag "$RELEASE_TAG"

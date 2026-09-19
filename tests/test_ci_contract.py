@@ -41,6 +41,32 @@ def test_plain_validation_cannot_publish_and_actions_match_immutable_lock():
                 assert digest == lock[action]["sha"]
 
 
+def test_bridge_build_is_read_only_and_only_its_tag_can_publish_verified_artifacts():
+    body = (ROOT / ".github/workflows/bridge.yml").read_text("utf-8")
+    workflow = yaml.load(body, Loader=yaml.BaseLoader)
+    assert set(workflow["on"]) == {"pull_request", "push", "workflow_dispatch"}
+    assert workflow["on"]["push"] == {"branches": ["main"], "tags": ["bridge-v*"]}
+    assert workflow["permissions"] == {"contents": "read"}
+    build, publish = workflow["jobs"]["build"], workflow["jobs"]["publish"]
+    assert build.get("permissions", workflow["permissions"]) == {"contents": "read"}
+    assert "github.token" not in json.dumps(build) and "secrets." not in body
+    assert publish["needs"] == "build" and publish["permissions"] == {"contents": "write"}
+    assert publish["if"] == "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/bridge-v')"
+    assert all(not job["runs-on"].startswith("self-hosted") for job in (build, publish))
+    assert not any("npm " in step.get("run", "") for step in publish["steps"])
+    assert "bridge_release.py verify" in publish["steps"][-2]["run"]
+    assert "GH_TOKEN" not in publish["steps"][-2].get("env", {})
+    assert publish["steps"][-1]["env"]["GH_TOKEN"] == "${{ github.token }}"
+    lock = json.loads((ROOT / ".github/actions.lock.json").read_text("utf-8"))
+    for job in (build, publish):
+        for step in job["steps"]:
+            if "uses" in step:
+                action, digest = step["uses"].split("@")
+                assert digest == lock[action]["sha"]
+                if action == "actions/checkout":
+                    assert step["with"]["persist-credentials"] == "false"
+
+
 @pytest.fixture
 def audit(tmp_path, monkeypatch):
     gate = load("pre_push")

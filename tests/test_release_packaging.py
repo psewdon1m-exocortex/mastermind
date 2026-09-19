@@ -40,7 +40,7 @@ def signed_release(tmp_path, release_tools):
         "compose_bundle": {"sha256": "b"*64}, "database_schema": 1, "minimum_updater_version": "0.4.7", "files": {"compose.production.yaml": "e"*64},
         "mastermind": {"profile": "mastermind.components.v1", "platform": "linux/amd64", "source_sha": "d"*40,
             "bridge_version": "0.0.1", "model_sha256": "c"*64, "health_profile": "mastermind.functional.v1",
-            "obsidian_version": "1.13.7", "minimum_source_schema": 1, "maximum_source_schema": 1,
+            "obsidian_version": "1.13.7", "minimum_source_schema": 1, "maximum_source_schema": 1, "saved_copy_protocol": 2,
             "components": {name: image for name in ("core", "runtime", "worker")},
             "dependencies": {name: "0.0.1" for name in ("kernel", "volt", "saturn", "chronos", "neptune", "updater")}}}
     manifest.write_text(json.dumps(value))

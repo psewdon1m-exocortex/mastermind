@@ -1,7 +1,9 @@
 """Owned Shell routes; never mounted below a public Share capability."""
 import asyncio
+import re
 import time
 from pathlib import Path
+from uuid import UUID
 
 from fastapi import Depends, Request
 from fastapi.responses import FileResponse, StreamingResponse
@@ -16,7 +18,9 @@ from .owner_operations import OwnerOperations
 
 
 def install_operator(app, service, owner, bounded_json):
+    from .context_indexing.routes import install as install_context_indexing
     from .wyvern_routes import install_wyvern
+    install_context_indexing(app, service, owner, bounded_json)
     install_wyvern(app, service, owner, bounded_json)
     service.operator = Operator(service)
     service.owner_operations = OwnerOperations(service)
@@ -72,7 +76,7 @@ def install_operator(app, service, owner, bounded_json):
                     raise DomainError("NEPTUNE_INCOMPATIBLE", "Unexpected Neptune identity.", 503)
                 project = result["project"]
                 return {**base, "state": "LINKED" if complete_profile(result) else "PARTIAL_CONFIGURATION", "installed": True, "socket_reachable": True,
-                        "authenticated": True, "archive_enabled": project.get("enabled"),
+                        "authenticated": True, "version": result.get("version"), "archive_enabled": project.get("enabled"),
                         "mirror_enabled": (project.get("mirror") or {}).get("enabled"),
                         "reader_configured": project.get("reader") is not None}
             except DomainError as error:
@@ -82,11 +86,29 @@ def install_operator(app, service, owner, bounded_json):
             try:
                 result = await asyncio.to_thread(service.updates.updater.call, "GET", "/v1/health")
                 return {"state": "AVAILABLE" if result.get("service") == "updater" and result.get("status") == "ok"
-                        else "INCOMPATIBLE"}
+                        else "INCOMPATIBLE", "version": result.get("version")}
             except DomainError as error:
                 return {"state": "UNAVAILABLE", "code": error.code}
         n, u, lifecycle = await asyncio.gather(neptune(), updater(), service.agent_lifecycle.status())
         return {"version": __version__, "neptune": n, "updater": u, "neptune_initialization": lifecycle}
+
+    @app.get("/api/owner/neptune/policy", dependencies=[Depends(owner)])
+    def backup_policy():
+        return service.backup_policy.read()
+
+    @app.put("/api/owner/neptune/policy", dependencies=[Depends(owner)])
+    async def change_backup_policy(request: Request):
+        service.data_ready()
+        return await asyncio.to_thread(service.backup_policy.mutate, await bounded_json(request, 4096))
+
+    @app.get("/api/owner/neptune/policy/runs", dependencies=[Depends(owner)])
+    def backup_runs():
+        return service.backup_policy.runs()
+
+    @app.post("/api/owner/neptune/policy/runs", dependencies=[Depends(owner)])
+    async def create_backup_run(request: Request):
+        service.data_ready()
+        return await asyncio.to_thread(service.backup_policy.runs, "POST", await bounded_json(request, 4096))
 
     @app.post("/api/owner/agents/neptune/enroll", dependencies=[Depends(owner)])
     async def enroll(request: Request):
@@ -103,6 +125,41 @@ def install_operator(app, service, owner, bounded_json):
         if await bounded_json(request, 4096) != {}:
             raise DomainError("INVALID_REQUEST", "Release discovery takes no supplied source.", 422)
         return await asyncio.to_thread(service.updates.discover)
+
+    @app.post("/api/owner/helper-updates/check", dependencies=[Depends(owner)])
+    async def check_helper(request: Request):
+        data = await bounded_json(request, 4096)
+        if set(data) != {"component"} or data["component"] not in ("updater", "neptune", "wyvern"):
+            raise DomainError("INVALID_REQUEST", "Select a helper consumed by this service", 422)
+        return await asyncio.to_thread(service.updates.updater.call, "POST", "/v2/check",
+            data={"head_id": service.config.updater_head_id, "component": data["component"]})
+
+    @app.post("/api/owner/helper-updates/install/{component}", dependencies=[Depends(owner)])
+    async def install_helper(component: str, request: Request):
+        data = await bounded_json(request, 4096)
+        try:
+            UUID(data.get("request_id", ""))
+            if component not in ("updater", "neptune", "wyvern") or set(data) - {"version", "request_id", "confirm_shared"} or not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", data.get("version", "")):
+                raise ValueError()
+        except (ValueError, TypeError, AttributeError):
+            raise DomainError("INVALID_REQUEST", "Select an exact helper release and stable request UUID", 422) from None
+        if component == "wyvern" and data.get("confirm_shared") is not True:
+            raise DomainError("CONFIRMATION_REQUIRED", "Confirm the shared gateway update impact", 409)
+        return await asyncio.to_thread(service.updates.updater.call, "POST", "/v2/components/" + component + "/updates",
+            data={**data, "head_id": service.config.updater_head_id})
+
+    @app.get("/api/owner/helper-updates/jobs", dependencies=[Depends(owner)])
+    def helper_jobs():
+        return service.updates.updater.call("GET", "/v1/jobs?head_id=" + service.config.updater_head_id)
+
+    @app.get("/api/owner/helper-updates/jobs/{identifier}", dependencies=[Depends(owner)])
+    def helper_job(identifier: str):
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", identifier):
+            raise DomainError("NOT_FOUND", "Unknown operation", 404)
+        job = service.updates.updater.call("GET", "/v1/jobs/" + identifier)
+        if job.get("head_id") != service.config.updater_head_id:
+            raise DomainError("NOT_FOUND", "Unknown operation", 404)
+        return job
 
     @app.post("/api/owner/connection", dependencies=[Depends(owner)])
     async def change_connection(request: Request):

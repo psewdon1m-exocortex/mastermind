@@ -80,7 +80,7 @@ def test_snapshot_timeout_resumes_editor_cleans_spool_and_preserves_live_data(re
     backup.vault.write("after.md", "writes are available", None, create=True)
 
 
-@pytest.mark.parametrize("stage", ["paused_checkpoint", "snapshot", "pack", "seal"])
+@pytest.mark.parametrize("stage", ["paused_checkpoint", "snapshot", "pack"])
 def test_update_timeout_never_submits_apply_and_releases_safe_barrier(recovery, clock, monkeypatch, stage):
     backup, _, _ = recovery
     backup.vault.write("root.md", "before update", None, create=True)
@@ -99,6 +99,8 @@ def test_update_timeout_never_submits_apply_and_releases_safe_barrier(recovery, 
     monkeypatch.setattr(backup.coordinator.runtime, "pause", pause)
     def call(method, route, **kwargs):
         calls.append((method, route))
+        if route == "/v1/health":
+            return {"service":"updater", "capabilities":["mastermind.saved-copy.v2"]}
         if route.endswith("/preparations"):
             return {"state": "COMPLETED", "version": "0.0.9", "id": "prepared"}
         if route.endswith("/backup-spools"):
@@ -130,7 +132,7 @@ def test_update_timeout_never_submits_apply_and_releases_safe_barrier(recovery, 
         assert updates.record["phase"] == "FAILED"
         assert updates.record["error"] == "SNAPSHOT_TIMEOUT"
         assert not updates.blocks and resumed == [True]
-        assert not any(route == "/v1/updates" for _, route in calls)
+        assert not any(route in {"/v1/updates", "/v2/updates"} for _, route in calls)
         assert (backup.config.vault / "root.md").read_text("utf-8") == "before update"
     finally:
         updates.close()

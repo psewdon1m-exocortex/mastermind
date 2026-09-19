@@ -7,11 +7,11 @@ import {createHash, randomUUID, timingSafeEqual} from "node:crypto";
 import {AsyncLocalStorage} from "node:async_hooks";
 import {Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetType} from "@codemirror/view";
 import {StateEffect} from "@codemirror/state";
-import {GraphView, LinksView} from "./views";
 import {MediaBroker, ResourceCard, openResource} from "./resources";
 import {Portable} from "./portable";
 import {installCommands} from "./commands";
 import {NativeLinks} from "./native_links";
+import {installRelatedNotes} from "./related";
 
 type Ref = {start: number; end: number; kind: string; target: string; display: string; exists: boolean};
 type Suggestion = {name: string; path: string};
@@ -119,9 +119,9 @@ export default class MastermindBridge extends Plugin {
   portable?:Portable;
   nativeLinks?:NativeLinks;
 
-  core<T>(route: string, data?: unknown, signal?:AbortSignal): Promise<T> {
+  core<T>(route: string, data?: unknown, signal?:AbortSignal, timeout=10000): Promise<T> {
     if(this.portable)return this.portable.request<T>(route,data);
-    return call<T>(this.coreUrl + "/internal/bridge" + route, this.token, data,10000,signal);
+    return call<T>(this.coreUrl + "/internal/bridge" + route, this.token, data,timeout,signal);
   }
 
   async onload() {
@@ -154,19 +154,9 @@ export default class MastermindBridge extends Plugin {
       this.registerEvent(this.app.vault.on("create",remember));
       this.registerEvent(this.app.vault.on("delete",remember));
       this.registerEvent(this.app.vault.on("rename",remember));
-      this.registerEvent(this.app.vault.on("modify",()=>this.portable!.invalidate()));
     }else{this.installManagedRename();installCommands(this);}
     this.nativeLinks=this.addChild(new NativeLinks(this));
-    this.registerView("mastermind-graph", leaf => new GraphView(leaf, this));
-    for (const direction of ["backlinks", "outgoing"] as const) {
-      this.registerView("mastermind-"+direction, leaf => new LinksView(leaf, this, direction));
-      this.addCommand({id:"open-"+direction,name:"Open Mastermind "+direction,callback:()=>{
-        const leaf=this.app.workspace.getRightLeaf(false);if(leaf)void leaf.setViewState({type:"mastermind-"+direction,active:true});
-      }});
-    }
-    this.addCommand({id:"open-graph",name:"Open Mastermind Graph",callback:()=>{
-      void this.app.workspace.getLeaf("tab").setViewState({type:"mastermind-graph",active:true});
-    }});
+    installRelatedNotes(this);
     const registerDocument = (doc: Document) => {
       if (this.documents.has(doc)) return;
       this.documents.add(doc);
@@ -534,9 +524,13 @@ export default class MastermindBridge extends Plugin {
       let result: unknown;
       if (req.url === "/status" && req.method === "GET") {
         const graphs: unknown[]=[];
-        this.app.workspace.iterateAllLeaves(leaf=>{if(leaf.view instanceof GraphView)graphs.push(leaf.view.diagnostics());});
+        this.app.workspace.iterateAllLeaves(leaf=>{
+          const view=leaf.view as typeof leaf.view & {renderer?:{nodes:unknown[];links:unknown[]}};
+          if(["graph","localgraph"].includes(view.getViewType()))graphs.push({type:view.getViewType(),
+            nodes:view.renderer?.nodes.length||0,edges:view.renderer?.links.length||0,visible:view.containerEl.isShown()});
+        });
         result = {ready: this.ready, version: this.manifest.version, protocol_version: 1, obsidian_version: apiVersion, paused: this.paused,
-          activity_pending: this.state.events.length, graphs,
+          activity_pending: this.state.events.length, graphs, native_references:this.nativeLinks?.diagnostics(),
           resources:[...ResourceCard.active].map(card=>card.diagnostics()),
           media:{responses:this.media.responses,range_responses:this.media.rangeResponses,transferred_bytes:this.media.transferredBytes}};
       }

@@ -20,7 +20,8 @@ def inventory():
 
 def test_all_methods_and_paths_have_an_explicit_nonindexable_classification():
     rows = inventory()
-    assert sorted((Path(row["source"]).name, row["method"], row["path"]) for row in rows) == discovered(ROOT)
+    assert sorted((Path(row["source"]).relative_to("src/mastermind").as_posix(), row["method"], row["path"])
+                  for row in rows) == discovered(ROOT)
     assert all(row["principal"] and row["exposure"] and row["indexable"] is False for row in rows)
 
 

@@ -14,7 +14,10 @@ fs.mkdirSync(artifact,{recursive:true});
  try{
   const page=browser.contexts()[0].pages()[0];
   page.on('pageerror',error=>result.errors.push(error.message));
+  await page.waitForFunction(()=>window.app?.vault?.adapter&&app.workspace?.layoutReady);
   assert.equal(await page.evaluate(()=>app.vault.adapter.getBasePath()),'/qualification/vault');
+  const trust=page.getByRole('button',{name:'Trust author and enable plugins',exact:true});
+  if(await trust.isVisible())await trust.click();
   await page.keyboard.press('Escape');
   await page.evaluate(async()=>{
     const layout=app.workspace.getLayout();
@@ -25,13 +28,17 @@ fs.mkdirSync(artifact,{recursive:true});
     await app.workspace.changeLayout(layout);
   });
   const ready=()=>page.waitForFunction(()=>{const n=app.plugins.plugins['mastermind-bridge']?.nativeLinks;
-    return n?.ready&&n.diagnostics().pending===0&&!n.diagnostics().failure},{},{timeout:30000});
+    return n?.ready&&!n.diagnostics().running&&!n.diagnostics().dictionary_pending&&n.diagnostics().pending===0&&!n.diagnostics().failure},{},{timeout:30000});
   const check=(name)=>{result.checks.push(name);console.log('PASS '+name)};
   await ready();
+  assert.deepEqual(await page.evaluate(()=>Object.keys(app.commands.commands).filter(id=>
+    /^mastermind-bridge:open-(graph|backlinks|outgoing)$/.test(id))),[]);
   await page.evaluate(async text=>{
     const renamed=app.vault.getFileByPath('Renamed.md');if(renamed)await app.fileManager.renameFile(renamed,'Target.md');
     for(const name of ['Future.md','Transient.md']){const file=app.vault.getFileByPath(name);if(file)await app.vault.delete(file);}
     await app.vault.modify(app.vault.getFileByPath('Source.md'),text);
+    const dual=app.vault.getFileByPath('Dual.md');
+    if(dual)await app.vault.modify(dual,'[[Target]] @Target');else await app.vault.create('Dual.md','[[Target]] @Target');
   },source);
   await page.waitForFunction(offset=>app.metadataCache.resolvedLinks['Source.md']?.['Target.md']===1&&
     app.metadataCache.getCache('Source.md')?.links?.some(link=>link.original==='@Target'&&link.position.start.offset===offset),source.indexOf('@Target'));
@@ -39,6 +46,7 @@ fs.mkdirSync(artifact,{recursive:true});
   let state=await page.evaluate(()=>({resolved:app.metadataCache.resolvedLinks['Source.md'],unresolved:app.metadataCache.unresolvedLinks['Source.md'],
     links:app.metadataCache.getCache('Source.md').links,files:app.vault.getFiles().map(f=>f.path)}));
   assert.equal(state.resolved['Native.md'],1);assert.equal(state.resolved['Target.md'],1);
+  assert.ok(await page.evaluate(()=>app.metadataCache.getBacklinksForFile(app.vault.getFileByPath('Target.md')).count()>=3));
   assert.ok(!state.resolved['Excluded.md']);assert.equal(state.unresolved[key('chronos','event-123')],1);
   assert.equal(state.unresolved[key('saturn','root/spec.pdf')],1);
   const at=state.links.find(link=>link.original==='@Target');
@@ -109,6 +117,13 @@ fs.mkdirSync(artifact,{recursive:true});
   await page.locator('.modal').getByText('chronos unavailable',{exact:true}).waitFor();await page.keyboard.press('Escape');
   assert.deepEqual(await page.evaluate(()=>app.vault.getFiles().map(f=>f.path).sort()),beforeFiles);
   check('Graph resource activation opens the modal without creating a phantom note');
+  await page.evaluate(link=>nativeReferenceViews.sourceLeaf.openLinkText(link,'Source.md'),key('saturn','root/spec.pdf'));
+  await page.locator('.modal').getByText('saturn unavailable',{exact:true}).waitFor();await page.keyboard.press('Escape');
+  await page.locator('.outgoing-link-item').filter({hasText:'@chronos: event-123'}).click({button:'right'});
+  await page.getByText('Open @chronos: event-123',{exact:true}).click();
+  await page.locator('.modal').getByText('chronos unavailable',{exact:true}).waitFor();await page.keyboard.press('Escape');
+  assert.deepEqual(await page.evaluate(()=>app.vault.getFiles().map(f=>f.path).sort()),beforeFiles);
+  check('Direct leaf and context-menu opening preserve the resource behavior');
 
   await page.evaluate(async()=>{
     await app.workspace.revealLeaf(nativeReferenceViews.sourceLeaf);
@@ -129,6 +144,7 @@ fs.mkdirSync(artifact,{recursive:true});
   const renamed=await page.evaluate(()=>app.vault.read(app.vault.getFileByPath('Source.md')));
   assert.ok(renamed.includes('@Renamed'));assert.ok(!renamed.includes('@Target'));assert.ok(renamed.includes('`@Excluded`'));
   assert.ok(!renamed.includes('mastermind-resource:'));
+  assert.equal(await page.evaluate(()=>app.vault.read(app.vault.getFileByPath('Dual.md'))),'[[Renamed]] @Renamed');
   check('Native rename propagates @ while preserving Markdown and excluded text');
   await page.evaluate(async()=>{await app.vault.create('Future.md','# Future\n');});
   await page.waitForFunction(()=>app.metadataCache.resolvedLinks['Source.md']?.['Future.md']===1);
@@ -141,6 +157,7 @@ fs.mkdirSync(artifact,{recursive:true});
   await page.waitForFunction(()=>!app.metadataCache.resolvedLinks['Source.md']?.['Renamed.md']);
   assert.equal(fs.readFileSync(path.join(fixture,'Source.md'),'utf8'),bytes);
   assert.equal(await page.evaluate(()=>Object.keys(app.metadataCache.unresolvedLinks['Source.md']).some(k=>k.startsWith('mastermind-resource:'))),false);
+  assert.equal(await page.evaluate(()=>nativeReferenceViews.graph.view.renderer.nodes.some(n=>n.id.startsWith('mastermind-resource:'))),false);
   await page.evaluate(()=>app.plugins.enablePlugin('mastermind-bridge'));await ready();
   await page.waitForFunction(()=>app.metadataCache.resolvedLinks['Source.md']?.['Renamed.md']===1);
   check('Disable/re-enable restores native caches and reconstructs ephemeral links');
@@ -148,6 +165,20 @@ fs.mkdirSync(artifact,{recursive:true});
   await page.waitForFunction(()=>app.metadataCache.resolvedLinks['Source.md']?.['Renamed.md']===1);
   assert.equal(fs.readFileSync(path.join(fixture,'Source.md'),'utf8'),bytes);
   check('Editor reload preserves data and rebuilds native references');
+  await page.evaluate(async()=>{
+    await app.plugins.disablePlugin('mastermind-bridge');
+    for(const type of ['mastermind-graph','mastermind-backlinks','mastermind-outgoing']){
+      const leaf=app.workspace.getLeaf('tab');await leaf.setViewState({type});
+    }
+    await app.plugins.enablePlugin('mastermind-bridge');
+  });
+  await ready();
+  await page.waitForFunction(()=>{
+    let old=0;app.workspace.iterateAllLeaves(leaf=>{if(leaf.getViewState().type.startsWith('mastermind-'))old++});return old===0;
+  });
+  assert.ok(await page.evaluate(()=>app.workspace.getLeavesOfType('graph').length>0&&
+    app.workspace.getLeavesOfType('backlink').length>0&&app.workspace.getLeavesOfType('outgoing-link').length>0));
+  check('Saved custom graph/backlink/outgoing leaves migrate to native views');
 
   result.diagnostics=await page.evaluate(()=>app.plugins.plugins['mastermind-bridge'].nativeLinks.diagnostics());
   result.elapsed_ms=Date.now()-started;

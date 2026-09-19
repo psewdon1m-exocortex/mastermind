@@ -73,6 +73,7 @@ def main():
         command = ["docker", "build", "-f", str(source / ("Dockerfile" if component == "core" else "Dockerfile." + component)), "-t", tag]
         if component == "worker":
             command += ["--build-context", "embedding=" + str(ROOT / ".local/models/multilingual-e5-small")]
+            command += ["--build-context", "curator=" + str(ROOT / ".local/models/curator")]
         command.append(str(source))
         log = ROOT / "artifacts" / f"candidate-{args.version}-{component}.log"
         with log.open("w") as output:

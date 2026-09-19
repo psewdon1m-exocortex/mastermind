@@ -159,7 +159,7 @@ def signed_candidate(tmp_path, promotion):
                            "sha256": gate.digest(folder / "mastermind-compose.tar.gz")},
         "mastermind": {"profile": "mastermind.components.v1", "platform": "linux/amd64", "source_sha": revision,
             "bridge_version": "0.0.1", "obsidian_version": "1.13.7", "health_profile": "mastermind.functional.v1",
-            "components": components, "model_sha256": "c" * 64, "minimum_source_schema": 1, "maximum_source_schema": 1,
+            "components": components, "model_sha256": "c" * 64, "minimum_source_schema": 1, "maximum_source_schema": 1, "saved_copy_protocol": 2,
             "dependencies": {name: "0.0.1" for name in ("kernel", "volt", "saturn", "chronos", "neptune", "updater")}}}
     (folder / "mastermind-release.json").write_text(json.dumps(manifest))
     (folder / "bootstrap.sh").write_text(promoter.bootstrap(f"https://github.com/{repo}/releases/download/{tag}",

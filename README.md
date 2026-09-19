@@ -1,10 +1,14 @@
 # Mastermind
 
 [![Verify](https://github.com/psewdon1m-exocortex/mastermind/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/psewdon1m-exocortex/mastermind/actions/workflows/ci.yml)
+[![Bridge package](https://github.com/psewdon1m-exocortex/mastermind/actions/workflows/bridge.yml/badge.svg?branch=main)](https://github.com/psewdon1m-exocortex/mastermind/actions/workflows/bridge.yml)
 
 Source repository: [psewdon1m-exocortex/mastermind](https://github.com/psewdon1m-exocortex/mastermind).
 The `Verify` workflow runs on pushes to `main`, pull requests and manual dispatch. Source
 verification and protected release publication are separate gates.
+
+The [standalone Mastermind Bridge](bridge/README.md) has its own tested download
+packages and `bridge-v*` prereleases for manual installation in desktop Obsidian.
 
 Mastermind keeps the canonical knowledge base as ordinary Markdown and assets in
 an Obsidian Vault. The owned web interface provides search, activity, sharing,
@@ -26,7 +30,8 @@ and local producer candidates are not published releases. See the exact
 
 For local development, generate disposable credentials with
 `python scripts/prepare_local.py` (root on Linux), build the Bridge with `npm ci && npm run build`
-inside `bridge`, fetch the locked model with `python scripts/fetch_embedding_model.py`, and use
+inside `bridge`, fetch the locked models with `python scripts/fetch_embedding_model.py`
+and `python scripts/fetch_curator_model.py`, and use
 `docker compose -f compose.development.yml up --build -d`. The development Compose
 is a qualification fixture and uses loopback port 18390. Production uses
 `compose.production.yaml`, an authenticated release bootstrap and
@@ -41,7 +46,7 @@ code do not read sibling checkouts.
 Technical documentation: [architecture](docs/architecture.md),
 [installation](docs/deployment.md), [operations and CLI](docs/operations.md),
 [backup and restore](docs/backup-restore.md), [Bridge](docs/mastermind-bridge.md),
-[Crusher](docs/crusher.md), [Shared](docs/sharing.md), [security](docs/security.md),
+[Crusher](docs/crusher.md), [context-indexing](docs/context-indexing.md), [Shared](docs/sharing.md), [security](docs/security.md),
 [API](docs/api.md), [compatibility](docs/compatibility.md), and
 [releases](docs/releases.md).
 

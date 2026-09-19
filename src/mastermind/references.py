@@ -89,7 +89,13 @@ def match_name(text, start, display):
     return None
 
 
-def parse(text: str, current: dict[str, str], history=(), saturn_paths=()):
+def prepare_names(current, history=()):
+    names = {name_key(n): n for n in history}
+    names.update(current)
+    return sorted(names.values(), key=lambda n: len(name_key(n)), reverse=True)
+
+
+def parse(text: str, current: dict[str, str], history=(), saturn_paths=(), *, prepared_names=None):
     visible = masked(text)
     found, occupied = [], []
     for match in WIKI.finditer(visible):
@@ -104,9 +110,9 @@ def parse(text: str, current: dict[str, str], history=(), saturn_paths=()):
         found.append(Reference(match.start(), match.end(), "internal", name_key(target), target,
                                name_key(target) in current))
         occupied.append((match.start(), match.end()))
-    names = {name_key(n): n for n in history}
-    names.update(current)
-    ordered = sorted(names.values(), key=lambda n: len(name_key(n)), reverse=True)
+    if "@" not in visible:
+        return sorted(found, key=lambda ref: ref.start)
+    ordered = prepare_names(current, history) if prepared_names is None else prepared_names
     for match in re.finditer("@", visible):
         start = match.start()
         if escaped(text, start) or not left_boundary(text, start) or any(a <= start < b for a, b in occupied):

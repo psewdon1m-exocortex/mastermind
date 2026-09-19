@@ -2,20 +2,24 @@
 import os
 import re
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
 
+from . import wyvern_intent
 from .backup import checked_json
 from .errors import DomainError
 from .fs import open_under
 
 
 class Wyvern:
-    def __init__(self, link_file=None, *, client=None):
+    def __init__(self, link_file=None, *, client=None, intent_state=None):
         self.link_file = Path(link_file or os.environ.get("MASTERMIND_WYVERN_LINK_FILE", "/run/wyvern-link/link.json"))
         self.client = client
+        self.intent_state = intent_state
+        self.last_status = None
 
     def link(self):
         try:
@@ -44,6 +48,11 @@ class Wyvern:
 
     def call(self, method, route, *, data=None, content=None, headers=None, timeout=300):
         link = self.link()
+        intent = wyvern_intent.read(self.intent_state)
+        if intent and intent["state"] == "pending_verification" and route in ("/v1/generate", "/v1/count-tokens", "/v1/media"):
+            observed = self.call("GET", "/v1/client", timeout=8)
+            if not wyvern_intent.matches(intent, observed):
+                raise DomainError("WYVERN_RESTORE_PENDING", "Confirm this service's restored Adapter bindings before LLM use.", 409)
         client = self.client or httpx.Client(
             base_url=link.get("url", "http://wyvern.local").rstrip("/") + "/",
             transport=httpx.HTTPTransport(uds=link["socket"]) if link["mode"] == "local" else None,
@@ -56,7 +65,7 @@ class Wyvern:
                 if response.status_code == 429 or response.status_code >= 500:
                     raise DomainError("PROVIDER_TRANSIENT", "Wyvern or its Adapter is temporarily unavailable.", 503)
                 if response.status_code >= 400 or response.status_code < 200 or response.status_code >= 300:
-                    raise DomainError("PROVIDER_REJECTED", "Wyvern rejected the request or its selected Adapter.", response.status_code if response.status_code in (409, 422) else 422)
+                    raise DomainError("PROVIDER_REJECTED", "Wyvern rejected the request or its selected Adapter.", response.status_code if response.status_code in (401, 403, 409, 422) else 422)
                 if response.headers.get("content-encoding", "identity") not in ("identity", ""):
                     raise ValueError
                 raw, deadline = bytearray(), time.monotonic() + timeout
@@ -66,7 +75,7 @@ class Wyvern:
                     raw.extend(block)
                 result = checked_json(raw)
                 if not isinstance(result, dict):
-                    raise ValueError
+                    raise TypeError
                 return result
         except (httpx.HTTPError, OSError):
             raise DomainError("PROVIDER_TRANSIENT", "Wyvern connection failed or timed out.", 503) from None
@@ -82,9 +91,27 @@ class Wyvern:
             status = self.call("GET", "/v1/client", timeout=8)
             if status.get("schema") != "exocortex.wyvern.client.v1" or status.get("client_id") != link["client_id"] or status.get("instance_id") != link["instance_id"]:
                 raise DomainError("WYVERN_INCOMPATIBLE", "Wyvern returned another client identity.", 503)
-            return {**status, "mode": link["mode"], "link_configured": True}
+            intent = wyvern_intent.read(self.intent_state)
+            pending = bool(intent and intent["state"] == "pending_verification" and not wyvern_intent.matches(intent, status))
+            self.last_status = {**status, "mode": link["mode"], "link_configured": True, "last_verified_at": datetime.now(UTC).isoformat(), "stale": False,
+                    **({"llm_ready": False, "code": "WYVERN_RESTORE_PENDING", "recovery_intent": intent} if pending else {})}
+            return self.last_status
         except DomainError as error:
-            return {"reachable": False, "client_linked": False, "llm_ready": False, "link_configured": error.code != "WYVERN_NOT_CONFIGURED", "code": error.code}
+            return {**(self.last_status or {}), "stale": True, "reachable": False, "client_linked": False, "llm_ready": False, "link_configured": error.code != "WYVERN_NOT_CONFIGURED", "code": error.code}
+
+    def export_intent(self):
+        retained = wyvern_intent.read(self.intent_state)
+        if retained and retained["state"] == "pending_verification":
+            return retained
+        if not os.path.lexists(self.link_file):
+            if retained and retained["state"] != "unconfigured":
+                raise DomainError("WYVERN_BACKUP_UNAVAILABLE", "Wyvern is required to capture current function bindings.", 503)
+            return {"schema": wyvern_intent.SCHEMA, "state": "unconfigured", "instance_id": None, "client_id": None, "revision": None, "bindings": {}}
+        link = self.link()
+        status = self.call("GET", "/v1/client", timeout=8)
+        if status.get("schema") != "exocortex.wyvern.client.v1" or any(status.get(k) != link[k] for k in ("instance_id", "client_id")):
+            raise DomainError("WYVERN_INCOMPATIBLE", "Wyvern returned another client identity.", 503)
+        return wyvern_intent.from_status(status)
 
     def close(self):
         if self.client:

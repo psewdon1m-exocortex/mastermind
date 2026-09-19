@@ -3,10 +3,9 @@ from contextlib import contextmanager
 
 import httpx
 import pytest
-from test_gemini import fixture, TARGET
+from test_gemini import TARGET, fixture
 
 from mastermind.errors import DomainError
-from mastermind.gemini import Gemini
 
 FILE = {"media_id": "media_"+"a"*8+"-"+"b"*4+"-"+"c"*4+"-"+"d"*4+"-"+"e"*12, "state": "active"}
 

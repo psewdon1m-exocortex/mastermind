@@ -1,8 +1,13 @@
 # Crusher: processing contract and local readiness
 
-## Verified local state — live Google qualification, 2026-09-19
+Current placement is [context-indexing](context-indexing.md). The current
+qualification is recorded in [its ledger](CONTEXT_INDEXING_IMPLEMENTATION.md).
+The earlier checkpoint below describes the legacy image and direct credential
+binding; the new candidate uses scoped Wyvern → Kernel/Volt.
 
-The local stand now uses the real Google API with `gemini-3.8-flash` for text
+## Historical live Google checkpoint, before context-indexing, 2026-09-19
+
+That local checkpoint used the real Google API with `gemini-3.8-flash` for text
 and media. Core starts with `mastermind.api:create_app`; the controlled provider
 override is absent. The owner-supplied key is stored as a secret in Volt and
 resolved through Kernel's `services.mastermind.secrets.ai_provider_key` binding.
@@ -138,8 +143,8 @@ The Worker browser is the separately pinned official stable Chrome for Testing *
 | NORMALIZING | 15% | Persist an acquisition-verification checkpoint. This is currently a marker; it is not a separate transformation or model call. Worker extraction performs the actual normalization. |
 | EXTRACTING | 20% | Isolated Worker extracts bounded text or prepares media. A browser renderer is used when the extractor requests it. Network acquisition rejects private network targets and unsafe redirects/helpers. |
 | UNDERSTANDING | 40% | Gemini returns structured title, summary, topics, entities and suggested links. Text is token-counted and bounded before submission; media uses the separate media-model adapter. No full Vault context is included here. |
-| PLACING | 55% | Walk the locally indexed root/main/key hierarchy using only bounded candidate cards. |
-| GENERATING | 65% | Gemini writes a structured title and Markdown from the source understanding. It does not choose arbitrary filesystem paths or execute tools. |
+| PLACING | 55% | Run local context-indexing, then apply Crusher-only structural eligibility and calibrated fallback. |
+| GENERATING | 65% | The selected Wyvern Adapter returns typed title, summary and body for the frozen template. It does not choose arbitrary filesystem paths or execute tools. |
 | VALIDATING | 85% | Check the result schema, output size, secret patterns and forbidden HTML, embeds, links and reference syntax. Invalid output fails; it is not saved as a note. |
 | COMMITTING | 95% | Revalidate hierarchy, allocate a unique basename and commit through the canonical coordinator/journal. Add the verified branch reference and provenance footer. |
 | COMPLETED | 100% | The durable note exists in Vault. The Crusher response remains progress-only. |
@@ -155,28 +160,22 @@ The hierarchy starts at the configured root (default `root.md`). Its links to
 `#key` notes define deeper branches. Merely placing a tag on an unrelated note
 does not connect it to this hierarchy.
 
-At each level, local full-text/lexical ranking narrows the current branch. The
-local embedding Worker can rerank up to 48 candidates in batches of 16. At most
-12 candidates are sent to Gemini, each with an opaque selection handle, title,
-tags and an excerpt of at most 512 characters. Paths are retained locally. The
-walk is limited to eight levels. The provider may choose an offered handle,
-stop at an adequate branch, or select Inbox. It never gains authority to invent
-a destination path.
+Context-indexing searches ordinary notes as well as structural branches, combines
+local retrieval channels, reranks expanded evidence and checks consistency.
+Crusher alone restricts allowed anchors to the unique root/main/key structure.
+Insufficient or contradictory evidence uses the configured pool.
 
-Vault context is bounded to 12,000 unique tokens and 24,000 transmitted tokens
-including repeated context. Source-derived transmissions have a separate
-32,000-token budget; the initial text-understanding input is capped at 16,000
-tokens to leave room for later stages. Budget reservations are durable before
-remote calls. Whole-Vault dumps, attachments and Obsidian plugin configuration
-are not sent for placement. **A live provider does receive the selected source
-and the selected note excerpts**; this is not an entirely offline pipeline.
+Every resulting file is stored in `root/crusher`, independently of graph placement.
+The new note links to its selected anchor or `root/pool.md`; it does not rewrite
+that parent. The configured static template (default
+`root/templates/example crusher.md`) is snapshotted at acceptance. The combined
+Settings → Obsidian & search card controls pool, template and local Curator.
 
-With confidence at least 0.90 and an unambiguous valid branch, Core writes the
-new file in the anchor note's directory and adds the verified link to that
-anchor. This does not rewrite the anchor's body. Duplicate basenames receive
-numeric suffixes. Missing root/branches, ambiguous paths or cycles, low
-confidence, changed hierarchy, excessive depth or exhausted context budgets
-fall back to `Inbox/Crusher`. Existing notes are not overwritten.
+No retrieved note excerpts or branch profiles are transmitted externally for
+placement. Source understanding and generation still use a selected external
+Wyvern Adapter, with bounded source/understanding/template packets. The provider
+credential belongs to Wyvern through Kernel/Volt. See [context-indexing](context-indexing.md)
+for budgets, calibration, configuration recovery and migration boundaries.
 
 ## Operational bounds
 

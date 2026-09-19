@@ -140,7 +140,7 @@ async def doctor(service):
     def updater():
         result = service.updates.updater.call("GET", "/v1/health", timeout=5)
         if result.get("service") != "updater" or result.get("status") != "ok" or not {
-                "mastermind.components.v1", "mastermind.spool.v1", "mastermind.enrollment.v1"}.issubset(result.get("capabilities", [])):
+                "mastermind.components.v1", "mastermind.spool.v1", "mastermind.saved-copy.v2", "mastermind.enrollment.v1"}.issubset(result.get("capabilities", [])):
             raise DomainError("UPDATER_INCOMPATIBLE", "Host Updater does not support the qualified Mastermind profile.", 503)
         heads = service.updates.updater.call("GET", "/v1/services?head_id="+service.config.updater_head_id, timeout=5)
         if heads.get("services") != [{"id": service.config.updater_head_id}]:

@@ -4,14 +4,23 @@ import os
 import re
 import secrets
 import shutil
+import sqlite3
+import ssl
 import time
+from contextlib import closing, contextmanager
+
+import httpx
 
 from . import __version__
+from .backup import Backup
+from .backup_policy import restored_record
 from .bridge_artifacts import install_bridge_files
 from .errors import DomainError
-from .fs import atomic_json, durable_tree, sha_file, sync_dir
+from .fs import atomic_json, durable_tree, remove_private_tree, sha_file, sync_dir
+from .kernel import Kernel
 from .locking import FileMutex
-from .restore import tree_digest
+from .restore import database_digest, tree_digest
+from .secret_store import ShellSecrets, read_credential_file
 from .state import State
 
 
@@ -42,8 +51,43 @@ def verify_preimage(folder, value):
     return snapshot
 
 
+@contextmanager
+def saved_preimage(config, folder, record, archive):
+    """New journals reconstruct the preimage only while actually restoring it.
+
+    Old in-flight journals retain their original integrity rule until resolved.
+    """
+    if record.get("saved_copy_protocol") != 2:
+        yield verify_preimage(folder, record), "snapshot.sqlite3"
+        return
+    staging = folder / "unpack"
+    if staging.exists():
+        remove_private_tree(staging, folder)
+    staging.mkdir(mode=0o700)
+    credential = (config.credential_directory or config.home / "bootstrap-credentials") / "kernel_token"
+    def token():
+        return read_credential_file(credential if credential.exists() else config.kernel_token_file)
+    with closing(sqlite3.connect((config.state / "mastermind.sqlite3").as_uri() + "?mode=ro", uri=True)) as db:
+        row = db.execute("SELECT value FROM settings WHERE key='kernel_url'").fetchone()
+        origin = json.loads(row[0]) if row else config.kernel_url
+    kernel = Kernel(origin, token, client=httpx.Client(verify=ssl.create_default_context(cafile=config.trust_ca_file),
+        trust_env=False, timeout=httpx.Timeout(5, connect=3), follow_redirects=False))
+    try:
+        secret_store = ShellSecrets(config.secret_directory, kernel,
+            development=config.test_mode or config.secret_backend == "development-files")
+        backup = Backup(config, None, None, None, secret_store, None)
+        checked, _ = backup.unpack(archive, staging)
+        if tree_digest(checked / "vault") != record["preimage_vault_sha256"] or \
+                database_digest(checked / "restored.sqlite3") != record["preimage_db_logical_sha256"]:
+            raise DomainError("RECOVERY_REQUIRED", "The saved backup does not contain the prepared generation.", 503)
+        yield checked, "restored.sqlite3"
+    finally:
+        kernel.close()
+        remove_private_tree(staging, folder)
+
+
 def migrate(config, request_id, version, schema):
-    if schema != 1 or version != __version__:
+    if schema != 2 or version != __version__:
         raise DomainError("SCHEMA_UNSUPPORTED", "This image cannot migrate to the requested release/schema.", 409)
     with FileMutex(config.home / "recovery/service.lock").acquire(timeout=0), \
             FileMutex(config.home / "recovery/mutation.lock").acquire(timeout=0):
@@ -52,7 +96,8 @@ def migrate(config, request_id, version, schema):
             return
         if record["phase"] != "APPLY_REQUESTED" or record["version"] != version:
             raise DomainError("UPDATE_CONFLICT", "Migration has no prepared snapshot barrier.", 409)
-        verify_preimage(folder, record)
+        if record.get("saved_copy_protocol") != 2:
+            verify_preimage(folder, record)
         if tree_digest(config.vault) != record["preimage_vault_sha256"]:
             raise DomainError("RECOVERY_REQUIRED", "Canonical data changed after the update snapshot.", 503)
         save_record(config, folder, record, phase="MIGRATING")
@@ -72,11 +117,10 @@ def rollback(config, request_id, archive, *, fault=lambda _: None):
     with FileMutex(config.home / "recovery/service.lock").acquire(timeout=0), \
             FileMutex(config.home / "recovery/mutation.lock").acquire(timeout=0):
         folder, record = update_record(config, request_id)
-        if record["previous_version"] != __version__ or record["previous_schema"] != 1:
+        if record["previous_version"] != __version__ or record["previous_schema"] != 2:
             raise DomainError("SCHEMA_UNSUPPORTED", "Rollback must use the exact previous Core image.", 409)
         if archive.is_symlink() or not archive.is_file() or archive.stat().st_size != record["size"] or sha_file(archive) != record["sha256"]:
             raise DomainError("UPDATE_INTEGRITY", "The sealed rollback archive failed integrity.", 409)
-        snapshot = verify_preimage(folder, record)
         if record["phase"] in {"ROLLBACK_RESTORED", "ROLLED_BACK"} or record.get("rollback_data_restored"):
             return
         if record["phase"] in TERMINAL_PHASES:
@@ -88,11 +132,16 @@ def rollback(config, request_id, archive, *, fault=lambda _: None):
         if record["phase"] != "ROLLBACK_PREPARED":
             if staged.exists() or previous.exists() or new_db.exists():
                 raise DomainError("RECOVERY_REQUIRED", "Unjournaled rollback staging needs review.", 503)
-            shutil.copytree(snapshot / "vault", staged)
-            shutil.copyfile(snapshot / "snapshot.sqlite3", new_db)
+            with saved_preimage(config, folder, record, archive) as (snapshot, database_name):
+                shutil.copytree(snapshot / "vault", staged)
+                shutil.copyfile(snapshot / database_name, new_db)
             state = State(new_db)
             try:
                 with state.transaction() as db:
+                    intent = state.setting("_backup_policy_intent")
+                    if intent is not None:
+                        db.execute("DELETE FROM settings WHERE key='_backup_policy_intent'")
+                        db.execute("INSERT INTO settings VALUES('_backup_policy_restore',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (json.dumps(restored_record(intent)),))
                     for table in ("sessions", "codes", "uploads", "projections", "edit_sessions"):
                         db.execute(f'DELETE FROM "{table}"')
                     db.execute("UPDATE metadata SET value=? WHERE key='activity_epoch'", (secrets.token_hex(16),))

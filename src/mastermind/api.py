@@ -23,6 +23,7 @@ from .activity import Activity
 from .audit import Audit
 from .auth import Auth
 from .backup import Backup, checked_json
+from .backup_policy import BackupPolicy, PolicyTransport
 from .config import Config
 from .coordinator import Coordinator
 from .crusher import Crusher
@@ -116,10 +117,15 @@ class Service:
         self.vault = Vault(config, self.state, self.coordinator)
         self.native = NativeRename(self.vault)
         self.audit = Audit(config, self.state)
+        self.coordinator.on_configuration_change = lambda fields: self.audit.emit(
+            "context_indexing.canonical_move", context={"fields": fields})
         self.activity = Activity(self.state)
         self.coordinator.on_native_checkpoint = self.activity.ingest
         self.auth = Auth(self.state, self.audit)
         self.backup = Backup(config, self.state, self.coordinator, self.vault, self.secrets, self.audit)
+        self.backup_policy = BackupPolicy(PolicyTransport(config), self.state,
+            lambda: bool(config.neptune_token_file and config.neptune_token_file.is_file()))
+        self.backup.policy = self.backup_policy
         self.restore = Restore(self.backup, self.auth)
         self.dirty = DirtyJournal(config, self.state)
         self.exports = Exports(self.backup, self.dirty)
@@ -140,8 +146,11 @@ class Service:
         self.updates = Updates(self)
         self.shared = Shared(self.vault, self.auth, self.secrets, self.audit, self.data_ready)
         self.crusher_access = CrusherAccess(config, self.state, self.auth, self.audit, self.data_ready)
-        self.crusher = Crusher(self)
         self.semantic = Semantic(self)
+        from .context_indexing import ContextIndexing
+        self.context_indexing = ContextIndexing(self, semantic=self.semantic)
+        self.crusher_access.configuration_snapshot = self.context_indexing.settings.snapshot
+        self.crusher = Crusher(self)
         self.runtime_monitor = RuntimeMonitor(self)
         self.downloads = []
         self.download_lock = threading.Lock()
@@ -180,6 +189,11 @@ class Service:
             self.maintenance.start()
             self.failure = None
             self.updates.start()
+            try:
+                self.context_indexing.settings.bootstrap()
+                self.state.set_setting("context_indexing_bootstrap_error", None)
+            except DomainError as error:
+                self.state.set_setting("context_indexing_bootstrap_error", error.code)
             self.crusher.start()
             self.semantic.start()
             if self.config.runtime_mode != "offline" and not self.updates.blocks:
@@ -230,6 +244,11 @@ class Service:
                 except Exception:  # noqa: BLE001 - a failed observer must not stop the canonical watcher
                     self.runtime_monitor.failure = "RUNTIME_MONITOR_FAILED"
                 runtime_checked = time.monotonic()
+            try:
+                if self.ready and not self.updates.blocks:
+                    self.context_indexing.maintain()
+            except Exception:  # noqa: BLE001 - derived search work must not stop the canonical watcher
+                self.context_indexing.index_failure = "CONTEXT_INDEX_UNAVAILABLE"
 
     def stop(self):
         self.stop_event.set()
@@ -544,54 +563,22 @@ def create_app(config=None, service=None):
         data = await bounded_json(request, context.config.max_note_bytes*6+64*1024)
         return await asyncio.to_thread(context.native.intent, data)
 
-    @app.get("/internal/bridge/graph", dependencies=[Depends(bridge)])
-    def bridge_graph():
-        context.data_ready()
-        return {**context.vault.graph_projection(), "presentation": context.state.setting("graph_presentation", {})}
-
-    @app.post("/internal/bridge/links", dependencies=[Depends(bridge)])
-    async def bridge_links(request: Request):
-        context.data_ready()
-        data = await bounded_json(request)
-        return await asyncio.to_thread(context.vault.links, require_text(data, "path"),
-                                          "backlinks" if data.get("direction") == "backlinks" else "outgoing")
-
-    @app.post("/internal/bridge/graph-presentation", dependencies=[Depends(bridge)])
-    async def graph_presentation(request: Request):
-        import math
-        data = await bounded_json(request, 256*1024)
-        value = {}
-        for key in ("x", "y", "zoom"):
-            number = data.get(key, 1 if key == "zoom" else 0)
-            if isinstance(number, bool) or not isinstance(number, (int, float)) or not math.isfinite(number) \
-                    or (not 0.1 <= number <= 10 if key == "zoom" else abs(number) > 100000):
-                raise DomainError("INVALID_SETTINGS", "Graph presentation is outside its supported range.", 422)
-            value[key] = number
-        for key in ("internal", "external"):
-            if not isinstance(data.get(key, True), bool):
-                raise DomainError("INVALID_SETTINGS", "Graph filters must be booleans.", 422)
-            value[key] = data.get(key, True)
-        positions = data.get("positions", {})
-        if not isinstance(positions, dict) or len(positions) > 2000:
-            raise DomainError("INVALID_SETTINGS", "Graph position limit exceeded.", 422)
-        for path, pair in positions.items():
-            safe_relative(path)
-            if not isinstance(pair, list) or len(pair) != 2 or any(isinstance(v, bool)
-                    or not isinstance(v, (int, float)) or not math.isfinite(v) or abs(v) > 100000 for v in pair):
-                raise DomainError("INVALID_SETTINGS", "Graph position is invalid.", 422)
-        value["positions"] = positions
-        await asyncio.to_thread(context.state.set_setting, "graph_presentation", value)
-        return value
-
     @app.get("/api/logs", dependencies=[Depends(owner)])
-    def logs(after: int | None = None, limit: int = 200):
-        return context.audit.page(after, limit)
+    def logs(after: int | None = None, limit: int = 200, before: int | None = None, history: bool = False):
+        if after is not None and (before is not None or history):
+            raise DomainError("CURSOR_INVALID", "Select one history direction", 422)
+        return context.audit.history(before, limit) if history or before is not None else context.audit.page(after, limit)
 
     @app.get("/internal/bridge/reference-dictionary", dependencies=[Depends(bridge)])
     async def reference_dictionary():
         context.data_ready()
         current, history, saturn = await asyncio.to_thread(context.dictionary)
         return {"current": current, "history": history, "saturn": saturn}
+
+    @app.post("/internal/bridge/related-notes", dependencies=[Depends(bridge)])
+    async def related_notes(request: Request):
+        data = await bounded_json(request, 128*1024)
+        return await asyncio.to_thread(context.context_indexing.related.recommend, data)
 
     @app.post("/internal/bridge/references", dependencies=[Depends(bridge)])
     async def references(request: Request):
@@ -678,6 +665,40 @@ def create_app(config=None, service=None):
         data = await bounded_json(request)
         return await asyncio.to_thread(context.updates.submit, require_text(data, "version"))
 
+    @app.get("/api/owner/updates/{request_id}/backup", dependencies=[owner_dependency])
+    async def update_backup(request_id: str):
+        source, record = await asyncio.to_thread(context.updates.download, request_id)
+        class UpdateDownload(StreamingResponse):
+            async def __call__(self, scope, receive, send):
+                complete = False
+                async def tracked(message):
+                    nonlocal complete
+                    await send(message)
+                    if message["type"] == "http.response.body" and not message.get("more_body", False):
+                        complete = True
+                try:
+                    await super().__call__(scope, receive, tracked)
+                finally:
+                    source.close()
+                    await asyncio.shield(asyncio.to_thread(context.updates.downloaded, request_id, complete))
+        def chunks():
+            deadline = time.monotonic() + 3600
+            while block := source.read(1024 * 1024):
+                if time.monotonic() > deadline:
+                    raise DomainError("EXPORT_TIMEOUT", "The backup transfer exceeded its deadline.", 408)
+                yield block
+        return UpdateDownload(chunks(), media_type="application/zip", headers={
+            "Content-Length": str(record["size"]), "X-Content-SHA256": record["sha256"], "Cache-Control": "no-store",
+            "Content-Disposition": 'attachment; filename="mastermind-backup.zip"'})
+
+    @app.put("/api/owner/updates/{request_id}/saved-backup", dependencies=[owner_dependency])
+    async def update_saved(request_id: str, request: Request):
+        return await context.updates.upload_saved(request_id, request)
+
+    @app.post("/api/owner/updates/{request_id}/cancel", dependencies=[owner_dependency])
+    async def update_cancel(request_id: str):
+        return await asyncio.to_thread(context.updates.cancel, request_id)
+
     @app.post("/api/internal/updater/confirm", dependencies=[Depends(updater_agent)])
     async def update_confirm(request: Request):
         return await asyncio.to_thread(context.updates.confirm, await bounded_json(request))
@@ -716,7 +737,7 @@ def create_app(config=None, service=None):
             if health.get("ready") is not True or health.get("version") != __version__:
                 raise DomainError("WORKER_UNAVAILABLE", "Worker/model handshake did not match Core.", 503)
             context.updates.save(phase="FUNCTIONAL_PASSED")
-            return {"verified": True, "version": __version__, "schema": 1, "vault": True, "worker": True,
+            return {"verified": True, "version": __version__, "schema": 2, "vault": True, "worker": True,
                     "bridge_version": result.get("bridge_version"), "obsidian_version": result.get("obsidian_version"),
                     "model_sha256": health.get("model_sha256")}
         return await asyncio.to_thread(verify)
@@ -757,6 +778,14 @@ def create_app(config=None, service=None):
         context.audit.emit("vault.export", target="portable_copy", context={"generation": artifact["generation"]})
         return ExportResponse(artifact, "mastermind-vault.zip")
 
+    @app.head("/api/internal/neptune/{kind}", dependencies=[Depends(agent_export)])
+    def neptune_ready(kind: str):
+        if kind not in ("backup", "archive", "mirror"):
+            raise DomainError("EXPORT_INVALID", "Unknown Neptune export purpose", 422)
+        context.data_ready()
+        context.state.one("SELECT 1")
+        return Response(status_code=204, headers={"X-Neptune-Ready": "1"})
+
     @app.post("/api/internal/neptune/{kind}", dependencies=[Depends(agent_export)])
     async def neptune_export(kind: str, request: Request):
         kind = "archive" if kind == "backup" else kind
@@ -764,6 +793,7 @@ def create_app(config=None, service=None):
             raise DomainError("EXPORT_INVALID", "The Neptune export purpose is invalid.", 422)
         if request.headers.get("x-neptune-purpose") != kind:
             raise DomainError("FORBIDDEN", "The Neptune export purpose was not accepted.", 403)
+        context.backup_policy.assert_export_ready()
         preparation = asyncio.create_task(asyncio.to_thread(context.exports.prepare, kind))
         try:
             artifact = await asyncio.shield(preparation)

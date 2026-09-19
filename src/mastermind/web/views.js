@@ -4,6 +4,15 @@ export {shares,shareCapabilities} from './shared.js';
 
 function metric(id,title){return `<section class="card metric hoverable" data-card="${id}"><span class="ordinal"></span>${handle(title)}<h2>${escape(title)}</h2><div class="metric-value" data-value>Unknown</div><span class="metric-scope" data-scope></span>${['cpu','ram','disk','connectedness'].includes(id)?'<div class="progress" role="progressbar" aria-label="'+escape(title)+'" aria-valuemin="0" aria-valuemax="100"><span></span></div>':''}</section>`;}
 function progress(card,value){const bar=$('.progress',card);if(!bar)return;bar.firstChild.style.width=(value??0)+'%';if(value!=null)bar.setAttribute('aria-valuenow',Math.min(100,Math.max(0,value)));else bar.removeAttribute('aria-valuenow');bar.setAttribute('aria-valuetext',value==null?'Unknown':value.toFixed(1)+' percent');}
+function activityMonths(days){
+  const months=new Map(),shortMonth=new Intl.DateTimeFormat('en',{month:'short',timeZone:'UTC'}),longMonth=new Intl.DateTimeFormat('en',{month:'long',year:'numeric',timeZone:'UTC'});
+  for(const day of days){const key=day.date.slice(0,7);if(!months.has(key))months.set(key,[]);months.get(key).push(day);}
+  return [...months].map(([month,entries])=>{
+    const first=new Date(entries[0].date+'T12:00:00Z'),offset=(first.getUTCDay()+6)%7;
+    const cells='<span aria-hidden="true"></span>'.repeat(offset)+entries.map(day=>`<button type="button" class="day" data-date="${day.date}" data-level="${day.level}" aria-label="${day.date}: ${day.count} actions" title="${day.date}: ${day.count} actions" data-detail="${escape(day.date+': '+day.count+' actions · '+Object.entries(day.kinds).map(([k,v])=>k+' '+v).join(', '))}"></button>`).join('');
+    return `<section class="heatmap-month" role="group" aria-label="${longMonth.format(first)}"><h3 class="heatmap-month-label"><span>${shortMonth.format(first)}</span><span class="heatmap-year">${month.slice(0,4)}</span></h3><div class="heatmap-days">${cells}</div></section>`;
+  }).join('');
+}
 export async function dashboard(root){
   root.innerHTML=`<div class="grid">${metric('cpu','CPU Usage')}${metric('ram','RAM Usage')}${metric('disk','Disk Usage')}${metric('uptime','Uptime')}${metric('connectedness','Connectedness')}${metric('items','Total items')}${card('heatmap','Activity Heatmap',`
     <div class="row heatmap-controls"><label>From<input type="date" data-first></label><label>Through<input type="date" data-last></label><button data-period>Apply period</button><span data-zone class="muted"></span></div>
@@ -26,7 +35,9 @@ export async function dashboard(root){
     const result=await api('/api/owner/analytics'+selectedPeriod);if(!root.isConnected)return;
     if(!$('[data-first]',root).value){$('[data-first]',root).value=result.first;$('[data-last]',root).value=result.last;}
     $('[data-zone]',root).textContent=result.timezone;
-    $('.heatmap',root).innerHTML='<span aria-hidden="true"></span>'.repeat((new Date(result.first+'T12:00:00Z').getUTCDay()+6)%7)+result.days.map(day=>`<button type="button" class="day" data-level="${day.level}" aria-label="${day.date}: ${day.count} actions" title="${day.date}: ${day.count} actions" data-detail="${escape(day.date+': '+day.count+' actions · '+Object.entries(day.kinds).map(([k,v])=>k+' '+v).join(', '))}"></button>`).join('');
+    const heatmap=$('.heatmap',root),focusedDay=$('.day:focus',heatmap)?.dataset.date;
+    heatmap.innerHTML=activityMonths(result.days);
+    if(focusedDay)$(`[data-date="${focusedDay}"]`,heatmap)?.focus({preventScroll:true});
     const connected=$('[data-card="connectedness"]',root),items=$('[data-card="items"]',root);
     $('[data-value]',connected).textContent=result.connectedness.toLocaleString(undefined,{maximumFractionDigits:2})+'%';
     $('[data-scope]',connected).textContent='Internal note graph';progress(connected,result.connectedness);

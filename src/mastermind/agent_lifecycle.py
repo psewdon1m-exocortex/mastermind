@@ -4,6 +4,7 @@ import re
 import secrets
 import threading
 import time
+from uuid import UUID
 
 from .backup import checked_json
 from .errors import DomainError
@@ -34,7 +35,7 @@ class AgentLifecycle:
             if len(content) > 65536:
                 raise DomainError("RECOVERY_REQUIRED", "Agent lifecycle journal is too large.", 503)
             self.record = checked_json(content)
-            if self.record.get("state") not in STATES or not re.fullmatch(r"[a-f0-9]{32}", self.record.get("request_id", "")):
+            if self.record.get("state") not in STATES or not re.fullmatch(r"(?:[a-f0-9]{32}|[a-f0-9-]{36})", self.record.get("request_id", "")):
                 raise DomainError("RECOVERY_REQUIRED", "Agent lifecycle identity is invalid.", 503)
         except FileNotFoundError:
             pass
@@ -56,14 +57,21 @@ class AgentLifecycle:
                          updater_state=job["state"], error="INITIALIZATION_FAILED" if job["state"] == "FAILED" else None)
 
     def initialize(self, data):
-        if set(data) != {"code"} or not isinstance(data["code"], str) or not re.fullmatch(r"[A-Za-z0-9_-]{32}", data["code"]):
+        if set(data) - {"code", "request_id"} or "code" not in data or not isinstance(data["code"], str) or not re.fullmatch(r"[A-Za-z0-9_-]{32}", data["code"]):
             raise DomainError("INVALID_ENROLLMENT", "Use the 32-character Mastermind setup code from Saturn.", 422)
+        request_id = data.get("request_id", secrets.token_hex(16))
+        try:
+            UUID(request_id)
+        except (ValueError, TypeError, AttributeError):
+            raise DomainError("INVALID_ENROLLMENT", "Use a stable request UUID", 422) from None
         if not self.service.config.updater_socket or not self.service.config.updater_token_file:
             raise DomainError("UPDATER_UNAVAILABLE", "The local Updater must be installed and registered first.", 503)
         with self.lock:
+            if self.record and self.record["request_id"] == request_id:
+                return dict(self.record)
             if self.record and self.record["state"] not in {"COMPLETED", "FAILED"}:
                 raise DomainError("INITIALIZATION_BUSY", "Neptune initialization is already pending.", 409)
-            self.record = {"request_id": secrets.token_hex(16), "state": "REQUESTED", "created_at": time.time()}
+            self.record = {"request_id": request_id, "state": "REQUESTED", "created_at": time.time()}
             self.save()
             try:
                 job = self.service.updates.updater.call("POST", "/v1/components/neptune-linux/initialize", data={
