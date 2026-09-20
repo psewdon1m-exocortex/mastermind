@@ -1,5 +1,5 @@
 {
-  "version": "context-indexing.calibration.20260919.v1",
+  "version": "context-indexing.calibration.20260920.v2",
   "policy_version": "crusher.placement.v1",
   "qualified": true,
   "corpus_sha256": "49c5eb290497a851c250d40acfac357fdb1a1c5fb5ee740750654d12a492e49f",
@@ -28,7 +28,8 @@
     "held_out": "34232582699908755636800ea0a13593ff67b1f44e7d01c0d21bb07fef1fe37c",
     "curator_regression": "d97b59ae6fc26fb4e3bf206ad933f3a5a3b42d90816a4be4d83e4c225f6a22d1",
     "final_guard_regression": "03d6c073a372284359d5fb5ab5be5164a6f594f53adb41e4ac5449de3a9d4720",
-    "baseline": "891098ef2fb88c3215c6136004aafb1e45ea732f593e85fea185a037438a90f1"
+    "baseline": "891098ef2fb88c3215c6136004aafb1e45ea732f593e85fea185a037438a90f1",
+    "search_representation_regression": "1b9ecf28e801f343c5f3903cfc2c4f6c7441e1426923e972be074f70f2f54b88"
   },
   "comparison": {
     "cases": 30,
@@ -64,6 +65,105 @@
     "Legacy comparison was measured after frozen calibration and never used to tune thresholds.",
     "Curator source-conflict guard was repaired after held-out failure; its repeat is a regression check, not unseen data.",
     "Live technical-anchor counterexample added a conservative topic-exclusion rejection guard. Thresholds are unchanged; final replay is regression, not a fresh held-out evaluation.",
-    "Final Curator-on corpus invokes no refinements; no placement benefit is established. Keep default off."
-  ]
+    "Final Curator-on corpus invokes no refinements; no placement benefit is established. Keep default off.",
+    "search-content.v1 uses unchanged frozen thresholds; 100 existing cases per variant were replayed offline. This is regression evidence, not newly held-out evaluation."
+  ],
+  "search_representation": "search-content.v1",
+  "representation_regression": {
+    "complete": {
+      "cases": 100,
+      "auto_decisions": 80,
+      "precision": 1.0,
+      "descriptive_precision_interval_95": [
+        0.9542,
+        1.0
+      ],
+      "coverage": 0.8,
+      "must_pool_auto": 0,
+      "pool_rate": 0.19999999999999996,
+      "candidate_recall_at_200": 1.0,
+      "top_1": 1.0,
+      "top_3": 1.0,
+      "latency_p50_ms": 80.0,
+      "latency_p95_ms": 735,
+      "curator_invocations": 0,
+      "curator_refinements": 0
+    },
+    "vector": {
+      "cases": 100,
+      "auto_decisions": 62,
+      "precision": 1.0,
+      "descriptive_precision_interval_95": [
+        0.9417,
+        1.0
+      ],
+      "coverage": 0.62,
+      "must_pool_auto": 0,
+      "pool_rate": 0.38,
+      "candidate_recall_at_200": 1.0,
+      "top_1": 0.9875,
+      "top_3": 1.0,
+      "latency_p50_ms": 45.0,
+      "latency_p95_ms": 64,
+      "curator_invocations": 0,
+      "curator_refinements": 0
+    },
+    "no_profiles": {
+      "cases": 100,
+      "auto_decisions": 80,
+      "precision": 1.0,
+      "descriptive_precision_interval_95": [
+        0.9542,
+        1.0
+      ],
+      "coverage": 0.8,
+      "must_pool_auto": 0,
+      "pool_rate": 0.19999999999999996,
+      "candidate_recall_at_200": 1.0,
+      "top_1": 1.0,
+      "top_3": 1.0,
+      "latency_p50_ms": 40.0,
+      "latency_p95_ms": 64,
+      "curator_invocations": 0,
+      "curator_refinements": 0
+    },
+    "no_expansion": {
+      "cases": 100,
+      "auto_decisions": 80,
+      "precision": 1.0,
+      "descriptive_precision_interval_95": [
+        0.9542,
+        1.0
+      ],
+      "coverage": 0.8,
+      "must_pool_auto": 0,
+      "pool_rate": 0.19999999999999996,
+      "candidate_recall_at_200": 1.0,
+      "top_1": 1.0,
+      "top_3": 1.0,
+      "latency_p50_ms": 65.0,
+      "latency_p95_ms": 97,
+      "curator_invocations": 0,
+      "curator_refinements": 0
+    },
+    "curator": {
+      "cases": 100,
+      "auto_decisions": 80,
+      "precision": 1.0,
+      "descriptive_precision_interval_95": [
+        0.9542,
+        1.0
+      ],
+      "coverage": 0.8,
+      "must_pool_auto": 0,
+      "pool_rate": 0.19999999999999996,
+      "candidate_recall_at_200": 1.0,
+      "top_1": 1.0,
+      "top_3": 1.0,
+      "latency_p50_ms": 69.0,
+      "latency_p95_ms": 99,
+      "curator_invocations": 0,
+      "curator_refinements": 0
+    }
+  }
 }

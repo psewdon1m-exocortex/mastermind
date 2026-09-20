@@ -38,23 +38,25 @@ class RelatedNotes:
         if not self.slot.acquire(blocking=False):
             raise DomainError("CONTEXT_BUSY", "Related-note search is busy. Try again shortly.", 429)
         try:
-            configuration = self.settings.get()
-            excluded = {path, configuration["template_path"], configuration["fallback_note"],
-                        self.service.state.setting("crusher_root", "root.md")}
+            # Note roles belong to Crusher placement, not knowledge lookup.
+            # Every authorized note can supply evidence; only self is excluded.
+            excluded = {path}
             paths = frozenset(row["path"] for row in self.service.state.rows("SELECT path FROM notes")
                               if row["path"] not in excluded)
             subject = source_features({"title": PurePosixPath(path).stem,
                                        "summary": data.get("focus") or data["text"][:1600]}, data["text"])
+            subject.update(source_title=PurePosixPath(path).stem, source_body=data["text"],
+                           source_focus=data.get("focus", ""))
             found, _ = self.pipeline.run(subject, scope=Scope("owner", paths), query_type="knowledge_lookup",
                 configuration={"curator_enabled": False}, deadline=time.monotonic()+15)
             for item in found["results"]:
                 features = item["features"]
                 # Graph adjacency and the common E5 floor alone are not topic evidence.
-                if item["path"] in excluded or not (features.get("lexical", 0) > 0
-                        or features.get("title_match", 0) > 0 or features.get("vector", 0) >= .78):
+                if item["path"] in excluded or item["path"] in found.get("negated_entities", []) or not features.get("supported"):
                     continue
                 result["items"].append({"path": item["path"], "title": item["title"],
-                                        "excerpt": " ".join(item["excerpt"].split())[:320]})
+                                        "excerpt": " ".join(item["excerpt"].split())[:320],
+                                        "relation": item["relation"], "reason": item["reason"]})
                 if len(result["items"]) == 8:
                     break
             self.service.data_ready()

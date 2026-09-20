@@ -23,6 +23,10 @@ class PlacementPolicy:
                 return None
         if value.get("policy_version") != VERSION or value.get("qualified") is not True:
             return None
+        representation = self.settings.state.setting("semantic_representation")
+        if representation and "vector" not in result["missing_strategies"] \
+                and value.get("search_representation") != representation:
+            return None
         if value.get("embedding_sha256") and "vector" not in result["missing_strategies"] \
                 and self.settings.state.setting("semantic_model_sha") != value["embedding_sha256"]:
             return None

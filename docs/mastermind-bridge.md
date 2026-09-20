@@ -44,7 +44,11 @@ window; the pane explicitly identifies sampled context.
 
 Core reuses the common [context-indexing](context-indexing.md) knowledge lookup:
 local E5, FTS, metadata/entities and graph expansion followed by reranking. The
-current source and configured root/pool/template are excluded before channel limits.
+current source is excluded before channel limits. Root, pool and templates remain
+eligible, both as sources and candidates, with the same content requirements.
+Each card distinguishes an explicit link from content similarity and includes a short
+reason and a cleaned evidence excerpt. There is no minimum number of cards: the pane
+can abstain when it finds insufficient evidence, regardless of the note's role.
 Graph-only matches without topical evidence are omitted. Curator and Crusher's
 placement/generation policy do not run. Search can return lexical suggestions
 with an incomplete-search notice while vectors are unavailable or rebuilding.
@@ -55,6 +59,8 @@ remain local. Portable mode displays an explanation because it has no Core
 context-indexing connection. Native UI qualification is available through
 `scripts/qualify_related_notes.py`, using synthetic notes and actual local E5;
 it does not alter or deploy the owner's running Vault.
+The latest [quality regression report](related-notes-quality.md) covers template noise,
+scope, directory relocation, multilingual retrieval and placement compatibility.
 
 ## Process and transport lifecycle
 

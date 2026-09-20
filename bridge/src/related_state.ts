@@ -1,5 +1,5 @@
 export type RelatedQuery = {path:string;text:string;focus:string;sampled:boolean};
-export type RelatedItem = {path:string;title:string;excerpt:string};
+export type RelatedItem = {path:string;title:string;excerpt:string;relation?:"linked"|"similar";reason?:string};
 export type RelatedResponse = {path:string;items:RelatedItem[];degraded:boolean;sampled:boolean};
 export type RelatedState = {query?:RelatedQuery;phase:"idle"|"waiting"|"loading"|"ready"|"error";
   items:RelatedItem[];degraded:boolean};

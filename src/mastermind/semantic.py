@@ -5,9 +5,12 @@ import re
 import struct
 import threading
 import time
+from collections import OrderedDict
 
 from .errors import DomainError
 from .fs import sha_bytes
+from .search_content import VERSION as CONTENT_VERSION
+from .search_content import content
 from .worker_client import WorkerClient
 
 VECTOR = struct.Struct("<384f")
@@ -23,6 +26,8 @@ class Semantic:
         self.model = None
         self.failure = "EMBEDDINGS_UNAVAILABLE"
         self.next_health = 0
+        self.comparison_cache = OrderedDict()
+        self.comparison_lock = threading.Lock()
 
     def start(self):
         if self.service.config.worker_url:
@@ -35,7 +40,65 @@ class Semantic:
         if self.thread:
             self.thread.join(timeout=15)
 
+    def compare(self, queries, documents, *, deadline):
+        """Verify bounded, scope-cleaned evidence; never persist editor text.
+
+        Retrieval vectors may contain recurring scaffolding. This second pass
+        compares the actual evidence that knowledge lookup retained instead.
+        Cache keys contain only model identity, prefix mode and a content hash.
+        """
+        if time.monotonic() >= deadline:
+            raise DomainError("CONTEXT_DEADLINE", "Semantic verification exceeded its deadline.", 408)
+        if not 1 <= len(queries) <= 5 or len(documents) > 64 or any(
+                not isinstance(t, str) or not t.strip() or len(t.encode()) > 6400
+                for t in [*queries, *documents]):
+            raise DomainError("INVALID_QUERY", "Semantic evidence exceeds comparison limits.", 422)
+        if time.monotonic() >= self.next_health:
+            self.refresh()
+        if self.failure:
+            raise DomainError(self.failure, "Local semantic verification is unavailable.", 503)
+
+        def embed(texts, query):
+            keys = [(self.model, query, sha_bytes(t.encode())) for t in texts]
+            vectors = {}
+            with self.comparison_lock:
+                for key in keys:
+                    if key in self.comparison_cache:
+                        vectors[key] = self.comparison_cache[key]
+                        self.comparison_cache.move_to_end(key)
+            missing = list(dict.fromkeys(k for k in keys if k not in vectors))
+            values = dict(zip(keys, texts, strict=True))
+            for start in range(0, len(missing), 16):
+                remaining = deadline-time.monotonic()
+                if remaining <= 0:
+                    raise DomainError("CONTEXT_DEADLINE", "Semantic verification exceeded its deadline.", 408)
+                batch = missing[start:start+16]
+                options = {"timeout": remaining} if isinstance(self.worker, WorkerClient) else {}
+                response = self.worker.embed([values[k] for k in batch], query=query, **options)
+                if response['model_sha256'] != self.model:
+                    raise DomainError("REINDEX_REQUIRED", "Evidence model does not match the index.", 409)
+                for key, vector in zip(batch, response['vectors'], strict=True):
+                    vectors[key] = vector
+                with self.comparison_lock:
+                    for key in batch:
+                        self.comparison_cache[key] = vectors[key]
+                    while len(self.comparison_cache) > 256:
+                        self.comparison_cache.popitem(last=False)
+            return [vectors[k] for k in keys]
+
+        query_vectors, document_vectors = embed(queries, True), embed(documents, False)
+        if time.monotonic() >= deadline:
+            raise DomainError("CONTEXT_DEADLINE", "Semantic verification exceeded its deadline.", 408)
+        return [max(sum(a*b for a, b in zip(q, d, strict=True)) for q in query_vectors) for d in document_vectors]
+
     def refresh(self):
+        # Representation changes invalidate only disposable search data, never Vault files.
+        with self.service.coordinator.lock, self.state.transaction() as db:
+            if self.state.setting("semantic_representation") != CONTENT_VERSION:
+                for table in ("semantic_chunks", "semantic_documents", "semantic_text", "semantic_run",
+                              "context_profiles", "context_profile_fts"):
+                    db.execute("DELETE FROM " + table)
+                self.state.set_setting("semantic_representation", CONTENT_VERSION)
         value = self.worker.request("GET", "/healthz", timeout=5)
         digest = value.get("model_sha256")
         if not value.get("embeddings_ready") or not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest):
@@ -61,6 +124,7 @@ class Semantic:
             error = self.failure or (run or {}).get("error")
             return {"status": "UNAVAILABLE" if error else "READY" if complete == total else "INDEXING",
                     "error": error, "model_sha256": self.model, "notes_total": total, "notes_indexed": complete,
+                    "representation": CONTENT_VERSION,
                     "deadline": (run or {}).get("deadline")}
 
     def reindex(self, expected_model):
@@ -76,6 +140,7 @@ class Semantic:
             with self.state.transaction() as db:
                 db.execute("DELETE FROM semantic_chunks")
                 db.execute("DELETE FROM semantic_documents")
+                db.execute("DELETE FROM semantic_text")
                 db.execute("INSERT OR REPLACE INTO semantic_run VALUES(1,?,NULL)", (time.time()+1800,))
                 self.state.set_setting("semantic_model_sha", self.model)
             self.failure = None
@@ -100,6 +165,8 @@ class Semantic:
                                "WHERE n.path=semantic_chunks.path AND n.sha=semantic_chunks.source_sha)")
                     db.execute("DELETE FROM semantic_documents WHERE NOT EXISTS(SELECT 1 FROM notes n "
                                "WHERE n.path=semantic_documents.path AND n.sha=semantic_documents.source_sha)")
+                    db.execute("DELETE FROM semantic_text WHERE NOT EXISTS(SELECT 1 FROM notes n "
+                               "WHERE n.path=semantic_text.path AND n.sha=semantic_text.source_sha)")
                 note = self.state.one("SELECT n.path,n.sha FROM notes n LEFT JOIN semantic_documents s ON n.path=s.path "
                     "AND n.sha=s.source_sha AND s.model_sha=? WHERE s.path IS NULL OR s.completed=0 ORDER BY n.path LIMIT 1", (self.model,))
                 if not note:
@@ -117,9 +184,11 @@ class Semantic:
                 text = self.vault.read(note["path"])
                 if sha_bytes(text.encode()) != note["sha"]:
                     return False
+                text = content(text)
                 document = self.state.one("SELECT * FROM semantic_documents WHERE path=?", (note["path"],))
             if document is None:
-                value = self.worker.request("POST", "/chunks", {"text": text}, timeout=60)
+                value = self.worker.request("POST", "/chunks", {"text": text}, timeout=60) if text.strip() else {
+                    "chunks": [], "model_sha256": self.model}
                 spans = value.get("chunks")
                 if value.get("model_sha256") != self.model or not isinstance(spans, list) or len(spans) > MAX_CHUNKS:
                     raise DomainError("EMBEDDINGS_INVALID", "The tokenizer returned an invalid index plan.", 503)
@@ -151,6 +220,7 @@ class Semantic:
                 with self.state.transaction() as db:
                     db.execute("INSERT OR REPLACE INTO semantic_documents VALUES(?,?,?,?,?,?)",
                         (note["path"], note["sha"], self.model, document["spans"], start+len(batch), int(start+len(batch) == len(spans))))
+                    db.execute("INSERT OR REPLACE INTO semantic_text VALUES(?,?,?)", (note["path"], note["sha"], text))
                     for offset, (span, vector) in enumerate(zip(batch, response["vectors"], strict=True), start):
                         db.execute("INSERT OR REPLACE INTO semantic_chunks VALUES(?,?,?,?,?,?,?)",
                             (note["path"], offset, span["start"], span["end"], note["sha"], self.model, VECTOR.pack(*vector)))
@@ -180,7 +250,8 @@ class Semantic:
                 raise DomainError("CONTEXT_DEADLINE", "Semantic search exceeded the query deadline.", 408)
             if isinstance(self.worker, WorkerClient):
                 options["timeout"] = max(.01, remaining)
-        response = self.worker.embed([query, *source_chunks, *evidence_queries], query=True, **options)
+        response = self.worker.embed([content(query), *[content(s) for s in source_chunks],
+                                      *[content(s) for s in evidence_queries]], query=True, **options)
         if response["model_sha256"] != self.model:
             raise DomainError("REINDEX_REQUIRED", "The query model does not match the stored index.", 409)
         query_vector, best, cursor = response["vectors"][0], {}, ("", -1)
@@ -225,13 +296,19 @@ class Semantic:
                     text = self.vault.read(row["path"])
                     if sha_bytes(text.encode()) != row["source_sha"]:
                         continue
+                    prepared = self.state.one("SELECT body FROM semantic_text WHERE path=? AND source_sha=?",
+                                              (row["path"], row["source_sha"]))
+                    if prepared is None:
+                        continue
+                    text = prepared["body"]
                     excerpt = text[row["start"]:min(row["end"], row["start"]+512)]
             except DomainError as error:
                 if error.code == "NOT_FOUND":
                     continue
                 raise
             results.append({"path": row["path"], "sha256": row["source_sha"], "score": round(score, 6),
-                            "start": row["start"], "end": row["end"], "excerpt": excerpt})
+                            "start": row["start"], "end": row["end"], "excerpt": excerpt,
+                            "representation": CONTENT_VERSION})
             if len(results) == limit:
                 break
         segments = [[{"path": path, "score": round(score, 6)} for path, score in sorted(

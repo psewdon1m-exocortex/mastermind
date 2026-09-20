@@ -54,6 +54,35 @@ def drain(index):
     raise AssertionError("Index did not finish its bounded fixture")
 
 
+def test_content_verification_cache_is_bounded_and_invalidates_on_content_and_model(semantic):
+    index = semantic
+    deadline = time.monotonic()+30
+    assert index.compare(['knowledge'], ['knowledge body', 'garden'], deadline=deadline) == [1, 0]
+    calls = len(index.worker.batches)
+    index.compare(['knowledge'], ['knowledge body', 'garden'], deadline=deadline)
+    assert len(index.worker.batches) == calls
+    assert index.compare(['knowledge'], ['changed garden'], deadline=deadline) == [0]
+    for i in range(5):
+        index.compare(['knowledge'], [f'document {i}-{j}' for j in range(64)], deadline=deadline)
+    assert len(index.comparison_cache) <= 256
+    assert all(len(k[2]) == 64 for k in index.comparison_cache)
+    index.worker.model, index.next_health = 'b'*64, 0
+    with pytest.raises(DomainError, match='model changed'):
+        index.compare(['knowledge'], ['knowledge body'], deadline=deadline)
+
+
+def test_content_verification_honors_deadline_and_model_identity(semantic):
+    index = semantic
+    with pytest.raises(DomainError) as error:
+        index.compare(['knowledge'], ['garden'], deadline=time.monotonic()-1)
+    assert error.value.code == 'CONTEXT_DEADLINE'
+    index.refresh()
+    index.worker.model = 'b'*64
+    with pytest.raises(DomainError) as error:
+        index.compare(['knowledge'], ['garden'], deadline=time.monotonic()+5)
+    assert error.value.code == 'REINDEX_REQUIRED'
+
+
 def test_incremental_local_search_excludes_deleted_and_changed_sources(semantic):
     index = semantic
     knowledge = index.vault.write("Architecture.md", "Knowledge architecture", None, create=True)
@@ -130,6 +159,26 @@ def test_deleted_derived_index_rebuild_does_not_change_canonical_markdown(semant
         index.search("knowledge")
     assert failure.value.code == "EMBEDDINGS_UNAVAILABLE"
     assert index.vault.list("Knowledge")
+
+
+def test_representation_upgrade_rebuilds_derived_text_without_changing_sources(semantic):
+    index = semantic
+    raw = '---\ndataset: fixture\nkind: key\n---\n#key #fixture\nKnowledge architecture'
+    index.vault.write('Source.md', raw, None, create=True)
+    index.vault.write('Empty.md', '---\nkind: key\n---\n#key', None, create=True)
+    drain(index)
+    assert index.status()['notes_indexed'] == 2
+    assert all('dataset' not in text and 'fixture' not in text
+               for texts, _ in index.worker.batches for text in texts)
+    assert index.search('knowledge')['results'][0]['excerpt'] == 'Knowledge architecture'
+    index.state.set_setting('semantic_representation', 'older-format')
+    index.next_health = 0
+    index.refresh()
+    assert index.status()['notes_indexed'] == 0
+    assert index.search('knowledge')['results'] == []
+    drain(index)
+    assert index.status()['status'] == 'READY'
+    assert index.vault.read('Source.md') == raw
 
 
 def test_foreground_job_yields_rebuild_and_public_sources_are_never_context(semantic):

@@ -24,6 +24,7 @@ from mastermind.coordinator import Coordinator
 from mastermind.curator_runtime import LocalCurator
 from mastermind.embeddings import Embeddings
 from mastermind.runtime_client import RuntimeClient
+from mastermind.search_content import VERSION as CONTENT_VERSION
 from mastermind.semantic import Semantic
 from mastermind.state import State
 from mastermind.vault import Vault
@@ -134,6 +135,7 @@ def main():
     else:
         calibration = None
     report = {"schema": "context-indexing.quality.v1", "corpus_sha256": corpus_sha, "origin": corpus["origin"],
+              "search_representation": CONTENT_VERSION,
               "phase": args.phase, "embedding_sha256": worker.embedding.model_sha,
               "baseline": {"status": "PENDING_REAL_PROVIDER", "note": "No simulated provider is reported as a legacy quality baseline."},
               "limitations": ["Authored synthetic corpus; no universal accuracy claim.",
@@ -195,6 +197,7 @@ def main():
             report["index_bytes"] = state.one("SELECT SUM(length(record)) AS n FROM context_profiles")["n"]
             if args.phase == "calibration":
                 value = {"version": "context-indexing.calibration.v1", "policy_version": "crusher.placement.v1", "qualified": False,
+                         "search_representation": CONTENT_VERSION,
                          "corpus_sha256": corpus_sha, "calibration_report_sha256": digest(report), "embedding_sha256": worker.embedding.model_sha,
                          "variants": {key: value["threshold"] for key, value in report["variants"].items()}}
                 value["variants"]["complete:curator"] = value["variants"]["complete"]

@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS semantic_chunks(path TEXT NOT NULL,ordinal INTEGER NO
  end INTEGER NOT NULL,source_sha TEXT NOT NULL,model_sha TEXT NOT NULL,vector BLOB NOT NULL,
  PRIMARY KEY(path,ordinal));
 CREATE TABLE IF NOT EXISTS semantic_run(id INTEGER PRIMARY KEY CHECK(id=1),deadline REAL NOT NULL,error TEXT);
+CREATE TABLE IF NOT EXISTS semantic_text(path TEXT PRIMARY KEY,source_sha TEXT NOT NULL,body TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS context_documents(path TEXT PRIMARY KEY,source_sha TEXT NOT NULL,record TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS context_profiles(path TEXT PRIMARY KEY,source_sha TEXT NOT NULL,record TEXT NOT NULL);
 CREATE VIRTUAL TABLE IF NOT EXISTS context_profile_fts USING fts5(path UNINDEXED,body,tokenize='unicode61');
@@ -61,7 +62,7 @@ CREATE TABLE IF NOT EXISTS projections(id TEXT PRIMARY KEY,share_id TEXT NOT NUL
 MANDATORY_TABLES = (
     "metadata", "settings", "reference_history", "activity", "edit_sessions", "shares", "jobs", "operations", "outbox"
 )
-DERIVED_TABLES = ("notes", "note_fts", "edges", "semantic_documents", "semantic_chunks", "semantic_run",
+DERIVED_TABLES = ("notes", "note_fts", "edges", "semantic_documents", "semantic_chunks", "semantic_run", "semantic_text",
                   "context_documents", "context_profiles", "context_profile_fts")
 EPHEMERAL_TABLES = ("sessions", "codes", "rate_limits", "uploads", "projections", "context_traces",
                     "gryphon_access", "gryphon_events")

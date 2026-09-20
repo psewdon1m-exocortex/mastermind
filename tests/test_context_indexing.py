@@ -108,6 +108,16 @@ def test_calibration_cannot_mix_embedding_model_versions(context):
     assert policy.thresholds({"missing_strategies": ["vector"]})["variant"] == "vector"
 
 
+def test_calibration_cannot_mix_search_representations(context):
+    settings = Settings(context)
+    policy = PlacementPolicy(settings, calibration={'qualified': True, 'policy_version': 'crusher.placement.v1',
+        'version': 'fixture', 'variants': {'complete': {'score': .8, 'gap': .1}}})
+    context.state.set_setting('semantic_representation', 'search-content.v1')
+    assert policy.thresholds({'missing_strategies': []}) is None
+    policy.calibration['search_representation'] = 'search-content.v1'
+    assert policy.thresholds({'missing_strategies': []}) is not None
+
+
 def test_explicit_topic_exclusion_rejects_even_high_scoring_technical_anchor(context):
     seed(context)
     settings = Settings(context)

@@ -98,7 +98,7 @@ export class RelatedNotesView extends ItemView {
     if(this.refreshEl)this.refreshEl.disabled=state.phase==="loading"||!state.query;
     const messages={idle:"Open a note to discover related ideas.",waiting:"Updating suggestions…",loading:"Finding related notes…",
       ready:state.items.length?(state.degraded?"Suggestions may be incomplete while search is catching up.":"Suggested from this note's content."):
-        "No related notes found. Keep writing or try again later.",error:"Could not update suggestions. Try Refresh."};
+        "No sufficiently related notes found. Keep writing or try again later.",error:"Could not update suggestions. Try Refresh."};
     this.statusEl?.setText(messages[state.phase]+(state.query?.sampled&&state.phase==="ready"?" Based on excerpts from this long note.":""));
     const rendered=JSON.stringify(state.items);
     if(rendered===this.rendered)return;
@@ -108,6 +108,7 @@ export class RelatedNotesView extends ItemView {
       const button=row.createEl("button",{cls:"mastermind-related-item",attr:{"aria-label":"Open "+item.title}});
       button.createEl("strong",{text:item.title});
       button.createEl("span",{text:item.path,cls:"mastermind-related-path"});
+      if(item.reason)button.createEl("span",{text:item.reason,cls:"mastermind-related-reason"});
       button.createEl("span",{text:item.excerpt,cls:"mastermind-related-excerpt"});
       button.onclick=async event=>{
         const file=this.app.vault.getFileByPath(item.path);

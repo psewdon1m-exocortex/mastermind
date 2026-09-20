@@ -97,10 +97,69 @@ the canonical origin. All are under `/api/owner/context-indexing`.
 The managed Obsidian Bridge is another consumer: `POST /internal/bridge/related-notes`
 accepts the current note path plus bounded `text`, optional `focus` and `sampled`.
 It requires the private Bridge identity; owner cookies and public Crusher tokens
-do not authorize it. Core returns at most eight `{path,title,excerpt}` items with
-`degraded` and `sampled` flags. This read-only lookup excludes the source and the
-configured root/pool/template before retrieval, disables Curator and does not call
+do not authorize it. Core returns at most eight `{path,title,excerpt,relation,reason}` items with
+`degraded` and `sampled` flags. This read-only lookup excludes only the source
+before retrieval, disables Curator and does not call
 placement or generation. See [Related notes](mastermind-bridge.md#related-notes).
+
+## Content representation and recommendation quality
+
+`search-content.v1` removes technical YAML fields, structural tags, service identifiers
+and link destinations while retaining titles, topical metadata, human link labels and
+body text. Both embedding documents and embedding queries use this representation.
+Canonical Markdown is unchanged. The derived `semantic_text` table stores prepared text
+alongside the source hash; vector offsets address that representation. A representation
+upgrade clears only disposable semantic data and branch profiles, then uses the existing
+bounded background rebuild. Lexical lookup remains available with a degraded notice.
+
+Knowledge lookup additionally estimates term rarity and repeated sentence templates
+from at most 256 documents in its authorized scope plus the authorized query. Directory
+names and depth are not relevance features; semantic/title order breaks ranking ties.
+Repeated template sentences (including quoted variable labels) and repeated adjacent
+short blocks are suppressed in query and candidate evidence. This captures short
+section headings/resource captions without a vocabulary blacklist; a single shared
+topical heading survives. Identical documents count as one template observation;
+term frequency softens evidence without disabling widespread topics. Unfilled
+`{{fields}}` and headings of empty sections supply no factual evidence, on every
+path. These query-local rules do not change the stored `search-content.v1` index.
+The bounded sample
+can miss corpus-wide repetition in large Vaults; no global accuracy guarantee is implied.
+
+Short outlines with at least two resolved internal links can add up to four 600-character
+passages from those actual linked notes, within the existing eight-chunk query budget.
+This does not require #main/#key or a placement-eligible ancestor. Context source hashes
+are revalidated with the returned evidence; paths outside the scope never supply text.
+
+The knowledge reranker combines rarity-weighted lexical evidence, title evidence and
+semantic similarity. Per-candidate acceptance requires topical corroboration or a
+semantic result separated from the scoped background. Fixed cosine values are not
+probabilities. Eight results is a ceiling, not a quota. Multiple relevant peers need not
+have a winner/runner-up gap. Semantic-only acceptance requires meaningful content
+on both sides: a self-contained topic/query, or descriptive prose outside headings,
+navigation links and repeated scaffolding (at least one passage with five topic
+words for navigational outlines). Outlines still match explicit topics and link
+titles; their common list format alone cannot establish similarity. Root, pool and
+templates have no path/role exceptions and may return or appear in recommendations.
+The related pane shows `linked`/`similar` reasons with cleaned excerpts.
+
+Before final acceptance, up to 64 candidates are compared again with the source
+using cleaned content and the same local E5 model. Above 64 candidates, 48 likely
+matches and 16 background candidates are checked. Linked context helps discovery;
+the final semantic claim uses the source itself. Unverified vectors cannot authorize
+suggestions; failed verification returns lexical results with `degraded` set. This
+pass shares the 15-second deadline, uses batches of at most 16 texts, up to four
+evenly sampled source passages plus cursor context, and at most 1,600 characters
+per passage/candidate. Filenames are scored separately rather than being prepended
+to semantic prose. A thread-safe LRU cache holds
+at most 256 vectors keyed by model, prefix mode and content hash; it stores no raw
+editor text and never persists to disk. Changes to text/model invalidate reuse.
+
+Crusher still applies its separate placement policy and frozen placement thresholds.
+Embedding-backed placement additionally requires calibration for the active content
+representation; an unqualified representation falls back to pool. Representation changes
+require replay of placement quality and safety cases before acceptance. Rolling back to
+an older binary also requires discarding/rebuilding its derived semantic index, because
+older binaries interpret vector offsets against raw Markdown.
 
 Generic retrieval is a Python service interface, with owner/service scope applied
 before channel limits, profile construction and expansion. Scoped profiles cannot

@@ -37,11 +37,19 @@ owner APIs or Vault reads. See [Gryphon](gryphon.md) for commands and deployment
 context-indexing lookup for the active Obsidian buffer. The body accepts `path`
 (2 KiB), `text` (16 KiB), optional `focus` (4 KiB) and boolean `sampled`; its
 encoded JSON limit is 128 KiB. The response contains `path`, up to eight
-`items: [{path,title,excerpt}]`, `degraded` and `sampled`. The original source and
-configured root/pool/template are excluded before retrieval. Curator and generation
+`items: [{path,title,excerpt,relation,reason}]`, `degraded` and `sampled`.
+`relation` is `linked` or `similar`; `reason` explains the evidence without exposing
+scores as probabilities. Only the original source is excluded before retrieval;
+root, pool and templates follow the same evidence rules as all other notes, as
+both sources and candidates. No role-specific empty response exists. Curator and generation
 are disabled. One recommendation runs at a time; contention returns 429. Owner
 cookies and public principals cannot authorize this route, and Nginx continues
 to block the entire `/internal/bridge/` family. See [Related notes](mastermind-bridge.md#related-notes).
+
+Semantic results use `representation: search-content.v1`: excerpts and `start`/`end`
+refer to disposable normalized search text, not byte or character offsets in canonical
+Markdown. `sha256` continues to identify the original Markdown. Clients must not use
+these search offsets for writes.
 
 Core `/internal/bridge/*` uses the own Bridge identity for managed native operations, Activity and bounded resources. `/api/internal/neptune/*` uses the separate export identity and purpose; the returned receipt binds generation, exact size and SHA-256. `/api/internal/updater/*` requires the own Updater control identity and retained request-bound write barrier. All are blocked by public Nginx.
 

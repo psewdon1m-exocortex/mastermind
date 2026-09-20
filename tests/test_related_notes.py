@@ -34,12 +34,13 @@ def related(service):
 def test_unsaved_context_changes_recommendations_without_writing_notes(related):
     engine, context, notes = related
     first = engine.recommend({"path": "Draft.md", "text": "Aircraft airplane wings and carbon composites"})
-    assert {item["path"] for item in first["items"]} == {"Aviation/Designers.md", "Aviation/Materials.md"}
+    assert {item["path"] for item in first["items"]} == {
+        "Aviation/Designers.md", "Aviation/Materials.md", "root/pool.md", "root/templates/example crusher.md"}
     second = engine.recommend({"path": "Draft.md", "text": "Garden soil irrigation and flowers"})
     assert [item["path"] for item in second["items"]] == ["Garden.md"]
     assert first["degraded"]  # lexical retrieval remains useful without the vector model
     assert {path: context.vault.read(path) for path in notes} == notes
-    assert all(set(item) == {"path", "title", "excerpt"} for item in first["items"])
+    assert all(set(item) == {"path", "title", "excerpt", "relation", "reason"} for item in first["items"])
     traces = context.state.rows("SELECT record FROM context_traces")
     assert "Aircraft airplane wings and carbon composites" not in json.dumps(traces)
 
@@ -54,7 +55,7 @@ def test_related_notes_never_invokes_curator_or_placement_policy(related):
     assert engine.recommend({"path": "Draft.md", "text": "Aircraft wings"})["items"]
 
 
-def test_scope_excludes_source_and_templates_before_channel_limits(related):
+def test_scope_excludes_only_source_before_channel_limits(related):
     engine, _context, _ = related
     calls = []
     class Semantic:
@@ -63,8 +64,8 @@ def test_scope_excludes_source_and_templates_before_channel_limits(related):
             return {"results": [], "index": {"status": "READY"}}
     engine.pipeline.semantic = Semantic()
     engine.recommend({"path": "Draft.md", "text": "Aviation aircraft"})
-    assert calls and not {"Draft.md", "root/pool.md", "root/templates/example crusher.md"} & calls[0]["allowed_paths"]
-    assert "Garden.md" in calls[0]["allowed_paths"]
+    assert calls and "Draft.md" not in calls[0]["allowed_paths"]
+    assert {"Garden.md", "root/pool.md", "root/templates/example crusher.md"} <= calls[0]["allowed_paths"]
 
 
 def test_empty_note_and_unrelated_graph_neighbors_do_not_produce_noise(related):

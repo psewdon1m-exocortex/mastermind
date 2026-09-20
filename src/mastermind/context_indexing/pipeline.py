@@ -10,6 +10,7 @@ from datetime import date
 from ..errors import DomainError
 from ..fs import sha_bytes
 from .graph import Graph, Scope
+from .knowledge import Knowledge
 
 VERSION = "context-indexing.retrieval.v1"
 STOP = {"the", "a", "an", "of", "on", "in", "and", "or", "to", "for", "from", "with", "this", "that", "is", "are", "by", "as", "at", "it", "be", "into", "и", "в", "во", "на", "для", "из", "по", "с", "со", "о", "об", "как", "что", "это", "или", "к", "от", "до", "не", "а", "но", "при", "source", "facts", "about", "note", "summary", "material", "заметка", "материал", "источник", "сведения"}
@@ -79,6 +80,9 @@ class Pipeline:
                 plan["profiles"] = self.index.profiles(graph, graph.structure(), plan["configuration"],
                                                        deadline=min(started+7, deadline))
             allowed = self.allowed(graph, metadata, plan["filters"])
+            if query_type == "knowledge_lookup":
+                plan["knowledge"] = Knowledge(self.state, graph, allowed)
+                subject = plan["knowledge"].prepare(subject)
             first = self.retrieve(subject, graph, metadata, plan, allowed)
             # A sparse/technical anchor name need not equal its subject. Preserve
             # explicit exclusions independently of the names found by retrieval.
@@ -93,8 +97,12 @@ class Pipeline:
                     refined, curator = self.curator.refine(subject, first, status, checkpoint=checkpoint,
                                                            deadline=plan["deadline"])
                     if refined:
+                        if "knowledge" in plan:
+                            refined = plan["knowledge"].prepare(refined)
                         second = self.retrieve(refined, graph, metadata, plan, allowed)
                         first = self.merge(first, second, refined)
+                        if "knowledge" in plan:
+                            first["results"] = plan["knowledge"].rank(first["results"])
                         first["curator_pass"] = True
                         status = assessment(first, graph) if assessment else self.assess(first)
             result = {**first, **status, "query_id": plan["query_id"], "schema": VERSION,
@@ -105,7 +113,9 @@ class Pipeline:
             fresh = []
             for item in result["results"]:
                 try:
-                    if sha_bytes(self.vault.read(item["path"]).encode()) == item["sha256"]:
+                    if sha_bytes(self.vault.read(item["path"]).encode()) == item["sha256"] and all(
+                            sha_bytes(self.vault.read(v["path"]).encode()) == v["sha256"]
+                            for v in item.get("context_sources", [])):
                         fresh.append(item)
                 except DomainError:
                     pass
@@ -274,7 +284,8 @@ class Pipeline:
                         next_frontier.append((target, [*chain, target]))
             frontier = next_frontier
         channels["graph"] = graph_count
-        ranked = self.rank(list(rows.values()), subject)[:100]
+        ranking = plan["knowledge"].rank if "knowledge" in plan else lambda items: self.rank(items, subject)
+        ranked = ranking(list(rows.values()))[:100]
         # Expansion follows both real directions and records the actual directed edge.
         expanded = 0
         for item in ranked[:0 if "expansion" in self.disabled else 20]:
@@ -293,7 +304,10 @@ class Pipeline:
                 item["excerpt"] = excerpt["body"] if excerpt else ""
         if time.monotonic() >= deadline:
             missing.append("deadline")
-        return {"results": self.rank(list(rows.values()), subject)[:200], "channels": channels,
+        verifier = self.semantic if "vector" not in self.disabled else None
+        if "knowledge" in plan and not plan["knowledge"].verify(list(rows.values()), verifier, deadline):
+            missing.append("semantic_verification")
+        return {"results": ranking(list(rows.values()))[:200], "channels": channels,
                 "negated_entities": negated_paths, "segment_evidence": segments,
                 "missing_strategies": sorted(set(missing)), "degraded": bool(missing), "truncated": truncated}
 
