@@ -28,6 +28,11 @@ server {
         include /opt/exocortex/mastermind/packaging/nginx/mastermind-proxy.conf;
     }
     location = /readyz { return 404; }
+    location = /internal/gryphon/command {
+        limit_except POST { deny all; }
+        client_max_body_size 8k;
+        include /opt/exocortex/mastermind/packaging/nginx/mastermind-proxy.conf;
+    }
     location ^~ /internal/ { return 404; }
     location ^~ /api/internal/ { return 404; }
     location ^~ /v1/ { return 404; }

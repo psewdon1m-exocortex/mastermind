@@ -6,6 +6,7 @@ import {hashFile} from './crusher.js';
 import {wyvernCard,helperUpdates} from './wyvern.js';
 import {openGroupUpdates} from './group-updates.js';
 import {contextIndexingCard} from './context-indexing.js';
+import {gryphonCard} from './gryphon.js';
 
 export async function startOperation(kind,file=null,resume=null){
   let identifier=resume,stop=()=>{},finished=false;
@@ -77,6 +78,8 @@ export async function settings(root){
   ${card('logs','Logs','<div data-service-logs></div>',{wide:true})}</div>`;
   $('.grid',root).insertAdjacentHTML('beforeend',card('wyvern','Wyverne Connection','<div data-wyvern>Checking LLM gateway…</div>',{wide:true}));
   const stopWyvern = wyvernCard(root);
+  $('.grid',root).insertAdjacentHTML('beforeend',card('gryphon','Gryphon Connection','<div data-gryphon class="bot-connection-groups">Checking messaging gateway…</div>',{wide:true}));
+  const stopGryphon = gryphonCard(root);
   const stopPolicy = mountBackupPolicy($('[data-backup-policy]', root), {service: 'mastermind', base: '/api/owner/neptune/policy', headers: () => ({'X-CSRF-Token': state.session?.csrf || ''})});
   const stopLogs = mountServiceLogs($('[data-service-logs]', root), {base: '/api/logs?history=true', beforeParam: 'before', onDownload: () => startOperation('logs')});
   bind(root,'click','[data-neptune-update]',()=>helperUpdates('neptune'));
@@ -114,5 +117,5 @@ export async function settings(root){
   async function refresh(){const [ops,updates]=await Promise.all([api('/api/owner/operations'),api('/api/owner/updates')]);if(!root.isConnected)return;
     $('[data-operations]',root).innerHTML=ops.length?ops.map(op=>`<div class="list-row"><div>${escape(op.kind)} · ${escape(op.stage)}<br><small>${escape(stamp(op.created_at))}${op.error?' · '+escape(op.error):''}</small></div><span>${op.size?escape(humanBytes(op.size)):''}</span><div class="row-actions">${op.kind==='restore'?`<button data-op-review="${op.id}">Review</button>`:''}${op.state==='COMPLETED'&&op.kind!=='restore'&&!op.download_consumed?`<a download href="/api/owner/operations/${op.id}/download">Download</a>`:''}<button data-op-delete="${op.id}" ${['RUNNING','RECEIVING'].includes(op.state)?'disabled':''}>Remove</button></div></div>`).join(''):'<p class="empty">No staged maintenance operations.</p>';
     $('[data-update-state]',root).textContent='Update state: '+(updates.phase||updates.state)+(updates.error?' · '+updates.error:'');if(Date.now()-agentTick>15000){agentTick=Date.now();await agents();}}
-  await refreshConnection();const stop=poll(refresh,3000);return()=>{stop();stopWyvern();stopPolicy();stopLogs();document.documentElement.style.setProperty('--accent',state.prefs.accent);};
+  await refreshConnection();const stop=poll(refresh,3000);return()=>{stop();stopWyvern();stopGryphon();stopPolicy();stopLogs();document.documentElement.style.setProperty('--accent',state.prefs.accent);};
 }

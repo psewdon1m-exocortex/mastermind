@@ -17,7 +17,7 @@ from .secret_store import SHELL_BINDINGS
 ORDERS = {
     "navigation": ["dashboard", "vault", "crusher", "shares", "settings"],
     "dashboard": ["cpu", "ram", "disk", "uptime", "connectedness", "items", "heatmap", "crusher_access"],
-    "settings": ["appearance", "security", "context_indexing", "wyvern", "backup", "updates", "logs"],
+    "settings": ["appearance", "security", "context_indexing", "gryphon", "wyvern", "backup", "updates", "logs"],
 }
 
 

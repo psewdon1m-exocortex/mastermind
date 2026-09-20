@@ -179,7 +179,8 @@ def validate_profile(rendered, images, directory):
         allowed = {str(directory/"secrets"/name): "/run/mastermind"}
         if name == "core":
             allowed.update({"/run/exocortex": "/run/exocortex", "/run/neptune": "/run/neptune",
-                            "/run/wyvern": "/run/wyvern", "/etc/exocortex/wyvern/clients/mastermind": "/run/wyvern-link"})
+                            "/run/wyvern": "/run/wyvern", "/etc/exocortex/wyvern/clients/mastermind": "/run/wyvern-link",
+                            "/run/gryphon": "/run/gryphon", "/etc/exocortex/gryphon/clients/mastermind": "/run/gryphon-link"})
         for volume in service.get("volumes", []):
             if volume.get("target") in targets:
                 raise ValueError("Duplicate component mount target")
@@ -254,8 +255,13 @@ def install(directory):
     if capabilities.get("schema") != "exocortex.wyvern.updater.v1" or capabilities.get("api_version") != 1:
         raise ValueError("The host Updater does not support Wyvern v1")
     run(["updater", "wyvern", "bootstrap", "--head", "mastermind", "--manifest", str(directory/"vendor/wyvern/wyvern-release.json")], timeout=600)
+    for folder in (Path("/run/gryphon"), Path("/etc/exocortex/gryphon/clients/mastermind")):
+        folder.mkdir(parents=True, exist_ok=True, mode=0o750)
+        os.chown(folder, 0, grp.getgrnam("gryphon-clients").gr_gid if folder.name == "gryphon" else 10001)
+        folder.chmod(0o750)
     update_env(directory/".env", {"UPDATER_SOCKET_GID": str(grp.getgrnam("updater").gr_gid),
-                                 "NEPTUNE_SOCKET_GID": str(grp.getgrnam("neptune-clients").gr_gid)})
+                                 "NEPTUNE_SOCKET_GID": str(grp.getgrnam("neptune-clients").gr_gid),
+                                 "GRYPHON_SOCKET_GID": str(grp.getgrnam("gryphon-clients").gr_gid)})
     rendered = json.loads(compose(directory, "config", "--format", "json", capture=True))
     validate_profile(rendered, manifest["mastermind"]["components"], directory)
     for name in ("core-data", "vault-data", "runtime-data", "work-data"):

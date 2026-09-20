@@ -17,6 +17,8 @@ class Config:
     neptune_socket: str | None = None
     neptune_token_file: Path | None = None
     neptune_export_token_file: Path | None = None
+    gryphon_socket: str | None = None
+    gryphon_token_file: Path | None = None
     neptune_export_url: str = "http://127.0.0.1:18390/api/internal/neptune/backup"
     updater_socket: str | None = None
     updater_token_file: Path | None = None
@@ -72,6 +74,8 @@ class Config:
             neptune_socket=os.environ.get("MASTERMIND_NEPTUNE_SOCKET"),
             neptune_token_file=path("MASTERMIND_NEPTUNE_TOKEN_FILE"),
             neptune_export_token_file=path("MASTERMIND_NEPTUNE_EXPORT_TOKEN_FILE"),
+            gryphon_socket=os.environ.get("MASTERMIND_GRYPHON_SOCKET"),
+            gryphon_token_file=path("MASTERMIND_GRYPHON_TOKEN_FILE"),
             neptune_export_url=os.environ.get("MASTERMIND_NEPTUNE_EXPORT_URL", "http://127.0.0.1:18390/api/internal/neptune/backup"),
             updater_socket=os.environ.get("MASTERMIND_UPDATER_SOCKET"),
             updater_token_file=path("MASTERMIND_UPDATER_TOKEN_FILE"),

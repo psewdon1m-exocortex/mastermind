@@ -38,6 +38,10 @@ CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,principal TEXT N
  created_at REAL NOT NULL,expires_at REAL NOT NULL,policy_version INTEGER NOT NULL DEFAULT 0,csrf_hash TEXT);
 CREATE TABLE IF NOT EXISTS codes(code_hash TEXT PRIMARY KEY,created_at REAL NOT NULL,expires_at REAL NOT NULL,
  consumed_at REAL);
+CREATE TABLE IF NOT EXISTS gryphon_access(code_hash TEXT PRIMARY KEY,actor_key TEXT NOT NULL,
+ session_principal TEXT,expires_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS gryphon_events(event_id TEXT PRIMARY KEY,request_sha TEXT NOT NULL,
+ created_at REAL NOT NULL,response BLOB NOT NULL);
 CREATE TABLE IF NOT EXISTS rate_limits(scope TEXT NOT NULL,occurred_at REAL NOT NULL);
 CREATE INDEX IF NOT EXISTS rate_scope ON rate_limits(scope,occurred_at);
 CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,principal TEXT NOT NULL,idempotency_key TEXT NOT NULL,
@@ -59,7 +63,8 @@ MANDATORY_TABLES = (
 )
 DERIVED_TABLES = ("notes", "note_fts", "edges", "semantic_documents", "semantic_chunks", "semantic_run",
                   "context_documents", "context_profiles", "context_profile_fts")
-EPHEMERAL_TABLES = ("sessions", "codes", "rate_limits", "uploads", "projections", "context_traces")
+EPHEMERAL_TABLES = ("sessions", "codes", "rate_limits", "uploads", "projections", "context_traces",
+                    "gryphon_access", "gryphon_events")
 
 
 class State:

@@ -78,3 +78,4 @@ dialog.exo-initialize:not(.laboratory) > header h2 { font: 700 24px/29px Consola
 :root :is(.exo-backup-policy,.exo-wyvern-connection) button { font-weight: 400; transition: background 160ms,border-color 160ms,transform 160ms; }
 :root :is(.exo-backup-policy,.exo-wyvern-connection) button:enabled:active { transform: scale(.985); transition-duration: 60ms; }
 @media (prefers-reduced-motion: reduce) { :root :is(.exo-backup-policy,.exo-wyvern-connection) button { transition: none; } :root :is(.exo-backup-policy,.exo-wyvern-connection) button:enabled:active { transform: none; } }
+.bot-connection-groups { display: grid; min-width: 0; }

@@ -1,5 +1,12 @@
 # Architecture
 
+Gryphon is an optional host messaging gateway for Crusher access. The Core
+mounts only its client socket and Mastermind-specific credential directory.
+It issues scoped one-use codes through an authenticated command adapter;
+Gryphon retains bot credentials and stable Telegram bindings. The operator
+controls this integration in Settings → Gryphon Connection. See [contract and
+verification](gryphon.md).
+
 Mastermind is one independently released service with three Linux amd64 containers. The normative product contract is [requirements](../mastermind_service_requirements_final.md); the effective central rules are pinned in [policy-lock.json](policy-lock.json). The Vault tab deliberately inherits Obsidian UI/UX. The surrounding Shell follows Part 01.
 
 ```text

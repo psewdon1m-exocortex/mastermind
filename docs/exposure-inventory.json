@@ -734,6 +734,96 @@
     {
       "component": "core",
       "method": "DELETE",
+      "path": "/api/owner/gryphon/binding",
+      "source": "src/mastermind/gryphon_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "DELETE",
+      "path": "/api/owner/gryphon/connection",
+      "source": "src/mastermind/gryphon_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "DELETE",
+      "path": "/api/owner/gryphon/link-challenge",
+      "source": "src/mastermind/gryphon_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/gryphon",
+      "source": "src/mastermind/gryphon_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/gryphon/bots",
+      "source": "src/mastermind/gryphon_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/gryphon/management",
+      "source": "src/mastermind/gryphon_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/owner/gryphon/initialize",
+      "source": "src/mastermind/gryphon_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/owner/gryphon/link-challenge",
+      "source": "src/mastermind/gryphon_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/internal/gryphon/command",
+      "source": "src/mastermind/gryphon_routes.py",
+      "exposure": "canonical_https_service_authenticated",
+      "principal": "gryphon_service_and_bound_telegram_identity",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "PUT",
+      "path": "/api/owner/gryphon/connection",
+      "source": "src/mastermind/gryphon_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "DELETE",
       "path": "/api/owner/operations/{identifier}",
       "source": "src/mastermind/operator_routes.py",
       "exposure": "canonical_https",

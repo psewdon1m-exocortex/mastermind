@@ -46,7 +46,7 @@ code do not read sibling checkouts.
 Technical documentation: [architecture](docs/architecture.md),
 [installation](docs/deployment.md), [operations and CLI](docs/operations.md),
 [backup and restore](docs/backup-restore.md), [Bridge](docs/mastermind-bridge.md),
-[Crusher](docs/crusher.md), [context-indexing](docs/context-indexing.md), [Shared](docs/sharing.md), [security](docs/security.md),
+[Crusher](docs/crusher.md), [Gryphon and Telegram](docs/gryphon.md), [context-indexing](docs/context-indexing.md), [Shared](docs/sharing.md), [security](docs/security.md),
 [API](docs/api.md), [compatibility](docs/compatibility.md), and
 [releases](docs/releases.md).
 

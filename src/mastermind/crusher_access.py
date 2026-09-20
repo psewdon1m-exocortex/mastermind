@@ -47,7 +47,7 @@ class CrusherAccess:
         self.uploading = set()
         self.configuration_snapshot = lambda: None
 
-    def code(self):
+    def code(self, *, actor_key=None):
         self.ready()
         now = time.time()
         with self.state.transaction() as db:
@@ -56,12 +56,15 @@ class CrusherAccess:
                 raise DomainError("CODE_LIMIT", "At most ten unconsumed Crusher codes can be active.", 409)
             for _ in range(100):
                 code = f"{secrets.randbelow(1_000_000):06d}"
-                if not db.execute("SELECT 1 FROM codes WHERE code_hash=?", (digest(code),)).fetchone():
+                if not db.execute("SELECT 1 FROM codes WHERE code_hash=? UNION ALL SELECT 1 FROM gryphon_access WHERE code_hash=?",
+                                  (digest(code), digest(code))).fetchone():
                     break
             else:
                 raise DomainError("CODE_UNAVAILABLE", "Could not allocate a Crusher code.", 503)
             db.execute("INSERT INTO codes VALUES(?,?,?,NULL)", (digest(code), now, now+1800))
-        self.audit.emit("crusher.access.create", actor="owner", target="crusher")
+            if actor_key is not None:
+                db.execute("INSERT INTO gryphon_access VALUES(?,?,NULL,?)", (digest(code), actor_key, now+1800))
+        self.audit.emit("crusher.access.create", actor="telegram" if actor_key else "owner", target="crusher")
         return {"code": code, "expires_at": now+1800}
 
     def activate(self, code, address):
@@ -75,11 +78,25 @@ class CrusherAccess:
                                  (time.time(), digest(code), time.time())).rowcount
             if changed != 1:
                 raise DomainError("CODE_INVALID", "The code is invalid, expired or already used.", 401)
-            session = self.auth.issue("crusher:" + secrets.token_hex(16), "crusher", 1800)
+            principal = "crusher:" + secrets.token_hex(16)
+            session = self.auth.issue(principal, "crusher", 1800)
+            db.execute("UPDATE gryphon_access SET session_principal=?,expires_at=? WHERE code_hash=?",
+                       (principal, session["expires_at"], digest(code)))
         return {"token": session["token"], "expires_at": session["expires_at"]}
 
     def principal(self, bearer):
         return self.auth.session(bearer, kind="crusher")
+
+    def revoke_telegram(self, actor_key=None):
+        with self.state.transaction() as db:
+            clause, args = (" WHERE actor_key=?", (actor_key,)) if actor_key else ("", ())
+            codes = db.execute("DELETE FROM codes WHERE code_hash IN (SELECT code_hash FROM gryphon_access" + clause + ")", args).rowcount
+            sessions = db.execute("DELETE FROM sessions WHERE kind='crusher' AND principal IN "
+                                  "(SELECT session_principal FROM gryphon_access" + clause + ")", args).rowcount
+            db.execute("DELETE FROM gryphon_access" + clause, args)
+        self.audit.emit("crusher.access.revoke", actor="telegram" if actor_key else "owner", target="crusher",
+                        context={"codes": codes, "sessions": sessions})
+        return {"codes": codes, "sessions": sessions}
 
     def check_principal(self, principal):
         if principal == "owner":
@@ -308,6 +325,8 @@ class CrusherAccess:
                     path.unlink()
             with self.state.transaction() as db:
                 db.execute("DELETE FROM uploads WHERE state='ACCEPTED' AND expires_at<?", (time.time()-86400,))
+                db.execute("DELETE FROM gryphon_access WHERE expires_at<=?", (time.time(),))
+                db.execute("DELETE FROM gryphon_events WHERE created_at<=?", (time.time()-7*86400,))
 
     async def receive(self, identifier, principal, chunks):
         import asyncio

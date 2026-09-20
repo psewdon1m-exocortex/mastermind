@@ -19,11 +19,19 @@ Production uses the canonical HTTPS origin. JSON errors expose stable sanitized 
 | `/api/v1/shares`, `/{id}` and `/{id}/link` | Owner creation/configuration/revocation and repeatable copy of a path-bound Share URL |
 | `/s/{token}` and `/api/{policy,session,note}` beneath it | Share-specific public projection and granted edit capability; no resource access |
 | `/api/v1/crusher/access` | Owner issues a one-use activation code |
+| `/api/owner/gryphon`, `/bots`, `/connection`, `/link-challenge`, `/binding`, `/initialize`, `/management` | Owner-only Gryphon status and own-service linking; mutations require CSRF. Never accepts a bot token or caller-supplied service/adapter origin. |
 | `/api/v1/crusher/sessions`, `/uploads`, `/jobs` | Scoped submission session or owner; public reads expose progress only |
 
 Path/query identifiers are validated before use. Unsafe methods require the applicable CSRF/origin/capability checks even when the browser hides an action. `401/403` never turn into a successful empty result. A changed note ETag is a `409`; unsupported/unsatisfiable media ranges are rejected. Source uploads allow at most 2 GiB, recovery uploads at most 8 GiB, and actual streamed bytes are checked independently of Content-Length.
 
 ## Private interfaces
+
+`POST /internal/gryphon/command` is the exact machine-authenticated exception to
+the Nginx `/internal/` deny rule. It requires the Mastermind Gryphon credential
+and a current matching private Telegram user/chat/connection identity from the
+gateway. Envelopes are limited to 8 KiB. Repeated event IDs replay an encrypted,
+transactional receipt; conflicting payloads receive 409. It cannot authorize
+owner APIs or Vault reads. See [Gryphon](gryphon.md) for commands and deployment.
 
 `POST /internal/bridge/related-notes` is a Bridge-authenticated, read-only
 context-indexing lookup for the active Obsidian buffer. The body accepts `path`

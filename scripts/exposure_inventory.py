@@ -40,6 +40,8 @@ def classify(module, method, path):
         component, exposure, principal = "worker", "private_network", "worker_control"
     elif path.startswith("/internal/bridge/"):
         exposure, principal = "private_network", "bridge"
+    elif path == "/internal/gryphon/command":
+        exposure, principal = "canonical_https_service_authenticated", "gryphon_service_and_bound_telegram_identity"
     elif path.startswith("/api/internal/neptune/"):
         exposure, principal = "loopback_and_export_identity", "neptune_export"
     elif path.startswith("/api/internal/updater/"):

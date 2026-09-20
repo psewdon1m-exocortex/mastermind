@@ -68,6 +68,8 @@ services:
       MASTERMIND_NEPTUNE_TOKEN_FILE: /run/mastermind/neptune_control_token
       MASTERMIND_NEPTUNE_EXPORT_TOKEN_FILE: /run/mastermind/neptune_export_token
       MASTERMIND_NEPTUNE_EXPORT_URL: http://127.0.0.1:18390/api/internal/neptune/backup
+      MASTERMIND_GRYPHON_SOCKET: /run/gryphon/client.sock
+      MASTERMIND_GRYPHON_TOKEN_FILE: /run/gryphon-link/mastermind.token
       MASTERMIND_TIMEZONE: ${MASTERMIND_TIMEZONE:-UTC}
     ports:
     - 127.0.0.1:18390:18390
@@ -79,6 +81,8 @@ services:
     - /run/neptune:/run/neptune:ro
     - /run/wyvern:/run/wyvern:ro
     - /etc/exocortex/wyvern/clients/mastermind:/run/wyvern-link:ro
+    - /run/gryphon:/run/gryphon:ro
+    - /etc/exocortex/gryphon/clients/mastermind:/run/gryphon-link:ro
     tmpfs:
     - /tmp:rw,nosuid,nodev,size=64m,mode=1777
     cap_drop:
@@ -109,6 +113,7 @@ services:
     group_add:
     - ${UPDATER_SOCKET_GID:?Install or reuse host Updater}
     - ${NEPTUNE_SOCKET_GID:-10001}
+    - ${GRYPHON_SOCKET_GID:-10001}
     stop_grace_period: 30s
   worker:
     init: true

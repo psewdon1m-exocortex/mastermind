@@ -146,6 +146,8 @@ class Service:
         self.updates = Updates(self)
         self.shared = Shared(self.vault, self.auth, self.secrets, self.audit, self.data_ready)
         self.crusher_access = CrusherAccess(config, self.state, self.auth, self.audit, self.data_ready)
+        from .gryphon import Gryphon
+        self.gryphon = Gryphon(self)
         self.semantic = Semantic(self)
         from .context_indexing import ContextIndexing
         self.context_indexing = ContextIndexing(self, semantic=self.semantic)
@@ -195,6 +197,7 @@ class Service:
             except DomainError as error:
                 self.state.set_setting("context_indexing_bootstrap_error", error.code)
             self.crusher.start()
+            self.gryphon.start()
             self.semantic.start()
             if self.config.runtime_mode != "offline" and not self.updates.blocks:
                 try:
@@ -255,6 +258,7 @@ class Service:
         if hasattr(self, "owner_operations"):
             self.owner_operations.close()
         self.crusher.close()
+        self.gryphon.close()
         self.semantic.close()
         self.updates.close()
         if self.maintenance:
@@ -383,6 +387,8 @@ def create_app(config=None, service=None):
     install_shared(app, context, owner, bounded_json)
     from .crusher_routes import install_crusher
     install_crusher(app, context, owner, bounded_json)
+    from .gryphon_routes import install_gryphon
+    install_gryphon(app, context, owner, bounded_json)
     from .operator_routes import install_operator
     install_operator(app, context, owner, bounded_json)
 
