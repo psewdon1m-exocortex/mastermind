@@ -129,7 +129,9 @@ def install_operator(app, service, owner, bounded_json):
     @app.post("/api/owner/helper-updates/check", dependencies=[Depends(owner)])
     async def check_helper(request: Request):
         data = await bounded_json(request, 4096)
-        if set(data) != {"component"} or data["component"] not in ("updater", "neptune", "wyvern"):
+        if data.get("component") == "wyvern":
+            raise DomainError("TUI_REQUIRED", "Check shared Wyvern releases with sudo updater tui on the host.", 403)
+        if set(data) != {"component"} or data["component"] not in ("updater", "neptune"):
             raise DomainError("INVALID_REQUEST", "Select a helper consumed by this service", 422)
         return await asyncio.to_thread(service.updates.updater.call, "POST", "/v2/check",
             data={"head_id": service.config.updater_head_id, "component": data["component"]})
@@ -137,14 +139,14 @@ def install_operator(app, service, owner, bounded_json):
     @app.post("/api/owner/helper-updates/install/{component}", dependencies=[Depends(owner)])
     async def install_helper(component: str, request: Request):
         data = await bounded_json(request, 4096)
+        if component == "wyvern":
+            raise DomainError("TUI_REQUIRED", "Update the shared Wyvern gateway with sudo updater tui on the host.", 403)
         try:
             UUID(data.get("request_id", ""))
-            if component not in ("updater", "neptune", "wyvern") or set(data) - {"version", "request_id", "confirm_shared"} or not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", data.get("version", "")):
+            if component not in ("updater", "neptune") or set(data) - {"version", "request_id"} or not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", data.get("version", "")):
                 raise ValueError()
         except (ValueError, TypeError, AttributeError):
             raise DomainError("INVALID_REQUEST", "Select an exact helper release and stable request UUID", 422) from None
-        if component == "wyvern" and data.get("confirm_shared") is not True:
-            raise DomainError("CONFIRMATION_REQUIRED", "Confirm the shared gateway update impact", 409)
         return await asyncio.to_thread(service.updates.updater.call, "POST", "/v2/components/" + component + "/updates",
             data={**data, "head_id": service.config.updater_head_id})
 

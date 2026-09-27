@@ -114,6 +114,10 @@ when restarting it; adding the controlled-provider override silently changes
 the behavior back to a fixture. Provider credentials belong to Volt/Kernel.
 The current source's Wyvern migration has a separate deployment contract and
 must not be substituted for this image without its own qualification.
+In that source workflow, `sudo updater tui` installs/checks/updates the shared
+Wyvern instance and manages Adapters and client grants. Mastermind Settings
+selects an allowed Adapter for its functions; its existing lifecycle/version
+buttons only explain the TUI path and do not submit host operations.
 
 Settings contains a bounded log tail and a redacted archive download. Audit records omit raw credentials and note bodies. Use the configured Docker JSON log rotation and inspect free space on the actual Vault filesystem. Failed sources, completed operation spools and old restored generations have bounded retention; active uploads/download leases are protected. Do not clear the backup/recovery spool while an operation or host update is pending.
 

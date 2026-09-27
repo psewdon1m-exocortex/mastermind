@@ -22,6 +22,10 @@ def test_wyvern_settings_are_owner_only_and_cannot_select_another_client(api, mo
     assert client.post('/api/owner/wyvern/bindings', json=change).status_code == 200
     assert calls == [('POST', '/v1/bindings', {'data': change})]
     assert client.post('/api/owner/wyvern/connect', json={'head_id': 'other'}).status_code == 422
+    assert client.post('/api/owner/wyvern/connect', json={'request_id': '01234567-0123-4123-8123-012345678901'}).status_code == 403
+    assert client.get('/api/owner/wyvern/management').status_code == 403
+    assert client.post('/api/owner/helper-updates/check', json={'component': 'wyvern'}).status_code == 403
+    assert client.post('/api/owner/helper-updates/install/wyvern', json={'version': '1.2.3', 'request_id': '01234567-0123-4123-8123-012345678901', 'confirm_shared': True}).status_code == 403
 
 
 def test_missing_gateway_does_not_remove_settings_card(api):

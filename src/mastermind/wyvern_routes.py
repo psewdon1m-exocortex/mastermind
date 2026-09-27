@@ -36,9 +36,8 @@ def install_wyvern(app, service, owner, bounded_json):
                 raise ValueError()
         except (ValueError, TypeError, AttributeError):
             raise DomainError("INVALID_REQUEST", "Provide a stable request UUID", 422) from None
-        return await asyncio.to_thread(service.updates.updater.call, "POST", "/v1/lifecycle/wyvern-installation",
-            data={"head_id": service.config.updater_head_id, "request_id": data["request_id"]})
+        raise DomainError("TUI_REQUIRED", "Install and link Wyvern with sudo updater tui on the host.", 403)
 
     @app.get("/api/owner/wyvern/management", dependencies=[Depends(owner)])
     def management():
-        return {"url": service.kernel.management_url("wyvern")}
+        raise DomainError("TUI_REQUIRED", "Manage Wyvern Adapters with sudo updater tui on the host.", 403)
