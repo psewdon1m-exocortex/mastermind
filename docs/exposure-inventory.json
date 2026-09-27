@@ -815,6 +815,15 @@
     {
       "component": "core",
       "method": "PUT",
+      "path": "/api/owner/gryphon/binding",
+      "source": "src/mastermind/gryphon_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "PUT",
       "path": "/api/owner/gryphon/connection",
       "source": "src/mastermind/gryphon_routes.py",
       "exposure": "canonical_https",

@@ -181,18 +181,17 @@ def test_old_or_unavailable_gateway_fails_closed_and_retains_last_status(connect
         service.gryphon.command(envelope())
 
 
-def test_initialize_and_update_are_scoped_to_current_head(connected, monkeypatch):
+def test_shared_gryphon_operations_are_blocked_from_service_settings(connected, monkeypatch):
     client, service, _, _ = connected
     authenticate(client)
     calls = []
     monkeypatch.setattr(service.updates.updater, "call", lambda *args, **kwargs: calls.append((args, kwargs)) or {"state": "REQUESTED"})
     request = {"request_id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"}
-    assert client.post("/api/owner/gryphon/initialize", json=request).status_code == 200
-    assert calls[-1][1]["data"] == {**request, "head_id": "mastermind"}
-    assert client.post("/api/owner/gryphon/initialize", json={**request, "head_id": "saturn"}).status_code == 422
-    assert client.post("/api/owner/helper-updates/check", json={"component": "gryphon"}).status_code == 200
-    assert calls[-1][1]["data"]["head_id"] == "mastermind"
-    assert client.post("/api/owner/helper-updates/install/gryphon", json={**request, "version": "0.1.5"}).status_code == 409
+    assert client.post("/api/owner/gryphon/initialize", json=request).status_code == 403
+    assert client.post("/api/owner/gryphon/link-challenge").status_code == 403
+    assert client.post("/api/owner/helper-updates/check", json={"component": "gryphon"}).status_code == 422
+    assert client.post("/api/owner/helper-updates/install/gryphon", json={**request, "version": "0.1.5"}).status_code == 422
+    assert calls == []
 
 
 def test_gateway_catalog_order_is_not_significant():

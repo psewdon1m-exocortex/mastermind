@@ -121,42 +121,28 @@ For Volt, the setup-code creator MUST label the combined profile **Volt ZIP +
 personal.volt mirror**. Archive and mirror interval controls remain distinct in
 the identity after enrollment.
 
-## 4. Bot Connection And Gryphon Panel
+## 4. Gryphon Connection
 
-The [Bot connection panel](<./src/bot connection.png>) supplies the full-width
-`1610x483px` card geometry and group rhythm. Its single `Link Saturn function` example is
-expanded into separate service-connection and Telegram-user-binding states.
-
-Only Chronos and Saturn render this card. It contains:
-
-1. **Gryphon gateway** — local socket availability and selected bot identity;
-2. **Service function** — link/change/unlink the Chronos or Saturn function;
-3. **Telegram user** — binding status and Initialize/revoke controls;
-4. **Gryphon version** — installed version, update availability and verified
-   check/install action through Updater.
+Saturn, Chronos and Mastermind render the `Gryphon Connection` card. It has one
+`Gryphon bot binding` group with local-agent reachability, applied-connection
+reachability, the selected bot alias or `none`, and one link/change action.
+Registration, the one-time `/link CODE` pairing and shared version management
+are performed in `sudo updater tui`.
 
 ### 4.1 Status and action matrix
 
 | State | Required controls |
 | --- | --- |
-| Gryphon unavailable | Offer typed `Install or connect Gryphon` through Updater; keep function linking disabled until healthy |
-| Gateway ready, no service connection | `Link Chronos function` or `Link Saturn function`; select only a ready registered bot |
-| Service connected, no user binding | `Initialize bot` and `Unlink <service> function` |
-| Challenge active | Bot username, `/link CODE`, expiry countdown, Copy and Cancel/Revoke |
-| User bound | Stable Telegram identity summary, `Revoke Telegram binding`, and service unlink action |
-| Update available | Verified target version and explicit install confirmation |
+| Gryphon unavailable | Show unavailable reachability and keep function linking disabled |
+| Gateway ready, no service connection | `Link Gryphon function` opens the paired-bot list |
+| Service connected | `Change Gryphon function` opens the list with the active bot highlighted and non-secret details visible |
+| Service binding unavailable | Show applied-connection reachability as unavailable; selecting the paired bot again may restore its verified account |
 
-The link-function overlay lists Gryphon-provided bot aliases and usernames; it
-never asks for or displays a bot token. Linking one service function does not
-implicitly bind a Telegram user. `Initialize bot` asks Gryphon for a
-service-scoped one-time challenge and presents the exact command in a selectable
-monospace field. The UI never claims success until Gryphon reports the bound
-stable Telegram identity.
-
-Unlink and revoke are separate destructive actions with consequence text:
-unlink removes the service's use of the selected bot; revoke removes the
-Telegram identity authorization for that service. Neither operation deletes a
-shared Gryphon bot registration.
+The selection overlay lists Gryphon-provided paired bot aliases and usernames
+without exposing a bot token. Selecting one grants its verified Telegram
+account access to this service without another `/link`. Its `Unlink all
+adapters` action requires consequence text and removes only this service's
+connection. Shared bots and other services remain connected.
 
 ## 5. Updates Panel
 
@@ -180,14 +166,14 @@ state remains visible across the expected container reconnect and ends as
 completed, failed, rolled back or rollback failed.
 
 The Updater's own version row is not interchangeable with the module version.
-Likewise Neptune and Gryphon version controls belong to their corresponding
-Backup or Bot connection groups, or to Saturn Synchronization for fleet-wide
-Neptune operations. Each control names the component it will mutate.
+Neptune version controls belong to Backup or Saturn Synchronization for
+fleet-wide Neptune operations. Shared Gryphon version controls belong to the
+Updater TUI. Each control names the component it will mutate.
 
 ## 6. Copy, Feedback And Error Recovery
 
-- Use `Initialize Neptune`, `Repair Neptune pipelines`, `Initialize bot`,
-  `Link <service> function`, `Check for updates` and `Install <component>
+- Use `Initialize Neptune`, `Repair Neptune pipelines`, `Link Gryphon function`,
+  `Change Gryphon function`, `Check for updates` and `Install <component>
   <version>` consistently.
 - Avoid `Connected` without naming what is connected: gateway, service
   function, Telegram user, archive pipeline and mirror pipeline are different

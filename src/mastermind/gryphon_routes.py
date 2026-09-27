@@ -1,6 +1,5 @@
 """Owner controls and the separately authenticated Gryphon command adapter."""
 import asyncio
-from uuid import UUID
 
 from fastapi import Depends, Request
 
@@ -20,20 +19,11 @@ def install_gryphon(app, service, owner, bounded_json):
 
     @app.get("/api/owner/gryphon/management", dependencies=[Depends(owner)])
     def management():
-        return {"url": service.kernel.management_url("gryphon")}
+        raise DomainError("GRYPHON_HOST_ONLY", "Manage bots with sudo updater tui.", 403)
 
     @app.post("/api/owner/gryphon/initialize", dependencies=[Depends(owner)])
     async def initialize(request: Request):
-        data = await bounded_json(request, 1024)
-        try:
-            UUID(data.get("request_id", ""))
-            if set(data) != {"request_id"}:
-                raise ValueError()
-        except (ValueError, TypeError, AttributeError):
-            raise DomainError("INVALID_REQUEST", "Provide a stable request UUID.", 422) from None
-        service.data_ready()
-        return await asyncio.to_thread(service.updates.updater.call, "POST", "/v1/lifecycle/gryphon-initialization",
-            data={"head_id": service.config.updater_head_id, "request_id": data["request_id"]})
+        raise DomainError("GRYPHON_HOST_ONLY", "Manage the shared Gryphon gateway with sudo updater tui.", 403)
 
     @app.put("/api/owner/gryphon/connection", dependencies=[Depends(owner)])
     async def connect(request: Request):
@@ -75,12 +65,12 @@ def install_gryphon(app, service, owner, bounded_json):
 
     @app.post("/api/owner/gryphon/link-challenge", dependencies=[Depends(owner)])
     def challenge():
+        raise DomainError("GRYPHON_HOST_ONLY", "Pair the bot with sudo updater tui.", 403)
+
+    @app.put("/api/owner/gryphon/binding", dependencies=[Depends(owner)])
+    def attach_owner():
         service.data_ready()
-        result = gateway.call("POST", "/v1/service/link-challenges")
-        if not all(isinstance(result.get(key), str) for key in ("code", "command", "expiresAt")):
-            raise DomainError("GRYPHON_PROTOCOL", "The Telegram link challenge is invalid.", 503)
-        service.audit.emit("gryphon.challenge", actor="owner", target="mastermind")
-        return {key: result.get(key) for key in ("code", "command", "expiresAt", "botUsername")}
+        return gateway.call("PUT", "/v1/service/binding")
 
     @app.delete("/api/owner/gryphon/link-challenge", dependencies=[Depends(owner)])
     def cancel_challenge():
