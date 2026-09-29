@@ -92,6 +92,12 @@ def build(args):
     capabilities = json.loads(subprocess.check_output([str(args.updater_bundle/"updater-linux-amd64"), "wyvern", "capabilities"]))
     if capabilities != {"schema": "exocortex.wyvern.updater.v1", "api_version": 1}:
         raise ValueError("Qualified Updater must implement Wyvern v1")
+    host_capabilities = json.loads(subprocess.check_output([str(args.updater_bundle/"updater-linux-amd64"), "host", "capabilities"]))
+    if host_capabilities.get("schema") != "exocortex.updater.host-dependencies.v1" or host_capabilities.get("api_version") != 1:
+        raise ValueError("Qualified Updater must implement host dependencies v1")
+    updater_version = subprocess.check_output([str(args.updater_bundle/"updater-linux-amd64"), "version"], text=True).strip()
+    if not re.fullmatch(r"\d+\.\d+\.\d+", updater_version):
+        raise ValueError("Qualified Updater must have a stable release version")
     import sys
     sys.path.insert(0, str(ROOT/"packaging"))
     from release_verify import verify
@@ -103,6 +109,29 @@ def build(args):
         raise ValueError("A signed Wyvern v1 release is required")
     for name in ("wyvern-release.json", "wyvern-release.json.sig.json"):
         files["vendor/wyvern/"+name] = (args.wyvern_bundle/name).read_bytes()
+    for helper in ("neptune", "gryphon"):
+        helper_dir = args.host_helper_bundles / helper
+        manifest_name = helper + "-linux-release-linux-x64.json"
+        signed = verify(helper_dir/manifest_name, helper_dir/(manifest_name + ".sig.json"),
+                        args.updater_bundle/"release-trust"/(helper + ".pem"), validate=False)
+        helper_version = (ROOT/".release"/(helper + ".version")).read_text().strip()
+        pinned_sha = (ROOT/".release"/(helper + ".sha256")).read_text().strip()
+        if signed.get("schema") != "exocortex." + helper + ".release.v1" or signed.get("product") != helper + "-linux" \
+                or signed.get("version") != helper_version or signed.get("runtime") != "linux-x64" or signed.get("sha256") != pinned_sha:
+            raise ValueError("Pinned " + helper + " release identity mismatch")
+        artifact = signed.get("artifact", "")
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+\.tar\.gz", artifact):
+            raise ValueError("Unsafe " + helper + " artifact name")
+        body = (helper_dir/artifact).read_bytes()
+        if hashlib.sha256(body).hexdigest() != pinned_sha:
+            raise ValueError("Pinned " + helper + " artifact digest mismatch")
+        if helper == "gryphon":
+            with tarfile.open(fileobj=io.BytesIO(body), mode="r:gz") as source:
+                package = json.load(source.extractfile("./package.json"))
+            if package.get("hostDependencyProtocol") != 1:
+                raise ValueError("Pinned Gryphon release cannot start without Kernel")
+        for name in (manifest_name, manifest_name + ".sig.json", artifact):
+            files["vendor/" + helper + "/" + name] = (helper_dir/name).read_bytes()
     bundle = output/"mastermind-compose.tar.gz"
     with bundle.open("wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as zipped, \
             tarfile.open(fileobj=zipped, mode="w|") as archive:
@@ -118,12 +147,12 @@ def build(args):
     manifest = {"schema_version": 1, "service": "mastermind", "version": version,
         "image": {"reference": image, "digest": image_digest},
         "compose_bundle": {"url": base+"/"+bundle.name, "sha256": digest(bundle.read_bytes())},
-        "database_schema": 2, "minimum_updater_version": "0.6.0",
+        "database_schema": 2, "minimum_updater_version": updater_version,
         "mastermind": {"profile": "mastermind.components.v1", "source_sha": args.source_sha, "platform": "linux/amd64",
             "components": components, "bridge_version": version, "obsidian_version": "1.13.7",
             "model_sha256": model["files"]["model.onnx"]["sha256"], "minimum_source_schema": 1, "maximum_source_schema": 2, "saved_copy_protocol": 2,
             "curator_model_sha256": json.loads((ROOT/"curator-model.lock.json").read_text())["model"]["sha256"],
-            "dependencies": {"kernel": "0.3.0", "volt": "0.2.0", "saturn": "0.1.15", "chronos": "0.1.1", "neptune": "0.1.7", "updater": "0.6.0", "wyvern": wyvern["version"]},
+            "dependencies": {"kernel": "0.3.0", "volt": "0.2.0", "saturn": "0.1.15", "chronos": "0.1.1", "neptune": (ROOT/".release/neptune.version").read_text().strip(), "gryphon": (ROOT/".release/gryphon.version").read_text().strip(), "updater": updater_version, "wyvern": wyvern["version"]},
             "health_profile": "mastermind.functional.v1"},
         "files": {name: digest(body) for name, body in sorted(files.items())},
         "qualification": {"published": False, "producer_patch_lock": "docs/compatibility.json"}}
@@ -142,6 +171,7 @@ def main():
     command = commands.add_parser("build")
     for name in ("output", "components", "public-key", "updater-bundle", "wyvern-bundle"):
         command.add_argument("--"+name, type=Path, required=True)
+    command.add_argument("--host-helper-bundles", type=Path, required=True)
     command.add_argument("--repository", required=True)
     command.add_argument("--source-sha", required=True)
     command = commands.add_parser("sign")

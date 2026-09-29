@@ -1,6 +1,7 @@
 """Build unpublished signed candidates in independent, disposable clones."""
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -86,10 +87,13 @@ def main():
     lock = FIXTURE / ("components-" + args.version + ".json")
     lock.write_text(json.dumps(components, indent=2) + "\n", newline="\n")
     output = FIXTURE / ("release-" + args.version)
+    if not all((FIXTURE / "helpers" / helper).is_dir() for helper in ("neptune", "gryphon")):
+        helper_env = {**os.environ, "UPDATER_BUNDLE_DIR": str(FIXTURE / "updater"), "HOST_HELPER_BUNDLE_DIR": str(FIXTURE / "helpers")}
+        subprocess.run(["bash", "scripts/fetch-host-helpers.sh", "neptune", "gryphon"], cwd=source, env=helper_env, check=True)
     python = sys.executable
     print(run(python, str(source / "scripts/build_release.py"), "build", "--output", str(output), "--components", str(lock),
         "--public-key", str(FIXTURE / "mastermind.pem"), "--updater-bundle", str(FIXTURE / "updater"),
-        "--wyvern-bundle", str(FIXTURE / "wyvern"),
+        "--wyvern-bundle", str(FIXTURE / "wyvern"), "--host-helper-bundles", str(FIXTURE / "helpers"),
         "--repository", "psewdon1m-exocortex/mastermind", "--source-sha", revision))
     print(run(python, "scripts/build_release.py", "sign", str(output / "mastermind-release.json"), "--key-file", str(FIXTURE / "mastermind-signing.key")))
     print(run(python, "scripts/integration/prepare_release_transport.py"))

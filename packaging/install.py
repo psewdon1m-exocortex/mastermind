@@ -251,6 +251,12 @@ def install(directory):
     # data. Only this explicit host-install action makes the bundled tool executable.
     os.chmod(updater/"updater-linux-amd64", 0o755)
     run(["sh", str(updater/"install.sh"), "mastermind", str(directory/".env"), str(updater/"updater-linux-amd64")], timeout=180)
+    machine_token = Path("/etc/exocortex/updater-kernel.token")
+    if machine_token.is_file() and config.get("KERNEL_URL"):
+        run(["updater", "host", "configure-kernel", "--url", config["KERNEL_URL"], "--token-file", str(machine_token)], timeout=30)
+    for helper in ("neptune", "gryphon"):
+        run(["updater", helper, "install", "--bundle", str(directory/"vendor"/helper)], timeout=600)
+    run(["updater", "gryphon", "link", "--head", "mastermind"], timeout=60)
     capabilities = json.loads(run(["updater", "wyvern", "capabilities"], capture=True))
     if capabilities.get("schema") != "exocortex.wyvern.updater.v1" or capabilities.get("api_version") != 1:
         raise ValueError("The host Updater does not support Wyvern v1")
