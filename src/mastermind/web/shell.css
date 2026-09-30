@@ -208,6 +208,7 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
 #content.settings-page [data-backup-policy] { margin-top:20px; }
 #content.settings-page [data-card="updates"] .settings-secondary-action { margin-top:12px; }
 #content.settings-page [data-card="updates"] [data-update-state] { margin-top:20px; }
+#content.settings-page [data-card="updates"] [data-update-state]:empty { display:none; }
 #content.settings-page [data-context-form] { display:grid; gap:0; }
 #content.settings-page [data-context-form] > .group { margin-bottom:44px; }
 #content.settings-page [data-context-form] > .row { display:flex; flex-wrap:wrap; gap:20px; }
