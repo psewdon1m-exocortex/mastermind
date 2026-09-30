@@ -204,13 +204,16 @@ class Updates:
                         self.wake.wait(1)
                         self.wake.clear()
                         with self.lock:
+                            auto_spool = self.record["phase"] == "WAITING_SAVED" and self.record.get("download_complete")
                             if self.record["phase"] == "SAVED":
                                 self.save(phase="APPLY_REQUESTED")
                                 break
                             if self.record["phase"] in TERMINAL:
                                 return
                             if time.time() >= self.record["save_expires_at"]:
-                                raise DomainError("SAVED_COPY_TIMEOUT", "Save confirmation expired before installation.", 408)
+                                raise DomainError("SAVED_COPY_TIMEOUT", "Backup download expired before installation.", 408)
+                        if auto_spool:
+                            self.spool_downloaded(request_id)
                     if self.service.stop_event.is_set():
                         raise DomainError("HANDOFF_INTERRUPTED", "Restart interrupted the saved-copy handoff.", 503)
                     # This durable marker precedes the request. Lost acknowledgement keeps writers blocked.
@@ -278,10 +281,51 @@ class Updates:
         with self.lock:
             if not self.record or self.record["request_id"] != request_id:
                 return
-            (self.directory / request_id / "mastermind-backup.zip").unlink(missing_ok=True)
+            if not complete:
+                (self.directory / request_id / "mastermind-backup.zip").unlink(missing_ok=True)
             if self.record["phase"] == "DOWNLOADING":
                 self.save(phase="WAITING_SAVED", download_consumed=True, download_complete=bool(complete),
                           save_expires_at=time.time() + SAVED_WAIT_SECONDS)
+                self.wake.set()
+
+    def spool_downloaded(self, request_id):
+        with self.lock:
+            if not self.record or self.record["request_id"] != request_id or self.record["phase"] != "WAITING_SAVED" \
+                    or not self.record.get("download_complete"):
+                return
+            self.save(phase="SPOOLING", save_expires_at=time.time() + 3600)
+            record = dict(self.record)
+        path = self.directory / request_id / "mastermind-backup.zip"
+        spool = None
+        root = "/v1/heads/" + self.config.updater_head_id
+        try:
+            if path.is_symlink() or not path.is_file() or path.stat().st_size != record["size"] \
+                    or sha_file(path) != record["sha256"]:
+                raise DomainError("UPDATE_INTEGRITY", "The downloaded backup differs from its snapshot.", 409)
+            spool = self.updater.call("POST", root + "/backup-spools", data={
+                "request_id": request_id, "filename": "mastermind-backup.zip", "size": record["size"],
+                "sha256": record["sha256"]})
+            route = root + "/backup-spools/" + spool["spool_id"]
+            def chunks():
+                with path.open("rb") as source:
+                    while block := source.read(1024 * 1024):
+                        yield block
+            self.updater.call("PUT", route + "/content", source=chunks(), size=record["size"], timeout=3600)
+            sealed = self.updater.call("POST", route + "/seal")
+            if sealed.get("state") != "SEALED" or sealed.get("size") != record["size"] \
+                    or sealed.get("sha256") != record["sha256"]:
+                raise DomainError("UPDATE_INTEGRITY", "Updater did not seal the exact backup ZIP.", 409)
+            with self.lock:
+                if self.record["request_id"] != request_id or self.record["phase"] != "SPOOLING":
+                    raise DomainError("UPDATE_CONFLICT", "The backup handoff outlived its update barrier.", 409)
+                self.save(phase="SAVED", spool_id=spool["spool_id"], operator_saved=True)
+                self.wake.set()
+        except BaseException:
+            if spool:
+                self.release_unclaimed(spool["spool_id"])
+            raise
+        finally:
+            path.unlink(missing_ok=True)
 
     def cancel(self, request_id):
         with self.lock:
@@ -365,6 +409,7 @@ class Updates:
                     raise DomainError("UPDATE_CONFLICT", "The upload outlived its update barrier.", 409)
                 self.save(phase="SAVED", spool_id=spool["spool_id"], operator_saved=True)
                 self.wake.set()
+                (self.directory / request_id / "mastermind-backup.zip").unlink(missing_ok=True)
                 return self.public()
         except BaseException:
             if spool:
@@ -379,7 +424,7 @@ class Updates:
     def apply_request(self):
         record = self.record
         if record.get("operator_saved") is not True:
-            raise DomainError("SAVED_COPY_REQUIRED", "The operator must confirm the saved ZIP.", 409)
+            raise DomainError("SAVED_COPY_REQUIRED", "The backup handoff must complete before installation.", 409)
         receipt = {"schema": "exocortex.update-backup.v2", "id": record["request_id"],
                    "head_id": self.config.updater_head_id, "service": "mastermind", "version": record["version"],
                    "sha256": record["sha256"], "size": record["size"], "filename": "mastermind-backup.zip",

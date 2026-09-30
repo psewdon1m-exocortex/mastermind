@@ -23,6 +23,7 @@ export function openGroupUpdates({rollback = false} = {}) {
   const focus = document.activeElement, view = modal(rollback ? 'Previous version' : 'Updates');
   let closed = false, timer, discovery, target, record, checking = false, busy = false, error = '', connection = '';
   let file, checkedHash, saved = false, hashing = false, measured, lastTerminal, warning, renderKey;
+  let downloadStartedFor;
   const active = () => Boolean(record?.phase && !terminal.has(record.phase));
   const version = () => rollback ? target?.version : discovery?.available_version;
   async function perform(action) {
@@ -40,7 +41,7 @@ export function openGroupUpdates({rollback = false} = {}) {
     c.append(meta([['Installed', discovery?.installed_version ?? 'Checking…'], ['Updater', discovery ? 'Available' : 'Checking…'], ['Registry', discovery ? 'Checked' : 'Unavailable']]));
     const discoveryBox = node('section', null, 'box'); discoveryBox.append(node('h3','Discovery'));
     discoveryBox.append(node('p', checking ? 'Checking for updates…' : rollback ? target?.available ? 'Previous version: ' + target.version : 'No verified previous version is available.' : discovery?.update_available ? 'Mastermind ' + discovery.available_version + ' is available.' : discovery ? 'No new updates are available.' : 'Release discovery is unavailable.'));
-    discoveryBox.append(node('p', 'Core, Runtime and Worker use one signed release. A full backup must be saved on your computer before installation.', 'muted'));
+    discoveryBox.append(node('p', 'Core, Runtime and Worker use one signed release. A full backup is downloaded before installation starts.', 'muted'));
     const actions = node('div',null,'actions'), again = button('Check again', () => void check()); again.disabled = checking || busy || active(); actions.append(again);
     if ((rollback && target?.available) || (!rollback && discovery?.update_available)) {
       const install = button((rollback ? 'Return to ' : 'Install ') + version(), backupWarning);
@@ -50,7 +51,7 @@ export function openGroupUpdates({rollback = false} = {}) {
     c.append(discoveryBox, actions);
     if (record?.phase) {
       const status = node('section',null,'box job'); status.setAttribute('aria-live','polite');
-      status.append(meta([['State',record.job_state || record.phase],['Job',record.job_id || record.request_id],['Message',record.job_message || record.error || (record.phase === 'WAITING_SAVED' ? 'Save and verify the backup before installing.' : 'Status refreshes automatically.')]]));
+      status.append(meta([['State',record.job_state || record.phase],['Job',record.job_id || record.request_id],['Message',record.job_message || record.error || (record.phase === 'WAITING_SAVED' ? 'Downloading the backup before installation.' : 'Status refreshes automatically.')]]));
       const progress = node('progress'); progress.max = 1; progress.setAttribute('aria-label','Update progress');
       const value = record.progress;
       if (typeof measured === 'number') progress.value = measured;
@@ -67,6 +68,15 @@ export function openGroupUpdates({rollback = false} = {}) {
   }
   function savedControls(c) {
     const recovery = ['FAILED','ROLLBACK_FAILED'].includes(record.job_state) && record.error === 'UPDATE_RECOVERY_REQUIRED';
+    if (!recovery) {
+      c.append(node('p', record.download_complete ? 'Backup download completed. Starting the update…'
+        : record.download_consumed ? 'Backup download was interrupted. Cancel this preparation and try again.'
+        : record.phase === 'DOWNLOADING' ? 'Backup is downloading. The update starts when the transfer completes.'
+        : 'The backup download starts automatically when the snapshot is ready.', record.download_consumed && !record.download_complete ? 'error' : 'muted'));
+      const cancel = button('Cancel preparation', () => perform(async () => { record = await api('/api/owner/updates/' + record.request_id + '/cancel',{method:'POST',body:{}}); }));
+      cancel.disabled = busy || record.phase === 'DOWNLOADING'; c.append(cancel);
+      return;
+    }
     if (recovery) c.append(node('p','Recovery requires the original ZIP saved before this interrupted update. Select it below; current writers remain paused.','error'));
     c.append(node('p','The server copy is deleted when the download ends, including an interrupted transfer. Installation verifies the file you select below.','muted'));
     if (!record.download_consumed && record.phase === 'WAITING_SAVED') {
@@ -108,8 +118,8 @@ export function openGroupUpdates({rollback = false} = {}) {
     if (warning) return;
     warning = modal((rollback ? 'Return to ' : 'Install ') + version(), true);
     const current = warning;
-    const box = node('section',null,'warning'); box.append(node('h3','Save a backup before continuing'),node('p','A full encrypted ZIP will be prepared under the writer lock. Download it, confirm it is saved, and select that file. Installation remains locked until its checksum is verified.'));
-    const create = button('Create backup', () => {
+    const box = node('section',null,'warning'); box.append(node('h3','Save a backup before continuing'),node('p','A full encrypted ZIP will be prepared and downloaded first. The update starts automatically after the download completes. Keep the ZIP for recovery.'));
+    const create = button('Create backup and install', () => {
       current.dialog.close();
       void perform(async () => { record = await api('/api/owner/updates' + (rollback ? '/rollback' : ''), {method:'POST',body:rollback ? {job_id:target.job_id} : {version:version()}}); });
     });
@@ -126,6 +136,11 @@ export function openGroupUpdates({rollback = false} = {}) {
     if (closed) return;
     try {
       record = await api('/api/owner/updates'); connection='';
+      if (record.phase === 'WAITING_SAVED' && !record.download_consumed && downloadStartedFor !== record.request_id) {
+        downloadStartedFor = record.request_id;
+        const link = node('a'); link.href = '/api/owner/updates/' + encodeURIComponent(record.request_id) + '/backup';
+        link.download = 'mastermind-backup.zip'; document.body.append(link); link.click(); link.remove();
+      }
       if (terminal.has(record.phase) && lastTerminal !== record.request_id + record.phase) { lastTerminal = record.request_id + record.phase; await check(); }
     } catch (failure) { connection = 'Connection interrupted. Reconnecting… ' + failure.message; }
     render(); if (!closed) timer=setTimeout(observe,1500);

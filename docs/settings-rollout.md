@@ -1,6 +1,6 @@
 # Settings rollout requirements
 
-Settings now uses the shared Backup, Updates, Wyverne Connection and Logs lifecycle. Archive and Vault mirror schedules are independent. Group updates require a downloaded, explicitly saved and reselected standard encrypted ZIP; the signed handoff and recovery protocol is described in the Updater documentation under `docs/saved-group-updates.md`.
+Settings now uses the shared Backup, Updates, Wyverne Connection and Logs lifecycle. Archive and Vault mirror schedules are independent. A group update creates and downloads a standard encrypted ZIP, then starts automatically without a second confirmation or file selection. Recovery after an interrupted update still requires the original ZIP; the signed handoff protocol is described in the Updater documentation under `docs/saved-group-updates.md`.
 
 The primary producer source trees now include the required scoped Neptune/Saturn resource reader, typed Updater enrollment/group protocol and Chronos event reader. Historical patches in `integrations/patches` remain evidence for the earlier local qualification only. Do not reapply those old patches over the new producers and do not treat their historical SHAs as identifying this implementation.
 

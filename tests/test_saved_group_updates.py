@@ -2,7 +2,11 @@ import base64
 import hashlib
 import hmac
 import json
+import secrets
+import threading
+import time
 from dataclasses import replace
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -12,6 +16,7 @@ from test_owner_operations import keys
 
 from mastermind.errors import DomainError
 from mastermind.fs import atomic_write
+from mastermind.updates import Updates
 
 api = api_fixture
 
@@ -29,7 +34,7 @@ def prepared(service):
     return updates, folder
 
 
-def test_download_is_single_use_and_removes_all_server_snapshot_bytes(api):
+def test_download_is_single_use_and_cancel_removes_transient_snapshot_bytes(api):
     client, service = api
     updates, folder = prepared(service)
     assert not (folder / 'snapshot').exists()
@@ -41,11 +46,101 @@ def test_download_is_single_use_and_removes_all_server_snapshot_bytes(api):
     assert result.status_code == 200
     assert hashlib.sha256(result.content).hexdigest() == updates.record['sha256']
     assert updates.record['download_complete'] and updates.record['download_consumed']
-    assert not (folder / 'mastermind-backup.zip').exists()
+    assert (folder / 'mastermind-backup.zip').exists()  # retained only for automatic Updater handoff
     assert client.get(route).status_code == 409
     assert updates.blocks
     assert client.post('/api/owner/updates/' + updates.record['request_id'] + '/cancel', json={}).status_code == 200
+    assert not (folder / 'mastermind-backup.zip').exists()
     assert not updates.blocks
+
+
+def test_completed_download_automatically_hands_verified_zip_to_updater(api, monkeypatch):
+    client, service = api
+    updates, folder = prepared(service)
+    authenticate(client)
+    request_id = updates.record['request_id']
+    data = client.get('/api/owner/updates/' + request_id + '/backup').content
+    calls = []
+    def call(method, route, **kwargs):
+        calls.append((method, route))
+        if route.endswith('/backup-spools'):
+            return {'spool_id': 'e' * 32}
+        if route.endswith('/content'):
+            assert b''.join(kwargs['source']) == data
+            assert kwargs['size'] == len(data)
+            return None
+        assert route.endswith('/seal')
+        return {'state': 'SEALED', 'size': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
+    monkeypatch.setattr(updates.updater, 'call', call)
+    updates.spool_downloaded(request_id)
+    assert [method for method, _ in calls] == ['POST', 'PUT', 'POST']
+    assert updates.record['phase'] == 'SAVED' and updates.record['operator_saved'] is True
+    assert updates.apply_request()['backup'] == {'spool_id': 'e' * 32}
+    assert not (folder / 'mastermind-backup.zip').exists()
+
+
+def test_automatic_handoff_rejects_a_changed_zip(api):
+    client, service = api
+    updates, folder = prepared(service)
+    authenticate(client)
+    request_id = updates.record['request_id']
+    assert client.get('/api/owner/updates/' + request_id + '/backup').status_code == 200
+    archive = folder / 'mastermind-backup.zip'
+    data = archive.read_bytes()
+    archive.write_bytes(b'x' + data[1:])
+    with pytest.raises(DomainError, match='downloaded backup differs'):
+        updates.spool_downloaded(request_id)
+    assert not archive.exists()
+    assert updates.record.get('operator_saved') is not True
+
+
+def test_completed_download_starts_apply_without_another_owner_request(recovery, monkeypatch):
+    backup, _, _ = recovery
+    backup.vault.write('root.md', 'before update', None, create=True)
+    service = SimpleNamespace(config=backup.config, state=backup.state, coordinator=backup.coordinator,
+                              backup=backup, stop_event=threading.Event())
+    updates = Updates(service)
+    token = backup.config.home / 'updater_token'
+    atomic_write(token, b'synthetic-scoped-token')
+    updates.config = replace(updates.config, updater_token_file=token)
+    request_id = secrets.token_hex(16)
+    updates.record = {'request_id': request_id, 'version': '0.0.9', 'phase': 'PREPARING'}
+    updates.save()
+    calls = []
+    def call(method, route, **kwargs):
+        calls.append((method, route))
+        if route == '/v1/health':
+            return {'service': 'updater', 'capabilities': ['mastermind.saved-copy.v2']}
+        if route.endswith('/preparations'):
+            return {'state': 'COMPLETED', 'version': '0.0.9', 'id': 'prepared'}
+        if route.endswith('/backup-spools'):
+            return {'spool_id': 'e' * 32}
+        if route.endswith('/content'):
+            assert len(b''.join(kwargs['source'])) == kwargs['size']
+            return None
+        if route.endswith('/seal'):
+            return {'state': 'SEALED', 'size': updates.record['size'], 'sha256': updates.record['sha256']}
+        if route == '/v2/updates':
+            assert kwargs['data']['backup'] == {'spool_id': 'e' * 32}
+            raise DomainError('SYNTHETIC_STOP', 'Stop after the automatic handoff.', 409)
+        if method == 'DELETE':
+            return None
+        raise AssertionError(f'Unexpected Updater call: {method} {route}')
+    monkeypatch.setattr(updates.updater, 'call', call)
+    worker = threading.Thread(target=updates.run, daemon=True)
+    worker.start()
+    deadline = time.monotonic() + 10
+    while updates.record['phase'] != 'WAITING_SAVED' and time.monotonic() < deadline:
+        time.sleep(.02)
+    assert updates.record['phase'] == 'WAITING_SAVED'
+    stream, _ = updates.download(request_id)
+    assert stream.read()
+    stream.close()
+    updates.downloaded(request_id, True)
+    worker.join(10)
+    assert not worker.is_alive()
+    assert ('POST', '/v2/updates') in calls
+    assert updates.record['phase'] == 'FAILED' and updates.record['error'] == 'SYNTHETIC_STOP'
 
 
 def test_aborted_download_cannot_authorize_installation_and_restart_cleans_bytes(api):
@@ -57,7 +152,7 @@ def test_aborted_download_cannot_authorize_installation_and_restart_cleans_bytes
     updates.downloaded(updates.record['request_id'], False)
     assert not (folder / 'mastermind-backup.zip').exists()
     assert not updates.record['download_complete']
-    with pytest.raises(DomainError, match='confirm'):
+    with pytest.raises(DomainError, match='backup handoff'):
         updates.apply_request()
     updates.start()
     assert updates.record['phase'] == 'FAILED' and not updates.blocks
@@ -110,6 +205,7 @@ def test_failed_group_recovery_streams_only_original_own_copy(api, monkeypatch, 
     authenticate(client)
     request_id = updates.record['request_id']
     data = client.get('/api/owner/updates/' + request_id + '/backup').content
+    (folder / 'mastermind-backup.zip').unlink()  # normal handoff already removes the transient server ZIP
     updates.save(phase='APPLY_REQUESTED', operator_saved=True, job_id='own-job', job_state='ROLLBACK_FAILED', error='UPDATE_RECOVERY_REQUIRED')
     calls = []
     def call(method, route, **kwargs):
