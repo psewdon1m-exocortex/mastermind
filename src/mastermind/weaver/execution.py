@@ -66,4 +66,3 @@ class PlacementExecutor:
             job.record = json.loads(job.row["record"])
             job.service.audit.emit("crusher.commit", target=job.row["id"], context={"outcome": "durable"})
             return {'schema': 'weaver.placement.v1', 'operation_id': job.row['id'], **job.record['commit']}
-
