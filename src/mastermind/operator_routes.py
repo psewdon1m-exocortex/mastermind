@@ -3,7 +3,7 @@ import asyncio
 import re
 import time
 from pathlib import Path
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from fastapi import Depends, Request
 from fastapi.responses import FileResponse, StreamingResponse
@@ -151,7 +151,7 @@ def install_operator(app, service, owner, bounded_json):
 
     @app.post("/api/owner/helper-updates/install/{component}", dependencies=[Depends(owner)])
     async def install_helper(component: str, request: Request):
-        data = await bounded_json(request, 4096)
+        await bounded_json(request, 4096)
         if component == "updater":
             raise DomainError("TUI_REQUIRED", "Update Updater with sudo updater tui on the host.", 403)
         if component == "wyvern":
