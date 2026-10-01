@@ -1,5 +1,11 @@
 # Mastermind — открытые вопросы и решения для обсуждения
 
+> Архивный черновик от 2026-09-14. Статусы и рекомендации ниже фиксируют
+> исходное обсуждение, а не текущую реализацию. В частности, решение о
+> расписаниях MM-Q06 заменено сервисным редактором Mastermind и атомарным
+> `schedule-all`; актуальный контракт см. в центральном
+> [Part 09](https://github.com/psewdon1m-exocortex/general/blob/main/PART_09_SERVICE_AGENTS_DEPLOYMENT_AND_LIFECYCLE.md).
+
 **Статус:** все перечисленные вопросы открыты; варианты не утверждены.  
 **Версия:** 1.0-draft.  
 **Дата:** 2026-09-14.  
@@ -540,7 +546,7 @@
 | MM-Q01 | Область embedded third-party UI в Part 01 и её acceptance |
 | MM-Q04 | Профиль Mastermind в Parts 09–10 и schemas Updater/Neptune/Saturn |
 | MM-Q05 | Scoped read/Range responsibility Neptune и integration contract |
-| MM-Q06 | Continuous mirror policy и управление в Saturn Synchronization |
+| MM-Q06 | Continuous mirror policy и управление в Saturn Synchronization (исходный вариант; см. примечание в начале документа) |
 | MM-Q08 | Только при необходимости — явное recovery/artifact exception по Parts 03/07 |
 | MM-Q09 | Large-backup handoff и budgets в Parts 03/05/Updater |
 | MM-Q10 | Typed multi-component update/rollback profile и compatibility |

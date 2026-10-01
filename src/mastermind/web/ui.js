@@ -39,15 +39,55 @@ export function handle(label){return `<button type="button" class="drag" draggab
 export async function preferences(change){function apply(result){state.prefs=result;document.documentElement.style.setProperty('--accent',result.accent);document.dispatchEvent(new Event('preferences-changed'));return result;}try{return apply(await api('/api/owner/settings',{method:'PATCH',body:{revision:state.prefs.revision,...change}}));}catch(error){if(error.code==='SETTINGS_CONFLICT')apply(await api('/api/owner/settings'));throw error;}}
 export function reorder(root,key,selector='[data-card]',direct=false){
   const grip=direct?'[data-nav]':'.drag';
-  const attr=selector==='[data-nav]'?'nav':'card';let dragged=null;
-  const items=()=>$$(selector,root);function apply(order){for(const id of order){const node=items().find(item=>item.dataset[attr]===id);if(node)root.append(node);}items().forEach((item,index)=>{const n=$('.ordinal',item);if(n)n.textContent=String(index+1).padStart(2,'0');});}
+  const attr=selector==='[data-nav]'?'nav':'card';let dragged=null,saving=false;
+  const items=()=>[...root.children].filter(node=>node.matches(selector));function apply(order){for(const id of order){const node=items().find(item=>item.dataset[attr]===id);if(node)root.append(node);}items().forEach((item,index)=>{const n=$('.ordinal',item);if(n)n.textContent=String(index+1).padStart(2,'0');});}
   apply(state.prefs.orders[key]);
-  async function persist(order,focus){try{await preferences({orders:{[key]:order}});apply(order);notice(`Order saved. ${focus} is item ${order.indexOf(focus)+1}.`);}catch(error){apply(state.prefs.orders[key]);throw error;}}
-  bind(root,'keydown',grip,async(e,target)=>{if(!e.altKey||!['ArrowUp','ArrowDown'].includes(e.key))return;e.preventDefault();const row=target.closest(selector),id=row.dataset[attr],order=items().map(item=>item.dataset[attr]),index=order.indexOf(id),next=index+(e.key==='ArrowUp'?-1:1);if(next<0||next>=order.length)return;[order[index],order[next]]=[order[next],order[index]];await persist(order,id);(direct?$('a',target):target).focus();});
-  root.addEventListener('dragstart',e=>{const h=e.target.closest(grip);if(!h)return;dragged=h.closest(selector);e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',dragged.dataset[attr]);});
-  root.addEventListener('dragover',e=>{const item=e.target.closest(selector);if(!dragged||!item||dragged===item)return;e.preventDefault();items().forEach(node=>delete node.dataset.drop);const b=item.getBoundingClientRect();item.dataset.drop=e.clientY<b.y+b.height/2?'before':'after';});
-  bind(root,'drop',selector,async(e,target)=>{e.preventDefault();if(!dragged||target===dragged)return;const id=dragged.dataset[attr],order=items().map(item=>item.dataset[attr]).filter(v=>v!==id),at=order.indexOf(target.dataset[attr]);order.splice(at+(target.dataset.drop==='after'?1:0),0,id);items().forEach(node=>delete node.dataset.drop);dragged=null;await persist(order,id);});
-  root.addEventListener('dragend',()=>{dragged=null;items().forEach(node=>delete node.dataset.drop);});
+  async function persist(order,focus){
+    if(saving||order.every((id,index)=>items()[index]?.dataset[attr]===id))return;
+    saving=true;root.setAttribute('aria-busy','true');apply(order);
+    try{await preferences({orders:{[key]:order}});notice(`Order saved. ${focus} is item ${order.indexOf(focus)+1}.`);}
+    catch(error){apply(state.prefs.orders[key]);throw error;}
+    finally{saving=false;root.removeAttribute('aria-busy');}
+  }
+  bind(root,'keydown',grip,async(e,target)=>{if(!e.altKey||!['ArrowUp','ArrowDown'].includes(e.key))return;e.preventDefault();if(saving)return;const row=target.closest(selector),id=row.dataset[attr],order=items().map(item=>item.dataset[attr]),index=order.indexOf(id),next=index+(e.key==='ArrowUp'?-1:1);if(next<0||next>=order.length)return;[order[index],order[next]]=[order[next],order[index]];await persist(order,id);(direct?$('a',target):target).focus({preventScroll:true});});
+  const clear=()=>items().forEach(node=>delete node.dataset.drop);
+  const finish=()=>{dragged?.classList.remove('is-dragging');dragged=null;clear();};
+  function destination(e){
+    const bounds=root.getBoundingClientRect();
+    if(e.clientX<bounds.left||e.clientX>bounds.right||e.clientY<bounds.top||e.clientY>bounds.bottom)return;
+    if(e.target.closest(selector)===dragged)return;
+    // Include the grid's gaps: choose the nearest card, not just an event ancestor.
+    const rows=items().filter(node=>node!==dragged).map(node=>({node,box:node.getBoundingClientRect()}));
+    const distance=b=>Math.max(b.left-e.clientX,0,e.clientX-b.right)**2+Math.max(b.top-e.clientY,0,e.clientY-b.bottom)**2;
+    rows.sort((a,b)=>distance(a.box)-distance(b.box));
+    if(!rows.length)return;
+    const {node,box}=rows[0];
+    const horizontal=e.clientY>=box.top&&e.clientY<=box.bottom&&items().some(other=>{if(other===node)return false;const b=other.getBoundingClientRect();return Math.abs(b.top-box.top)<2&&(b.right<=box.left||b.left>=box.right);});
+    // Use the visible portion of a tall card, so its lower half is reachable.
+    const middle=(Math.max(0,box.top)+Math.min(innerHeight,box.bottom))/2;
+    const after=horizontal?e.clientX>box.left+box.width/2:e.clientY>middle;
+    return {node,after,edge:horizontal?(after?'right':'left'):(after?'after':'before')};
+  }
+  root.addEventListener('dragstart',e=>{
+    const h=e.target.closest(grip);if(!h)return;
+    if(saving){e.preventDefault();return;}
+    dragged=h.closest(selector);if(!items().includes(dragged)){dragged=null;return;}
+    e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',dragged.dataset[attr]);
+    e.dataTransfer.setDragImage($('.card-header',dragged)||dragged,20,20);dragged.classList.add('is-dragging');
+  });
+  root.addEventListener('dragover',e=>{
+    if(!dragged)return;e.preventDefault();e.dataTransfer.dropEffect='move';clear();
+    const target=destination(e);if(target)target.node.dataset.drop=target.edge;
+  });
+  root.addEventListener('dragleave',e=>{if(!root.contains(e.relatedTarget))clear();});
+  root.addEventListener('drop',async e=>{
+    if(!dragged)return;e.preventDefault();e.stopPropagation();
+    const target=destination(e),id=dragged.dataset[attr];finish();if(!target)return;
+    const order=items().map(item=>item.dataset[attr]).filter(value=>value!==id),at=order.indexOf(target.node.dataset[attr]);
+    order.splice(at+Number(target.after),0,id);
+    try{await persist(order,id);}catch(error){if(error.name!=='AbortError')notice(error.message,true);}
+  });
+  root.addEventListener('dragend',finish);
 }
 let activeDialog=null;
 export function closeDialogs(){activeDialog?.close(true);}

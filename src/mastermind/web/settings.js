@@ -3,7 +3,7 @@ import { mountServiceLogs } from './service-logs.js';
 import { openAgentInitialization } from './agent-initialize.js';
 import {state,$,$$,api,escape,card,reorder,poll,humanBytes,stamp,bind,pending,dialog,confirmation,notice,preferences,download,opaqueInput} from './ui.js';
 import {hashFile} from './crusher.js';
-import {wyvernCard,helperUpdates} from './wyvern.js';
+import {wyvernCard} from './wyvern.js';
 import {openGroupUpdates} from './group-updates.js';
 import {contextIndexingCard} from './context-indexing.js';
 import {gryphonCard} from './gryphon.js';
@@ -75,7 +75,10 @@ export async function settings(root){
   root.classList.add('settings-page');
   root.innerHTML=`<div class="grid settings-grid">${card('appearance','Appearance',`<div class="group"><h3>Color correction</h3><p>Changes preview immediately and apply to both authenticated views and sign-in.</p><div class="row settings-color-row"><input type="color" aria-label="Accent preview" data-color value="${state.prefs.accent}"><label class="sr-only" for="accent-hex">Accent hex</label><input id="accent-hex" data-hex value="${state.prefs.accent}" spellcheck="false"><button data-reset-color>Reset color</button><button data-apply-color>Apply color</button></div><p data-accent-error class="error-message" role="alert"></p></div><div class="group"><h3>Left menu position</h3><p>Reveal the Sidebar from the edge or keep it fixed on wide screens.</p><label class="inline"><input type="checkbox" data-sidebar ${state.prefs.sidebar==='auto'?'checked':''}>Auto open and hide sidebar on mouse hover</label></div>`,{wide:true})}
   ${card('security','Security',`<div class="group"><h3>Changing Access Key</h3><p>Changing the Access Key ends all other active browser sessions.</p><button class="action" data-rotate>Change Access Key</button></div><div class="group"><h3>Connection with Kernel</h3><div data-connection>Loading connection…</div><button class="security-token-action" data-kernel-token>Change secure Kernel access token</button></div>`,{wide:true})}
-  ${card('backup','Backup',`<div class="group"><h3>System snapshot</h3><p>Encrypted full Vault and mandatory service state. Includes Obsidian plugins and their original data. Recovery keys are stored separately.</p><button class="action" data-backup>Create and download snapshot</button></div><div class="group"><h3>Restore snapshot</h3><p>Upload a recovery ZIP, inspect its contents and explicitly confirm replacement.</p><label class="sr-only" for="restore-file">Recovery ZIP</label><input id="restore-file" type="file" accept=".zip" hidden><button class="action" data-restore-file>Inspect and restore snapshot</button></div><div class="group"><h3>Neptune archive and mirror</h3><p>Independent archive and mirror pipelines. Manage their schedules here.</p><div data-agents>Checking local agent…</div><div class="row settings-actions"><button data-agent-refresh>Refresh status</button><button data-agent-init>Initialize / Repair</button></div><div data-backup-policy></div></div><div class="group"><h3>Neptune version</h3><p>Current installed version: <span data-neptune-version>Checking…</span></p><button class="action" data-neptune-update>Check Neptune for updates</button></div><div class="group"><h3>Recent maintenance operations</h3><div data-operations class="list"></div></div>`,{wide:true})}
+  ${card('backup','Backup',`<div class="group backup-manual-group"><h3>Manual snapshot</h3><p>Encrypted full Vault and mandatory service state. Includes Obsidian plugins and their original data. Recovery keys are stored separately.</p><button class="action" data-backup>Create and download snapshot</button></div>
+    <div class="group backup-neptune-group"><h3>Automatic backup to Saturn</h3><p>Neptune delivers the recovery archive and dedicated Vault mirror on their shared schedule.</p><div data-agents>Checking local agent…</div><div data-backup-policy></div><div class="row settings-actions"><button data-agent-init>Link Neptune agent</button><button class="backup-unlink-action" data-agent-unlink hidden>Unlink Neptune agent</button></div><details class="backup-agent-details"><summary>Agent details</summary><p data-agent-meta></p><button data-agent-refresh>Refresh status</button></details></div>
+    <div class="group backup-restore-group"><h3>Restore snapshot</h3><p>Upload a recovery ZIP, inspect its contents and explicitly confirm replacement.</p><label class="sr-only" for="restore-file">Recovery ZIP</label><input id="restore-file" type="file" accept=".zip" hidden><button class="action" data-restore-file>Browse local snapshot archive</button></div>
+    <div class="group backup-maintenance-group"><h3>Recent maintenance operations</h3><div data-operations class="list"></div></div>`,{wide:true})}
   ${card('updates','Updates',`<div class="group"><h3>Update pipeline</h3><p>Core, Runtime and Worker update together through the local Updater.</p><p>Installed version: <strong class="accent" data-version>Loading…</strong></p><div class="status-line"><span>Local update helper</span><span data-updater>Not verified</span></div><div class="status-line"><span>Approved release registry</span><span data-registry>Not checked</span></div><button class="action" data-update-check>Check for updates</button><p data-update-state></p></div>`,{wide:true})}
   ${card('logs','Logs','<div data-service-logs></div>',{wide:true})}
   ${card('timezone','Activity timezone',`<div class="group"><h3>Calendar timezone</h3><p>Changes day grouping. Historical UTC events remain unchanged.</p><label class="sr-only" for="activity-timezone">Calendar timezone</label><input id="activity-timezone" data-timezone value="${escape(state.prefs.timezone)}" placeholder="Europe/Istanbul"></div>`,{wide:true})}</div>`;
@@ -83,9 +86,9 @@ export async function settings(root){
   const stopWyvern = wyvernCard(root);
   $('.grid',root).insertAdjacentHTML('beforeend',card('gryphon','Gryphon Connection','<div data-gryphon class="bot-connection-groups">Checking messaging gateway…</div>',{wide:true}));
   const stopGryphon = gryphonCard(root);
+  let neptuneUnlinking=false;
   const stopPolicy = mountBackupPolicy($('[data-backup-policy]', root), {service: 'mastermind', base: '/api/owner/neptune/policy', headers: () => ({'X-CSRF-Token': state.session?.csrf || ''})});
   const stopLogs = mountServiceLogs($('[data-service-logs]', root), {base: '/api/logs?history=true', beforeParam: 'before', onDownload: () => startOperation('logs')});
-  bind(root,'click','[data-neptune-update]',()=>helperUpdates('neptune'));
 
   $('.grid',root).insertAdjacentHTML('beforeend',card('context_indexing','Obsidian & search','<div data-context-indexing>Checking context-indexing…</div>',{wide:true}));
   void contextIndexingCard(root);
@@ -99,7 +102,19 @@ export async function settings(root){
   async function refreshConnection(){connection=await api('/api/owner/connection');if(root.isConnected)$('[data-connection]',root).innerHTML=`<label class="sr-only" for="mastermind-kernel-url">Kernel URL</label><input id="mastermind-kernel-url" type="url" data-kernel-url value="${escape(connection.url||'')}" placeholder="https://kernel.example.com"><div class="status-line"><span>Kernel Core</span><span class="${connection.state==='VERIFIED'?'success':'danger'}">${escape(connection.state)}<i aria-hidden="true" class="security-status-square"></i></span></div>`;}
   bind(root,'click','[data-rotate]',rotateAccessKey);bind(root,'change','[data-kernel-url]',async(e,b)=>{const url=b.value.trim();if(url===connection.url)return;try{await api('/api/owner/connection',{method:'POST',body:{url}});await refreshConnection();notice('Kernel URL verified and saved.');}catch(error){b.value=connection.url||'';notice(error.message,true);}});bind(root,'click','[data-kernel-token]',()=>connectionForm('token',connection,refreshConnection));
   bind(root,'click','[data-backup]',(e,b)=>pending(b,()=>startOperation('backup')));bind(root,'click','[data-restore-file]',()=>$('[type=file]',root).click());$('[type=file]',root).onchange=async e=>{const file=e.target.files[0];if(file)await startOperation('restore',file);e.target.value='';};bind(root,'click','[data-logs-download]',(e,b)=>pending(b,()=>startOperation('logs')));
-  async function agents(){const result=await api('/api/owner/agents');if(!root.isConnected)return;initialization=result.neptune_initialization;const running=['REQUESTED','INSTALLING','ENROLLING'].includes(initialization.state);$('[data-agent-init]',root).disabled=false;$('[data-agent-init]',root).textContent=running?'View initialization progress':result.neptune.state==='PARTIAL_CONFIGURATION'?'Repair Neptune pipelines':'Initialize Neptune';const n=result.neptune;$('[data-neptune-version]',root).textContent=n.version||'Unavailable';$('[data-agents]',root).innerHTML=`<div class="status-line"><span>Neptune</span><span class="${n.state==='LINKED'?'success':'danger'}">${escape(n.state==='LINKED'?'Linked to Saturn':n.state.replaceAll('_',' '))}${n.code?' · '+escape(n.code):''}</span></div>${initialization.state!=='IDLE'?`<p>Initialization: ${escape(initialization.state)} · ${escape(initialization.job_id||initialization.request_id)}${initialization.error?' · '+escape(initialization.error):''}<br><button data-agent-review>Review initialization</button></p>`:''}<p>Archive last success: ${escape(stamp(n.archive_last_success_at))}<br>Mirror last success: ${escape(stamp(n.mirror_last_success_at))}</p><p class="muted">Archive generation: ${escape(n.archive_generation??'Unknown')} · mirror generation: ${escape(n.mirror_generation??'Unknown')}</p>`;$('[data-updater]',root).textContent=result.updater.state;$('[data-version]',root).textContent=result.version;}
+  async function agents(){
+    const result=await api('/api/owner/agents');if(!root.isConnected)return;
+    initialization=result.neptune_initialization;
+    const running=['REQUESTED','INSTALLING','ENROLLING'].includes(initialization.state), n=result.neptune, linked=n.state==='LINKED';
+    const link=$('[data-agent-init]',root), unlink=$('[data-agent-unlink]',root);
+    const unlinking=n.state==='UNLINKING';
+    link.hidden=(linked||unlinking)&&!running;unlink.hidden=(!linked&&!unlinking)||running;link.disabled=unlinking;unlink.disabled=neptuneUnlinking;
+    unlink.textContent=unlinking?'Retry Neptune unlink':'Unlink Neptune agent';
+    link.textContent=running?'View initialization progress':n.state==='PARTIAL_CONFIGURATION'?'Repair Neptune pipelines':'Link Neptune agent';
+    $('[data-agents]',root).innerHTML=`<div class="status-line"><span>Local Neptune agent:</span><span class="${linked?'success':'danger'}">${escape(linked?'Reachability':n.state.replaceAll('_',' '))}<i aria-hidden="true" class="backup-status-square"></i></span></div>${initialization.state!=='IDLE'?`<p>Initialization: ${escape(initialization.state)} · ${escape(initialization.job_id||initialization.request_id)}${initialization.error?' · '+escape(initialization.error):''}<br><button data-agent-review>Review initialization</button></p>`:''}`;
+    $('[data-agent-meta]',root).textContent=`Archive last success: ${stamp(n.archive_last_success_at)} · Mirror last success: ${stamp(n.mirror_last_success_at)} · Archive generation: ${n.archive_generation??'Unknown'} · Mirror generation: ${n.mirror_generation??'Unknown'}`;
+    $('[data-updater]',root).textContent=result.updater.state;$('[data-version]',root).textContent=result.version;
+  }
   function agentDialog() {
     return openAgentInitialization({ component: 'Neptune', service: 'mastermind',
       description: 'Initialize or repair this service connection through the local Updater.',
@@ -111,6 +126,26 @@ export async function settings(root){
       onComplete: agents,
     });
   }
+  async function observeNeptuneUnlink(id) {
+    try {
+      for(let attempt=0;attempt<600;attempt++){
+        const job=await api('/api/owner/helper-updates/jobs/'+encodeURIComponent(id));
+        if(job.state==='COMPLETED'){notice('Mastermind unlinked from Neptune. Automatic backups are off.');await agents();return;}
+        if(job.state==='FAILED')throw Error(job.message||'Neptune unlink failed');
+        await new Promise(resolve=>setTimeout(resolve,1500));
+      }
+      throw Error('Neptune is still finishing an accepted transfer. Check agent status before retrying.');
+    }catch(error){notice(error.message,true);}finally{neptuneUnlinking=false;const button=$('[data-agent-unlink]',root);if(button)button.textContent='Unlink Neptune agent';await agents();}
+  }
+  function unlinkNeptune(){
+    confirmation('Unlink Neptune agent',
+      'Automatic recovery ZIP and Vault mirror backups will stop. Saved archives remain in Saturn. Other services and the shared Neptune agent stay connected. Mastermind will need a new setup code to link again.',
+      async()=>{neptuneUnlinking=true;const button=$('[data-agent-unlink]',root);button.disabled=true;button.textContent='Unlinking Neptune…';
+        try{const job=await api('/api/owner/agents/neptune/unlink',{method:'POST',body:{}});void observeNeptuneUnlink(job.id);}
+        catch(error){neptuneUnlinking=false;button.textContent='Unlink Neptune agent';button.disabled=false;throw error;}
+      },'Unlink agent');
+  }
+  bind(root,'click','[data-agent-unlink]',()=>unlinkNeptune());
   bind(root,'click','[data-agent-refresh]',(e,b)=>pending(b,agents));bind(root,'click','[data-agent-init]',()=>agentDialog());bind(root,'click','[data-agent-review]',()=>agentDialog());
   bind(root,'click','[data-update-check]',()=>openGroupUpdates());
   bind(root,'click','[data-op-review]',(e,b)=>startOperation('restore',null,b.dataset.opReview));

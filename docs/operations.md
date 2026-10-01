@@ -90,7 +90,7 @@ Use `docker compose -f compose.production.yaml up -d --no-build` with the instal
 
 `NOT_READY`, duplicate basenames, missing opaque data, `RECOVERY_REQUIRED` or `POST_RESTORE_RECOVERY_REQUIRED` stop writes. Preserve the entire service volumes and recovery directories before investigating. Correct an independently understood configuration/storage problem and restart the group to run journal recovery, then repeat `vault validate` and doctor. An unresolved generation/rollback marker requires recovery from a verified archive, not an ad hoc database edit.
 
-If Kernel or Volt is unavailable, restore its own bootstrap/trust first. Mastermind recovery keys cannot be recovered solely from an archive encrypted by those keys. If Neptune is partial or unavailable, Settings distinguishes the state; retrieve a fresh setup code and use Repair. Archive and mirror success times/generations are separate. Saturn owns schedules, quotas, remote commands and revocation.
+If Kernel or Volt is unavailable, restore its own bootstrap/trust first. Mastermind recovery keys cannot be recovered solely from an archive encrypted by those keys. If Neptune is partial or unavailable, Settings distinguishes the state; retrieve a fresh setup code and use Repair. Archive and mirror success times/generations are separate. Mastermind Settings owns one shared automatic backup switch and hourly interval for both pipelines; Saturn stores the authoritative revision and owns quotas, identities and credential revocation. **Unlink Neptune agent** revokes only Mastermind's profile and preserves stored archives. There is no manual remote-run action. Host agent releases use `sudo updater tui`.
 
 ## Backup, restore and updates
 

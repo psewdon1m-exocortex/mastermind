@@ -1,18 +1,18 @@
 # Gryphon and Crusher access
 
-Mastermind consumes the shared Gryphon gateway. Telegram bot tokens, webhooks,
+Mastermind consumes the shared Gryphon gateway. Telegram adapter provider tokens, webhooks,
 user bindings and Telegram delivery belong to Gryphon, not to Mastermind.
-The operator registers and pairs a bot once with `/link CODE` in `sudo updater tui`.
-The owner selects that paired bot in **Settings → Gryphon Connection**, which
+The operator registers an adapter and pairs its Telegram account once with `/link CODE` in `sudo updater tui`.
+The owner selects that paired adapter in **Settings → Gryphon Connection**, which
 grants the paired Telegram account access to Mastermind. A private-chat `/crusher` command issues a
 single-use, 30-minute code for `/crusher`; the resulting session can submit
 sources and view its own progress, never read the Vault or owner settings.
 
 ## Applicable project contracts
 
-See the vendored [system authority](policy/PART_00_SYSTEM_UNIFICATION_SPECIFICATION.md),
-[agent lifecycle](policy/PART_09_SERVICE_AGENTS_DEPLOYMENT_AND_LIFECYCLE.md) and
-[Gryphon operator workflow](policy/PART_10_SERVICE_AGENTS_UI_AND_OPERATOR_WORKFLOWS.md).
+See the current [system authority](https://github.com/psewdon1m-exocortex/general/blob/main/PART_00_SYSTEM_UNIFICATION_SPECIFICATION.md),
+[agent lifecycle](https://github.com/psewdon1m-exocortex/general/blob/main/PART_09_SERVICE_AGENTS_DEPLOYMENT_AND_LIFECYCLE.md) and
+[current Gryphon operator workflow](https://github.com/psewdon1m-exocortex/general/blob/main/PART_10_SERVICE_AGENTS_UI_AND_OPERATOR_WORKFLOWS.md).
 
 | Authority | Application |
 | --- | --- |
@@ -56,9 +56,10 @@ other `/internal/` routes remain unavailable through public Nginx.
 
 Gryphon service-status must report `connectionId` and the bound stable
 `telegramUserId`/`chatId`. An older gateway reports a protocol error and cannot
-issue codes until upgraded. Gateway initialization, bot registration and updates
-run through the host Updater TUI. Initial installation may choose Mastermind
-to enroll its scoped Gryphon client.
+issue codes until upgraded. Gateway installation, adapter registration/pairing
+and updates run through the host Updater TUI without selecting Mastermind. The
+Mastermind installer provisions its scoped Gryphon client; Settings selects the
+paired adapter.
 
 ## Verification
 

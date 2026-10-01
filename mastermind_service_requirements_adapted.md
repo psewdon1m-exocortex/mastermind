@@ -684,7 +684,7 @@ Knowledge analytics содержит Activity Heatmap, Connectedness, counts not
 
 Mastermind-specific groups добавляются после обязательных секций. Ordinary settings сохраняются после committed change; общего Save нет, accent имеет отдельный Apply. Ошибка возвращает предыдущее confirmed value.
 
-Automatic archive/mirror schedules и remote commands редактируются в Saturn Synchronization, не в Settings Mastermind.
+Одна пара контролов в Settings Mastermind редактирует enabled/hourly interval для archive и mirror атомарно через `schedule-all`. Ручных удалённых запусков в GUI нет. Saturn Synchronization хранит authoritative revision и показывает состояние, identities и quotas.
 
 ## 13.6. Documentation
 
@@ -2386,7 +2386,7 @@ Neptune передаёт точные ZIP bytes без распаковки, п�
 
 Проверяются file count, size, изменившиеся content hashes/manifests, missing remote files и unexpected remote files в managed namespace. Каноническая локальная версия побеждает при обычном reconciliation.
 
-Интервал и условия запуска должны быть частью согласованной mirror policy Saturn/Neptune, а не конфликтующим local schedule editor. Disable/revoke, outage и backlog semantics — [MM-Q06](mastermind_open_questions.md#mm-q06).
+Интервал и условия запуска входят в согласованную mirror policy Saturn/Neptune. Единственный редактор — Settings Mastermind, который атомарно меняет archive и mirror; Saturn хранит authoritative revision. Disable/revoke, outage и backlog semantics — [MM-Q06](mastermind_open_questions.md#mm-q06).
 
 Изменения secondary storage не восстанавливаются в Canonical Vault автоматически. Удаление remote objects допустимо только в собственном namespace по явной mirror policy и с проверкой прав.
 
@@ -3696,7 +3696,7 @@ Initialize workflow:
 
 Neptune setup code по текущему общему UI имеет 32-character формат и 15-minute expiry. Он не является 6-digit Crusher code и не сохраняется web service.
 
-Saturn остаётся authoritative control plane для schedules, identities, quotas, revoke, fleet state и remote runs. Mastermind показывает status, Initialize/Repair и Open Synchronization.
+Saturn хранит authoritative revision политик, identities, quotas, revoke и fleet state. Mastermind Settings редактирует обе свои политики одновременно, показывает status и Initialize/Repair, а также scoped **Unlink Neptune agent**. Сервисных manual remote runs нет.
 
 Нужно согласовать:
 

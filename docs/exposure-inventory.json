@@ -1094,6 +1094,15 @@
     {
       "component": "core",
       "method": "POST",
+      "path": "/api/owner/agents/neptune/unlink",
+      "source": "src/mastermind/operator_routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
       "path": "/api/owner/connection",
       "source": "src/mastermind/operator_routes.py",
       "exposure": "canonical_https",

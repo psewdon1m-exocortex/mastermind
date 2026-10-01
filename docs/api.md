@@ -12,7 +12,7 @@ Production uses the canonical HTTPS origin. JSON errors expose stable sanitized 
 | `/api/owner/settings`, `/api/owner/metrics`, `/api/owner/analytics`, `/api/owner/documentation`, `/api/owner/connection` | Authenticated operator state; settings use revision/conflict checks |
 | `/api/owner/context-indexing/{settings,validate,initialize,waiting}` and `/jobs/{id}/resume` | Owner-only revision-bound configuration, validation, default initialization and explicit job resume; [contract](context-indexing.md) |
 | `/api/owner/operations` and `/{id}/content`, `/confirm`, `/download` | Durable staged backup/portable/restore operations; stream actual size/hash and confirm destructive replacement |
-| `/api/owner/agents` and `/agents/neptune/{enroll,initialization}` | Own-head lifecycle; setup code stays in memory, durable job identity survives restart |
+| `/api/owner/agents` and `/agents/neptune/{enroll,initialization,unlink}` | Own-head lifecycle; setup code stays in memory, durable job identity survives restart; unlink targets only Mastermind |
 | `/api/owner/updates`, `/api/owner/updates/check`, `/api/owner/updates/rollback` | Approved exact release discovery, recorded previous version and one typed whole-group operation |
 | `/api/owner/resources` and `/resources/content` | Neptune scoped listing/metadata/content; single Range, ETag/If-Range, bounded streaming |
 | `/runtime/index.html`, `/runtime/assets/*`, `/runtime/websockify` | Owner-only native gateway; ongoing session verification after WebSocket upgrade |

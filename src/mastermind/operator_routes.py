@@ -3,7 +3,7 @@ import asyncio
 import re
 import time
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import Depends, Request
 from fastapi.responses import FileResponse, StreamingResponse
@@ -75,7 +75,7 @@ def install_operator(app, service, owner, bounded_json):
                 if result.get("product") != "neptune-linux" or not isinstance(result.get("project"), dict):
                     raise DomainError("NEPTUNE_INCOMPATIBLE", "Unexpected Neptune identity.", 503)
                 project = result["project"]
-                return {**base, "state": "LINKED" if complete_profile(result) else "PARTIAL_CONFIGURATION", "installed": True, "socket_reachable": True,
+                return {**base, "state": "UNLINKING" if project.get("unlinking") else "LINKED" if complete_profile(result) else "PARTIAL_CONFIGURATION", "installed": True, "socket_reachable": True,
                         "authenticated": True, "version": result.get("version"), "archive_enabled": project.get("enabled"),
                         "mirror_enabled": (project.get("mirror") or {}).get("enabled"),
                         "reader_configured": project.get("reader") is not None}
@@ -107,8 +107,7 @@ def install_operator(app, service, owner, bounded_json):
 
     @app.post("/api/owner/neptune/policy/runs", dependencies=[Depends(owner)])
     async def create_backup_run(request: Request):
-        service.data_ready()
-        return await asyncio.to_thread(service.backup_policy.runs, "POST", await bounded_json(request, 4096))
+        raise DomainError("SCHEDULE_REQUIRED", "Manual Neptune runs are unavailable; configure the automatic schedule in Settings.", 403)
 
     @app.post("/api/owner/agents/neptune/enroll", dependencies=[Depends(owner)])
     async def enroll(request: Request):
@@ -119,6 +118,17 @@ def install_operator(app, service, owner, bounded_json):
     @app.get("/api/owner/agents/neptune/initialization", dependencies=[Depends(owner)])
     async def initialization():
         return await service.agent_lifecycle.status()
+
+    @app.post("/api/owner/agents/neptune/unlink", dependencies=[Depends(owner)])
+    async def unlink_neptune(request: Request):
+        service.data_ready()
+        if await bounded_json(request, 4096) != {}:
+            raise DomainError("INVALID_REQUEST", "Neptune unlink takes no client-supplied scope.", 422)
+        job = await asyncio.to_thread(service.updates.updater.call, "POST", "/v1/components/neptune-linux/unlink", data={
+            "head_id": service.config.updater_head_id, "project_id": "mastermind", "request_id": str(uuid4()),
+        })
+        service.audit.emit("neptune.unlink", actor="owner", target="mastermind")
+        return job
 
     @app.post("/api/owner/updates/check", dependencies=[Depends(owner)])
     async def update_check(request: Request):
@@ -133,10 +143,11 @@ def install_operator(app, service, owner, bounded_json):
             raise DomainError("TUI_REQUIRED", "Check Updater releases with sudo updater tui on the host.", 403)
         if data.get("component") == "wyvern":
             raise DomainError("TUI_REQUIRED", "Check shared Wyvern releases with sudo updater tui on the host.", 403)
-        if set(data) != {"component"} or data["component"] != "neptune":
+        if data.get("component") == "neptune":
+            raise DomainError("TUI_REQUIRED", "Check Neptune releases with sudo updater tui on the host.", 403)
+        if set(data) != {"component"}:
             raise DomainError("INVALID_REQUEST", "Select a helper consumed by this service", 422)
-        return await asyncio.to_thread(service.updates.updater.call, "POST", "/v2/check",
-            data={"head_id": service.config.updater_head_id, "component": data["component"]})
+        raise DomainError("INVALID_REQUEST", "Select a helper consumed by this service", 422)
 
     @app.post("/api/owner/helper-updates/install/{component}", dependencies=[Depends(owner)])
     async def install_helper(component: str, request: Request):
@@ -145,14 +156,9 @@ def install_operator(app, service, owner, bounded_json):
             raise DomainError("TUI_REQUIRED", "Update Updater with sudo updater tui on the host.", 403)
         if component == "wyvern":
             raise DomainError("TUI_REQUIRED", "Update the shared Wyvern gateway with sudo updater tui on the host.", 403)
-        try:
-            UUID(data.get("request_id", ""))
-            if component != "neptune" or set(data) - {"version", "request_id"} or not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", data.get("version", "")):
-                raise ValueError()
-        except (ValueError, TypeError, AttributeError):
-            raise DomainError("INVALID_REQUEST", "Select an exact helper release and stable request UUID", 422) from None
-        return await asyncio.to_thread(service.updates.updater.call, "POST", "/v2/components/" + component + "/updates",
-            data={**data, "head_id": service.config.updater_head_id})
+        if component == "neptune":
+            raise DomainError("TUI_REQUIRED", "Update Neptune with sudo updater tui on the host.", 403)
+        raise DomainError("INVALID_REQUEST", "Select a helper consumed by this service", 422)
 
     @app.get("/api/owner/helper-updates/jobs", dependencies=[Depends(owner)])
     def helper_jobs():

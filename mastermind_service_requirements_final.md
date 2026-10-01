@@ -496,7 +496,7 @@ Register хранит service discovery и ссылки на защищённы�
 | semantic.model | intfloat/multilingual-e5-small, локально (§78) |
 | resource budgets | Численные defaults §141 |
 | Obsidian/Bridge/worker versions | Только release lock |
-| archive/mirror schedules | Saturn policy, не локальные Settings |
+| archive/mirror schedules | Один контроль enabled/hourly interval в Settings Mastermind, атомарная версия обеих политик хранится в Saturn |
 
 Точное Wire API каждого adapter фиксируется OpenAPI/contract fixtures на source SHA §147. Логические названия Mastermind не выдаются за уже существующие Register keys.
 
@@ -640,7 +640,7 @@ Revoke и destructive restore используют custom confirmation; прив
 
 Обязательные секции: Appearance, Security, Backup, Updates, Logs. Appearance: preview/Apply/Reset; остальные ordinary settings применяются после подтверждённого server commit без общего Save. Backup: create/download, inspect/restore, Neptune status/Initialize/Repair. Updates: installed/available verified version, compatibility и explicit Apply. Logs: bounded stream и архив.
 
-Расписания/remote runs управляются в Saturn Synchronization. Documentation — authenticated view с поиском, navigation и актуальными инструкциями.
+Один переключатель и часовой интервал для archive и mirror задаются в Settings → Backup Mastermind через атомарное изменение обеих политик. Ручного удалённого запуска нет. Saturn Synchronization управляет identity, setup codes, quotas и наблюдением. Релизы Neptune, Gryphon, Wyvern и Updater обслуживаются через `sudo updater tui`; в Settings сервисов выбираются уже подключённые адаптеры. Documentation — authenticated view с поиском, navigation и актуальными инструкциями.
 
 Собственный UI использует Part 01 palette/typography, toolbar, cards, keyboard, overlays, clipboard fallback и responsive rules. Исключение для native Vault не распространяется на Shared Note или Crusher.
 
@@ -2141,9 +2141,9 @@ Programmatic/audit events сохраняются отдельно по retention
 
 Core создаёт durable dirty intent не позднее 1 секунды после подтверждённого изменения. Neptune владеет транспортом, credential и remote destination. Mirror остаётся вторичной копией.
 
-Для первой версии принят scheduled zip-tree mirror существующего профиля: default interval 5 минут, minimum 1 минута, расписание/enable/revoke только в Saturn. Архивный pipeline независим, default cadence 24 часа. Manual remote run выполняется тем же Neptune worker, без второго локального scheduler.
+Для актуального профиля принят scheduled zip-tree mirror с отдельным worker и состоянием исполнения. Один переключатель и часовой интервал в Settings Mastermind атомарно задают archive и mirror через `schedule-all` (1–168 часов); новый профиль выключен с интервалом 24 часа. Импортированное прежнее значение, включая пятиминутный mirror, сохраняется до явного изменения оператором. Saturn хранит authoritative revision и выполняет credential revoke; ручной удалённый запуск из GUI отсутствует.
 
-Это явный компромисс относительно исходного требования «начать передачу за 5 секунд»: оно не входит в первый релиз. Фактический lag равен ожиданию расписания, очереди и длительности snapshot/transfer. Ни 5 минут, ни 350 MiB не выдаются за измеренный RPO. При outage SLA доставки отсутствует; UI показывает last verified success, oldest dirty generation и lag.
+Это явный компромисс относительно исходного требования «начать передачу за 5 секунд»: оно не входит в первый релиз. Фактический lag равен ожиданию расписания, очереди и длительности snapshot/transfer. Выбранный часовой интервал и размер квалификационной выборки 350 MiB не выдаются за измеренный RPO. При outage SLA доставки отсутствует; UI показывает last verified success, oldest dirty generation и lag.
 
 Dirty intents coalesce по path/generation, limit 100000 records. При overflow durable full_reconcile_required заменяет подробную очередь без потери знания о несинхронизированном state. Snapshot receipt закрывает только included generation; изменения после его boundary остаются dirty.
 
@@ -3794,7 +3794,7 @@ Native rename API: [Obsidian FileManager.renameFile](https://docs.obsidian.md/Re
 | Mastermind Share API/renderer/editor | Удалить resource grants/resolvers, реализовать protected projection, Saturn capability UX | Нельзя получить internal/external resource любым public payload/API; stale edit 409 |
 | Mastermind Crusher UI/API/worker | Source/progress-only, status ticket, hierarchy packet builder/local embeddings | Ни result/path/context в responses; token/source budgets enforced; commit один |
 | Saturn apps/api/src/backup.controller.ts и backup-ingest | Квалифицировать существующий mastermind enrollment, two credentials, revoke/repair/idempotency | Clean enrollment, partial failure/retry без второго чужого device; оба pipelines observed |
-| Saturn Synchronization policy/UI | Archive и mirror раздельные status/schedules, bounds/private mirror classification | Schedule/disable/revoke применяются Neptune; .obsidian не попадает в public folder shares |
+| Mastermind Settings / Saturn Synchronization policy | Одна пара контролов Mastermind обновляет archive и mirror атомарно; Saturn показывает раздельные статусы и хранит authoritative revision, identity и quotas | `schedule-all` применён к обеим политикам; .obsidian не попадает в public folder shares |
 | Neptune Models/ProjectRegistry/MirrorWorker/BackupWorker | Reuse typed zip-tree; add generation/receipt reconciliation по потребности, проверить bounds | Byte/hash mirror + opaque encrypted archive; outage/restart/delete protection |
 | Neptune Program/Core read adapter — новый контракт | Добавить scoped listing/metadata/content/Range §139, отдельный Saturn read scope | Real Saturn 206/416/cancellation/scope/large-media contract suite |
 | Updater model/engine/store/API | Добавить streaming spool §140 вместо inline base64 для Mastermind | >350 MiB и верхняя граница, bounded RSS/disk, wrong-head/hash/path rejection |

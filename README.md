@@ -37,9 +37,12 @@ is a qualification fixture and uses loopback port 18390. Production uses
 `compose.production.yaml`, an authenticated release bootstrap and
 `mastermind-install`; host Nginx is configured separately by the operator.
 
-The effective central requirements are retained in [docs/policy](docs/policy/)
-with a [content lock](docs/policy-lock.json). They remain usable after this service
-is checked out independently. `scripts/export_integration_patches.py` exports the
+The [docs/policy](docs/policy/README.md) snapshot is pinned by a
+[content lock](docs/policy-lock.json) to an earlier central revision for isolated
+checkout and release reproducibility. The current workspace contracts are in
+[Parts 09–10](https://github.com/psewdon1m-exocortex/general/blob/main/PART_09_SERVICE_AGENTS_DEPLOYMENT_AND_LIFECYCLE.md);
+re-vendor and qualify the newer policy before a release claims compliance with
+it. `scripts/export_integration_patches.py` exports the
 necessary neighboring changes from disposable local clones; release and runtime
 code do not read sibling checkouts.
 
