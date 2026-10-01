@@ -25,7 +25,7 @@ export async function contextIndexingCard(root) {
   let current, operation=null;
   const run=async(button,action)=>{try{await pending(button,action);}catch(error){if(error.name!=='AbortError'){notice(error.message,true);const target=$('[data-error]',box);if(target)target.textContent=error.message;}}};
   function statuses(value) {
-    const ready=value.readiness, curator=ready.curator;
+    const ready=value.readiness, curator=ready.bibliotekar;
     $('[data-configuration]',box).textContent=ready.configuration==='READY'?'Configuration ready':'Configuration needs attention: '+Object.values(ready.errors).join(', ');
     $('[data-curator-status]',box).textContent=!curator.requested?'Disabled':curator.effective?'Ready':'Unavailable · '+(curator.reason||'Worker is not ready');
     const index=ready.search;
@@ -51,9 +51,9 @@ export async function contextIndexingCard(root) {
         <label>Crusher folder<input value="${escape(current.crusher.output_dir)}" readonly></label>
         <div class="context-paths">${[['fallback_note','Fallback note'],['template_path','Crusher template']].map(([field,label])=>`<div><label for="context-${field}">${label}</label><div class="row"><input class="grow" id="context-${field}" name="${field}" value="${escape(current.crusher[field])}" required aria-describedby="context-path-error"><button type="button" data-pick="${field}">Choose note</button></div></div>`).join('')}</div>
         <p class="muted">Fallback must be reachable from ${escape(current.graph_root)}. The template provides the note structure.</p><p data-configuration></p></div>
-        <div class="group"><h3>Context-indexing</h3><label class="inline"><input name="curator_enabled" type="checkbox" ${current.retrieval.curator_enabled?'checked':''}>Enable Curator</label>
-        <p class="muted">The local Curator may refine an uncertain search once. Changes apply to newly accepted or explicitly resumed jobs.</p>
-        <div class="status-line"><span>Curator</span><span data-curator-status></span></div><div class="status-line"><span>Search index</span><span data-index-status></span></div></div>
+        <div class="group"><h3>Weaver</h3><label class="inline"><input name="bibliotekar_enabled" type="checkbox" ${current.retrieval.bibliotekar_enabled?'checked':''}>Enable Bibliotekar</label>
+        <p class="muted">The local Bibliotekar may refine an uncertain search once. Changes apply to newly accepted or explicitly resumed jobs.</p>
+        <div class="status-line"><span>Bibliotekar</span><span data-curator-status></span></div><div class="status-line"><span>Search index</span><span data-index-status></span></div></div>
         <p id="context-path-error" data-error class="error-message" role="alert"></p>
         <div class="row"><button class="action" type="submit">Apply</button><button type="button" data-validate>Validate draft</button><button type="button" data-refresh>Refresh status and revision</button><button type="button" data-initialize>Initialize defaults</button></div>
       </form><div class="group"><h3>Waiting for configuration</h3><div data-waiting></div></div>`;
@@ -62,7 +62,7 @@ export async function contextIndexingCard(root) {
       const changes=()=>{
         const crusher={},retrieval={};
         for(const key of ['fallback_note','template_path'])if(chosen.has(key)||form.elements[key].value!==current.crusher[key])crusher[key]=form.elements[key].value;
-        if(form.elements.curator_enabled.checked!==current.retrieval.curator_enabled)retrieval.curator_enabled=form.elements.curator_enabled.checked;
+        if(form.elements.bibliotekar_enabled.checked!==current.retrieval.bibliotekar_enabled)retrieval.bibliotekar_enabled=form.elements.bibliotekar_enabled.checked;
         return {crusher,retrieval};
       };
       form.oninput=event=>{chosen.add(event.target.name);operation=null;$('[data-error]',box).textContent='';};
@@ -74,7 +74,7 @@ export async function contextIndexingCard(root) {
         operation??={...changes(),expected_revision:current.revision,operation_id:crypto.randomUUID()};
         await api(base+'/settings',{method:'PATCH',body:operation});
         await refresh();
-        if(current.retrieval.curator_enabled&&!current.readiness.curator.effective)notice('Settings saved. Curator is requested but unavailable.',true);
+        if(current.retrieval.bibliotekar_enabled&&!current.readiness.bibliotekar.effective)notice('Settings saved. Bibliotekar is requested but unavailable.',true);
         else notice('Obsidian & search settings saved.');
       });};
     } else operation=null;

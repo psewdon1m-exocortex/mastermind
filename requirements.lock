@@ -37,3 +37,5 @@ typing_extensions==4.16.0
 uvicorn==0.53.0
 watchdog==6.0.0
 websockets==17.1
+faiss-cpu==1.15.1
+numpy==2.5.3

@@ -1,10 +1,10 @@
-# Context-indexing
+# Weaver retrieval and compatibility contracts
 
-Context-indexing is Mastermind's reusable local retrieval engine. Crusher is its
-first consumer. The [approved specification](../mastermind_retrieval_curator_pipeline_final.md)
-defines the product contract; the [qualification ledger](CONTEXT_INDEXING_IMPLEMENTATION.md)
-records measured results and their limits. No public search endpoint or agent
-tool execution is introduced.
+The engine is now **Weaver**, with Bibliotekar as its local refinement assistant.
+[WEAVER](WEAVER.md) is the current architecture, module API, measurement and migration
+record. This page preserves the detailed retrieval, settings and placement contracts;
+`context-indexing` remains a compatibility identifier in routes and stored records.
+The [earlier qualification ledger](CONTEXT_INDEXING_IMPLEMENTATION.md) is historical.
 
 ## Data flow and authority
 
@@ -19,14 +19,14 @@ tool execution is introduced.
 4. Consistency and confidence assessment distinguish sufficient, ambiguous and
    insufficient evidence. Scores are ranking measures, not model probabilities.
    Conflicting source paragraphs and explicit topic exclusions prevent an
-   automatic placement; Curator cannot reinterpret those as affirmative support.
+   automatic placement; Bibliotekar cannot reinterpret those as affirmative support.
    The current conservative exclusion guard also uses pool when the excluded
    topic cannot be mapped reliably to a technical anchor name. This can reduce
    coverage for material containing a legitimate topic contrast.
-5. If enabled, available and useful, Curator can suggest bounded terms and known
+5. If enabled, available and useful, Bibliotekar can suggest bounded terms and known
    evidence handles. One further retrieval and union rerank follow. It cannot
    name an authoritative destination, expand scope or invoke tools.
-6. Crusher's separate policy selects a unique reachable `#main`/`#key` anchor.
+6. Weaver's separate Crusher placement policy selects a unique reachable `#main`/`#key` anchor.
    Cycles, multiple structural parents, conflicting roles and stale evidence
    cannot authorize placement. Otherwise it chooses the configured pool.
 7. Generation returns typed title, summary and body. A frozen Markdown template
@@ -35,20 +35,20 @@ tool execution is introduced.
 
 Only the source, structured understanding and bounded template structure reach
 the external generation provider through Wyvern → Kernel/Volt. Retrieved Vault
-content, profiles and embeddings remain local. Curator runs in the private Worker;
+content, profiles and embeddings remain local. Bibliotekar runs in the private Worker;
 it has no Vault mount, provider credential, remote fallback or write authority.
 Shared and public Crusher principals cannot inspect search results or traces.
 
 ## Files, graph and Settings
 
-The combined **Obsidian & search** Settings card contains:
+The combined **Obsidian & Weaver** Settings card contains:
 
 | Field | Contract |
 | --- | --- |
 | Output directory | Read-only `root/crusher`; every new Crusher file is here |
 | Pool note | Default `root/pool.md`; graph fallback, not the output directory |
 | Template | Default `root/templates/example crusher.md` |
-| Curator | Off by default; requested and effective readiness shown separately |
+| Bibliotekar | Off by default; requested and effective readiness shown separately |
 
 An existing root is required (default `root.md`). Initialization creates missing
 default pool/template files and connects root to pool once through the canonical
@@ -99,12 +99,12 @@ accepts the current note path plus bounded `text`, optional `focus` and `sampled
 It requires the private Bridge identity; owner cookies and public Crusher tokens
 do not authorize it. Core returns at most eight `{path,title,excerpt,relation,reason}` items with
 `degraded` and `sampled` flags. This read-only lookup excludes only the source
-before retrieval, disables Curator and does not call
+before retrieval, disables Bibliotekar and does not call
 placement or generation. See [Related notes](mastermind-bridge.md#related-notes).
 
 ## Content representation and recommendation quality
 
-`search-content.v1` removes technical YAML fields, structural tags, service identifiers
+`search-content.v2` removes technical YAML fields, structural tags, service identifiers
 and link destinations while retaining titles, topical metadata, human link labels and
 body text. Both embedding documents and embedding queries use this representation.
 Canonical Markdown is unchanged. The derived `semantic_text` table stores prepared text
@@ -121,7 +121,7 @@ section headings/resource captions without a vocabulary blacklist; a single shar
 topical heading survives. Identical documents count as one template observation;
 term frequency softens evidence without disabling widespread topics. Unfilled
 `{{fields}}` and headings of empty sections supply no factual evidence, on every
-path. These query-local rules do not change the stored `search-content.v1` index.
+path. These query-local rules do not change the stored `search-content.v2` index.
 The bounded sample
 can miss corpus-wide repetition in large Vaults; no global accuracy guarantee is implied.
 
@@ -148,8 +148,9 @@ matches and 16 background candidates are checked. Linked context helps discovery
 the final semantic claim uses the source itself. Unverified vectors cannot authorize
 suggestions; failed verification returns lexical results with `degraded` set. This
 pass shares the 15-second deadline, uses batches of at most 16 texts, up to four
-evenly sampled source passages plus cursor context, and at most 1,600 characters
-per passage/candidate. Filenames are scored separately rather than being prepended
+evenly sampled source passages plus cursor context. Candidate verification uses up to
+two actual retrieved passages, each bounded to 6.4 KiB and split at actual model token
+boundaries; oversized passages use a bounded lexical window. Filenames are scored separately rather than being prepended
 to semantic prose. A thread-safe LRU cache holds
 at most 256 vectors keyed by model, prefix mode and content hash; it stores no raw
 editor text and never persists to disk. Changes to text/model invalidate reuse.
@@ -172,7 +173,7 @@ the entire placement to 90 seconds. Partial/unavailable strategies select only
 their separately qualified calibration; unknown combinations safely use pool.
 Changed model digests cannot reuse a qualified vector calibration.
 
-Curator: pinned Qwen3-0.6B Q8_0 GGUF and llama.cpp CPU runner, at most 6,000 input
+Bibliotekar: pinned Qwen3-0.6B Q8_0 GGUF and llama.cpp CPU runner, at most 6,000 input
 tokens, 1,000 output tokens and 45 seconds. Durable reservation precedes the
 single call. Interrupted reservations are never reissued; replay reuses a saved
 response. An unavailable/invalid/late response yields explicit degradation.
@@ -188,7 +189,7 @@ quiescence and the durable mutation journal remain the final authority.
 
 Fetch pinned artifacts before building with `scripts/fetch_embedding_model.py`
 and `scripts/fetch_curator_model.py`. Downloads occur during preparation, never
-as an inference fallback. The Curator lock binds model, runner archives and
+as an inference fallback. The Bibliotekar lock binds model, runner archives and
 license; runtime verifies extracted inventories. Core/Worker must be rebuilt
 together when contracts or pinned models change. The qualified calibration is
 included as package data, with corpus/model/report hashes.
@@ -207,17 +208,13 @@ material. Production logs do not dump provider packets.
 
 ## Quality boundary
 
-The accepted grouped synthetic corpus has 500 cases, including 100 independently
-held-out cases from new domains. Default mode automatically placed 80/80 correctly
-and sent all 20 must-pool cases to pool. A matched 30-case real-provider legacy
-comparison had 10 correct automatic placements for both implementations.
-These are observed fixture results, not a universal accuracy guarantee.
+Current Weaver placement qualification uses 100 frozen calibration cases and 100
+separate test cases. The complete mode automatically placed 78 test cases correctly;
+Bibliotekar refined two cases and reached 80 correct automatic placements. No
+must-pool case was placed automatically. The default remains Bibliotekar off.
+Search/similarity experiments, remaining false matches, source hashes and the
+Docker/Linux verification gap are recorded in [WEAVER](WEAVER.md).
 
-Two earlier evaluations failed and are retained in the ledger. A live test also
-exposed a negative topic statement with a technical anchor name; an additional
-rejection guard fixed it without changing thresholds. After these final
-counterevidence guards, the same test cases serve only as regression:
-80/80 correct, but zero Curator invocations. Real local inference, response replay
-and second retrieval are qualified separately. **No placement-quality benefit
-from enabling Curator has been demonstrated; keep it off by default.** Fresh
-held-out domains are required before claiming an improved operating point.
+The older 80/80 replay, 30-case external-provider comparison and earlier corrective
+iterations remain historical evidence in [the original ledger](CONTEXT_INDEXING_IMPLEMENTATION.md).
+They do not establish acceptance of the new representation or a fresh live-provider run.

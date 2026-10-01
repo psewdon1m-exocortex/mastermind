@@ -149,8 +149,8 @@ class Service:
         from .gryphon import Gryphon
         self.gryphon = Gryphon(self)
         self.semantic = Semantic(self)
-        from .context_indexing import ContextIndexing
-        self.context_indexing = ContextIndexing(self, semantic=self.semantic)
+        from .weaver import Weaver
+        self.weaver = self.context_indexing = Weaver(self, semantic=self.semantic)
         self.crusher_access.configuration_snapshot = self.context_indexing.settings.snapshot
         self.crusher = Crusher(self)
         self.runtime_monitor = RuntimeMonitor(self)
@@ -474,7 +474,7 @@ def create_app(config=None, service=None):
 
     @app.get("/api/search/semantic", dependencies=[Depends(owner)])
     def semantic_search(query: str, limit: int = 20):
-        return context.semantic.search(query, limit)
+        return context.weaver.semantic.search(query, limit)
 
     @app.get("/api/index/semantic", dependencies=[Depends(owner)])
     def semantic_status():
@@ -584,7 +584,7 @@ def create_app(config=None, service=None):
     @app.post("/internal/bridge/related-notes", dependencies=[Depends(bridge)])
     async def related_notes(request: Request):
         data = await bounded_json(request, 128*1024)
-        return await asyncio.to_thread(context.context_indexing.related.recommend, data)
+        return await asyncio.to_thread(context.weaver.related.recommend, data)
 
     @app.post("/internal/bridge/references", dependencies=[Depends(bridge)])
     async def references(request: Request):

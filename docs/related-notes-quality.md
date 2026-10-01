@@ -1,5 +1,8 @@
 # Related notes quality: implementation and verification
 
+Historical verification record for the pre-Weaver implementation. Current behavior,
+measurements and outstanding deployment gates are in [WEAVER](WEAVER.md).
+
 Verified locally on 2026-09-20, including the follow-up correction for overview notes.
 This is regression evidence on authored fixtures,
 not a universal estimate of recommendation accuracy.

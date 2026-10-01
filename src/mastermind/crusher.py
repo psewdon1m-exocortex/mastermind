@@ -12,16 +12,15 @@ from pathlib import PurePosixPath
 
 from markdown_it import MarkdownIt
 
-from .context_indexing import ContextIndexing
-from .context_indexing.graph import Graph, Scope
-from .context_indexing.template import GeneratedFields
-from .context_indexing.template import render as render_template
 from .crusher_access import PROGRESS, TERMINAL
 from .errors import DomainError
 from .extractors import scrub
-from .fs import WINDOWS_RESERVED, name_key, sha_bytes, sha_file
+from .fs import WINDOWS_RESERVED, sha_bytes, sha_file
 from .gemini import Gemini, Understanding
 from .integrations import Neptune
+from .weaver import Weaver
+from .weaver.graph import Graph, Scope
+from .weaver.template import GeneratedFields
 from .worker_client import WorkerClient
 
 RETRYABLE = {"PROVIDER_TRANSIENT", "SOURCE_NETWORK", "WORKER_UNAVAILABLE", "WORKER_BUSY",
@@ -63,8 +62,8 @@ class Crusher:
         self.access = service.crusher_access
         self.worker = worker or WorkerClient(service.config, service.secrets)
         self.provider = provider or Gemini(link_file=service.config.wyvern_link_file, intent_state=service.state)
-        self.context_indexing = getattr(service, "context_indexing", None) or ContextIndexing(service, worker=self.worker)
-        self.access.configuration_snapshot = self.context_indexing.settings.snapshot
+        self.weaver = self.context_indexing = getattr(service, "context_indexing", None) or Weaver(service, worker=self.worker)
+        self.access.configuration_snapshot = self.weaver.settings.snapshot
         self.stop_event = threading.Event()
         self.thread = None
         self.identity = secrets.token_hex(16)
@@ -273,54 +272,15 @@ class Crusher:
             raise DomainError("GENERATED_NOTE_INVALID", "The generated note violates the output policy.", 422)
         return {"title": title, "markdown": text}
 
+    def provenance(self, placement):
+        return footer(self.record, self.row["id"], placement)
+
     def commit(self, validated, placement):
-        vault = self.service.vault
-        if time.time() >= self.record["deadline"]:
-            raise DomainError("JOB_DEADLINE", "No commit may start after the accepted job deadline.", 408)
-        with self.service.coordinator.boundary() as operation_id:
-            self.service.data_ready()
-            current = self.state.one("SELECT * FROM jobs WHERE id=?", (self.row["id"],))
-            if current["state"] == "COMPLETED":
-                return
-            placement = self.context_indexing.policy.revalidate(placement, self.record["context_snapshot"])
-            anchor = placement["anchor"]
-            if anchor and any(c in PurePosixPath(anchor).stem for c in "[]#^|"):
-                raise DomainError("FALLBACK_INVALID", "The selected graph reference is unsupported.", 422)
-            directory = "root/crusher"
-            names = {row["name_key"] for row in self.state.rows("SELECT name_key FROM notes")}
-            title = validated["title"]
-            candidate = title
-            for number in range(2, 100002):
-                if name_key(candidate) not in names:
-                    break
-                candidate = f"{title} ({number})"
-            else:
-                raise DomainError("FILENAME_LIMIT", "A unique filename could not be allocated.", 409)
-            relative = str(PurePosixPath(directory) / (candidate+".md"))
-            vault.validate_destination(relative)
-            snapshot = self.record["context_snapshot"]
-            source_label = re.sub(r"([\\`*_{}\[\]()#+.!<>|@])", r"\\\1", scrub(self.record["source_label"]))
-            body = render_template(snapshot["template"], validated, sources=source_label,
-                link="[["+PurePosixPath(anchor).stem+"]]", timestamp=snapshot["timestamp"], timezone=snapshot["timezone"])
-            body += footer(self.record, self.row["id"], placement)
-            data = body.encode("utf-8")
-            if len(data) > self.service.config.max_note_bytes:
-                raise DomainError("GENERATED_NOTE_INVALID", "The rendered note exceeds its supported size.", 413)
-            self.record["commit"] = {"path": relative, "sha256": sha_bytes(data), "placement": placement}
-            self.save()
-            self.fault("before-commit")
-            self.service.coordinator.commit({relative: data}, {relative: None},
-                {"job_id": self.row["id"], "committed_path": relative, "committed_sha": sha_bytes(data)},
-                inside_boundary=True, operation_id=operation_id)
-            self.fault("after-commit")
-            vault.index()
-            self.row = self.state.one("SELECT * FROM jobs WHERE id=?", (self.row["id"],))
-            self.record = json.loads(self.row["record"])
-            self.service.audit.emit("crusher.commit", target=self.row["id"], context={"outcome": "durable"})
+        return self.weaver.execute_placement(self, validated, placement)
 
     def process(self):
         if "context_snapshot" not in self.record:
-            self.record["context_snapshot"] = self.context_indexing.settings.snapshot()
+            self.record["context_snapshot"] = self.weaver.settings.snapshot()
             self.record["pipeline_version"] = "context-indexing.v1"
             # Legacy pending jobs retain source understanding but cannot replay a
             # pre-template placement or generated document into the new contract.
@@ -356,7 +316,7 @@ class Crusher:
         if "placement_deadline" not in self.record:
             self.record["placement_deadline"] = time.time()+90
             self.save()
-        placement = self.checkpoint("placement", lambda: self.context_indexing.place(understanding, extracted.get("text", ""),
+        placement = self.checkpoint("placement", lambda: self.weaver.place(understanding, extracted.get("text", ""),
             self.record["context_snapshot"], checkpoint=self.checkpoint, query_id=self.row["id"],
             deadline=self.record["placement_deadline"]))
         self.stage("GENERATING")
@@ -379,8 +339,8 @@ class Crusher:
             return fields
         validated = self.checkpoint("validate", validate_fields)
         graph = Graph(self.service.vault, Scope("crusher"))
-        if not self.context_indexing.policy.fresh(placement, graph):
-            placement = self.checkpoint("placement_revalidation", lambda: self.context_indexing.place(
+        if not self.weaver.policy.fresh(placement, graph):
+            placement = self.checkpoint("placement_revalidation", lambda: self.weaver.place(
                 understanding, extracted.get("text", ""), self.record["context_snapshot"],
                 checkpoint=self.checkpoint, query_id=self.row["id"], deadline=self.record["placement_deadline"]))
         self.stage("COMMITTING")
@@ -489,7 +449,7 @@ class Crusher:
             if row["state"] not in ("WAITING_CONFIGURATION", "FAILED") or record.get("cleaned") \
                     or row["state"] == "FAILED" and record.get("retain_until", 0) <= time.time():
                 raise DomainError("JOB_NOT_RESUMABLE", "This job cannot be resumed from retained material.", 409)
-            snapshot = self.context_indexing.settings.snapshot()
+            snapshot = self.weaver.settings.snapshot()
             if snapshot["configuration"]["revision"] != data["expected_revision"]:
                 raise DomainError("SETTINGS_CONFLICT", "Settings changed. Refresh the configuration before resuming.", 409)
             same_template = record.get("context_snapshot", {}).get("template", {}).get("sha256") == snapshot["template"]["sha256"]

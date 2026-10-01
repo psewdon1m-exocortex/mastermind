@@ -44,3 +44,13 @@ Its generic evidence retrieval is independent of Crusher placement eligibility.
 Crusher writes a frozen-template note in `root/crusher`, linking to a verified
 branch or the pool. Source understanding/generation use a scoped Wyvern UDS
 Adapter; no retrieved Vault evidence is sent to that external provider.
+
+## Weaver graph work engine
+
+[Weaver](WEAVER.md) is the internal Core module for scoped knowledge lookup, note
+similarity, reference traversal and policy-controlled placement. Its Bibliotekar
+assistant runs locally in the existing Worker. Crusher owns source processing and
+generation; Weaver owns placement decisions and executes the final write through
+Core's canonical coordinator. Generic search does not inherit Crusher anchor rules.
+Faiss accelerates exact scoped vector blocks; SQLite projections remain derived.
+The rename adds neither a deployment unit nor a public listener.

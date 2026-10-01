@@ -60,3 +60,13 @@ Runtime `/internal/*` accepts typed lifecycle/open/rename operations only. Worke
 Neptune `/api/v1/projects/mastermind/{resources,resource-metadata,resource-content}` requires the owner-purpose scoped local identity. Updater `/v1/heads/mastermind/{preparations,backup-spools}` binds immutable version, request ID and sealed spool ownership. Spool content streams directly; no base64 whole-archive body or caller-supplied host path is accepted.
 
 The versioned [exposure inventory](exposure-inventory.json) lists every registered method/path, source, component, principal and exposure. Its source comparison rejects missing or stale entries. Negative tests enumerate owner routes and verify that an anonymous client cannot reach any of them; proxy coverage checks prevent a documented owner API from silently becoming an ingress 404. Family descriptions do not widen the allowlist. New routes must update this inventory, proxy profile, operator documentation and principal-boundary tests together.
+
+## Weaver internal work orders
+
+The current local interface is `service.weaver.run()` with typed `Lookup`, `Similar`,
+`Walk`, `Placement` and `ExecutePlacement` requests. See [WEAVER](WEAVER.md) for scope,
+results and mutation authority. These are in-process contracts, not new public routes.
+Existing `/api/owner/context-indexing/*` and private Bridge routes remain compatible.
+Settings accept `retrieval.bibliotekar_enabled` as the preferred alias of
+`retrieval.curator_enabled`; conflicting values are rejected. Responses retain both
+names, with Bibliotekar readiness also available under its new name.

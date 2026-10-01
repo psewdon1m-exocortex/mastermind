@@ -90,7 +90,7 @@ export async function settings(root){
   const stopPolicy = mountBackupPolicy($('[data-backup-policy]', root), {service: 'mastermind', base: '/api/owner/neptune/policy', headers: () => ({'X-CSRF-Token': state.session?.csrf || ''})});
   const stopLogs = mountServiceLogs($('[data-service-logs]', root), {base: '/api/logs?history=true', beforeParam: 'before', onDownload: () => startOperation('logs')});
 
-  $('.grid',root).insertAdjacentHTML('beforeend',card('context_indexing','Obsidian & search','<div data-context-indexing>Checking context-indexing…</div>',{wide:true}));
+  $('.grid',root).insertAdjacentHTML('beforeend',card('context_indexing','Obsidian & Weaver','<div data-context-indexing>Checking context-indexing…</div>',{wide:true}));
   void contextIndexingCard(root);
   $$('[data-card]',root).forEach(item=>item.classList.add('settings-card'));
   reorder($('.grid',root),'settings');let connection={},agentTick=0,initialization={state:'IDLE'};

@@ -608,60 +608,6 @@
     {
       "component": "core",
       "method": "GET",
-      "path": "/api/owner/context-indexing/settings",
-      "source": "src/mastermind/context_indexing/routes.py",
-      "exposure": "canonical_https",
-      "principal": "owner",
-      "indexable": false
-    },
-    {
-      "component": "core",
-      "method": "GET",
-      "path": "/api/owner/context-indexing/waiting",
-      "source": "src/mastermind/context_indexing/routes.py",
-      "exposure": "canonical_https",
-      "principal": "owner",
-      "indexable": false
-    },
-    {
-      "component": "core",
-      "method": "PATCH",
-      "path": "/api/owner/context-indexing/settings",
-      "source": "src/mastermind/context_indexing/routes.py",
-      "exposure": "canonical_https",
-      "principal": "owner",
-      "indexable": false
-    },
-    {
-      "component": "core",
-      "method": "POST",
-      "path": "/api/owner/context-indexing/initialize",
-      "source": "src/mastermind/context_indexing/routes.py",
-      "exposure": "canonical_https",
-      "principal": "owner",
-      "indexable": false
-    },
-    {
-      "component": "core",
-      "method": "POST",
-      "path": "/api/owner/context-indexing/jobs/{identifier}/resume",
-      "source": "src/mastermind/context_indexing/routes.py",
-      "exposure": "canonical_https",
-      "principal": "owner",
-      "indexable": false
-    },
-    {
-      "component": "core",
-      "method": "POST",
-      "path": "/api/owner/context-indexing/validate",
-      "source": "src/mastermind/context_indexing/routes.py",
-      "exposure": "canonical_https",
-      "principal": "owner",
-      "indexable": false
-    },
-    {
-      "component": "core",
-      "method": "GET",
       "path": "/api/v1/crusher/jobs",
       "source": "src/mastermind/crusher_routes.py",
       "exposure": "canonical_https",
@@ -1386,6 +1332,60 @@
       "source": "src/mastermind/shared_routes.py",
       "exposure": "canonical_https",
       "principal": "share_projection",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/context-indexing/settings",
+      "source": "src/mastermind/weaver/routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/api/owner/context-indexing/waiting",
+      "source": "src/mastermind/weaver/routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "PATCH",
+      "path": "/api/owner/context-indexing/settings",
+      "source": "src/mastermind/weaver/routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/owner/context-indexing/initialize",
+      "source": "src/mastermind/weaver/routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/owner/context-indexing/jobs/{identifier}/resume",
+      "source": "src/mastermind/weaver/routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/owner/context-indexing/validate",
+      "source": "src/mastermind/weaver/routes.py",
+      "exposure": "canonical_https",
+      "principal": "owner",
       "indexable": false
     },
     {

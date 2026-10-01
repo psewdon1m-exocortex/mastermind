@@ -1,0 +1,135 @@
+{
+  "version": "weaver.calibration.20261002.v2",
+  "policy_version": "crusher.placement.v1",
+  "qualified": true,
+  "search_representation": "search-content.v2",
+  "corpus_sha256": "49c5eb290497a851c250d40acfac357fdb1a1c5fb5ee740750654d12a492e49f",
+  "calibration_report_sha256": "d57e46ba16006e9c0fedde91de8bd65bb2518115870be8cb941be311f22ba43c",
+  "embedding_sha256": "ca456c06b3a9505ddfd9131408916dd79290368331e7d76bb621f1cba6bc8665",
+  "variants": {
+    "complete": {
+      "score": 0.5,
+      "gap": 0.005,
+      "lexical": 0
+    },
+    "vector": {
+      "score": 0.15,
+      "gap": 0.04,
+      "lexical": 0
+    },
+    "complete:curator": {
+      "score": 0.5,
+      "gap": 0.005,
+      "lexical": 0
+    }
+  },
+  "rejection_guard_version": "explicit-topic-exclusions.v1",
+  "evidence": {
+    "thresholds": "c867608dc0170920e6af85eee7177ad5c65490bc4ac7f2c06887543d5b4af665",
+    "calibration": "1237c2841f3a2016d94c9a9f6eab100783d5fe757ee651a068973428120b9ec9",
+    "test": "084ea87ebecb70987b448dbca69cb40a00e68c5942b33e44431ecc97ba8a275d"
+  },
+  "measured": {
+    "complete": {
+      "cases": 100,
+      "auto_decisions": 78,
+      "precision": 1.0,
+      "descriptive_precision_interval_95": [
+        0.9531,
+        1.0
+      ],
+      "coverage": 0.78,
+      "must_pool_auto": 0,
+      "pool_rate": 0.21999999999999997,
+      "candidate_recall_at_200": 1.0,
+      "top_1": 1.0,
+      "top_3": 1.0,
+      "latency_p50_ms": 219.0,
+      "latency_p95_ms": 688,
+      "curator_invocations": 0,
+      "curator_refinements": 0
+    },
+    "vector": {
+      "cases": 100,
+      "auto_decisions": 62,
+      "precision": 1.0,
+      "descriptive_precision_interval_95": [
+        0.9417,
+        1.0
+      ],
+      "coverage": 0.62,
+      "must_pool_auto": 0,
+      "pool_rate": 0.38,
+      "candidate_recall_at_200": 1.0,
+      "top_1": 0.9875,
+      "top_3": 1.0,
+      "latency_p50_ms": 94.0,
+      "latency_p95_ms": 109,
+      "curator_invocations": 0,
+      "curator_refinements": 0
+    },
+    "no_profiles": {
+      "cases": 100,
+      "auto_decisions": 77,
+      "precision": 1.0,
+      "descriptive_precision_interval_95": [
+        0.9525,
+        1.0
+      ],
+      "coverage": 0.77,
+      "must_pool_auto": 0,
+      "pool_rate": 0.22999999999999998,
+      "candidate_recall_at_200": 1.0,
+      "top_1": 1.0,
+      "top_3": 1.0,
+      "latency_p50_ms": 187.0,
+      "latency_p95_ms": 203,
+      "curator_invocations": 0,
+      "curator_refinements": 0
+    },
+    "no_expansion": {
+      "cases": 100,
+      "auto_decisions": 78,
+      "precision": 1.0,
+      "descriptive_precision_interval_95": [
+        0.9531,
+        1.0
+      ],
+      "coverage": 0.78,
+      "must_pool_auto": 0,
+      "pool_rate": 0.21999999999999997,
+      "candidate_recall_at_200": 1.0,
+      "top_1": 1.0,
+      "top_3": 1.0,
+      "latency_p50_ms": 204.0,
+      "latency_p95_ms": 234,
+      "curator_invocations": 0,
+      "curator_refinements": 0
+    },
+    "curator": {
+      "cases": 100,
+      "auto_decisions": 80,
+      "precision": 1.0,
+      "descriptive_precision_interval_95": [
+        0.9542,
+        1.0
+      ],
+      "coverage": 0.8,
+      "must_pool_auto": 0,
+      "pool_rate": 0.19999999999999996,
+      "candidate_recall_at_200": 1.0,
+      "top_1": 1.0,
+      "top_3": 1.0,
+      "latency_p50_ms": 204.0,
+      "latency_p95_ms": 234,
+      "curator_invocations": 2,
+      "curator_refinements": 2
+    }
+  },
+  "limitations": [
+    "Authored grouped synthetic bilingual corpus, not a universal accuracy estimate.",
+    "Thresholds were frozen on 100 calibration cases before 100 separate test cases.",
+    "Bibliotekar refined two test cases; the small sample does not justify enabling it by default.",
+    "No fresh paid-provider legacy comparison; earlier context-indexing results are historical."
+  ]
+}

@@ -18,7 +18,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from . import __version__
 from .backup import checked_json
-from .curator_runtime import LocalCurator
+from .bibliotekar_runtime import BibliotekarRuntime
 from .embeddings import Embeddings
 from .errors import DomainError
 from .fs import atomic_json, open_under, remove_private_tree, sha_file
@@ -31,7 +31,7 @@ class Worker:
         self.directory, self.credential_file = directory, credential_file
         self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.embeddings = Embeddings(model_directory, inventory)
-        self.curator = LocalCurator(os.environ.get("MASTERMIND_CURATOR_DIRECTORY", "/opt/mastermind/curator"),
+        self.bibliotekar = self.curator = BibliotekarRuntime(os.environ.get("MASTERMIND_CURATOR_DIRECTORY", "/opt/mastermind/curator"),
                                     os.environ.get("MASTERMIND_CURATOR_INVENTORY", "/app/curator-model.lock.json"))
         self.lock = threading.RLock()
         self.active = None
@@ -377,9 +377,10 @@ def create_app():
     @app.post("/chunks", dependencies=[Depends(private)])
     async def chunks(request: Request):
         value = await body(request, 8*1024**2*6+4096)
-        if set(value) != {"text"} or not isinstance(value["text"], str) or len(value["text"].encode()) > 8*1024**2:
+        if set(value)-{'text', 'sections', 'overlap'} or not isinstance(value.get('text'), str) or len(value["text"].encode()) > 8*1024**2:
             raise DomainError("SIZE_LIMIT", "Chunking input exceeds one supported note.", 413)
-        return {"chunks": await asyncio.to_thread(worker.embeddings.chunks, value["text"]),
+        return {"chunks": await asyncio.to_thread(worker.embeddings.chunks, value["text"],
+                    sections=value.get('sections'), overlap=value.get('overlap', 0)),
                 "model_sha256": worker.embeddings.model_sha}
 
     @app.post("/jobs/{identifier}/acquire", dependencies=[Depends(private)])

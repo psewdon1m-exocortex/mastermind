@@ -43,7 +43,7 @@ class OfflineWorker:
         if route == "/healthz":
             return {"embeddings_ready": True, "model_sha256": self.embedding.model_sha}
         if route == "/chunks":
-            return {"chunks": self.embedding.chunks(data["text"]), "model_sha256": self.embedding.model_sha}
+            return {"chunks": self.embedding.chunks(data["text"], sections=data.get('sections'), overlap=data.get('overlap', 0)), "model_sha256": self.embedding.model_sha}
         if route == "/curator/status":
             return self.curator.status()
         if route == "/curator/assist":

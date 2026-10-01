@@ -2,16 +2,18 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const {chromium}=require('./lib/browser.cjs');
 const origin=process.env.CONTEXT_PROBE_ORIGIN||'http://localhost:18392';
-const output=path.resolve('artifacts/context-indexing-ui');fs.mkdirSync(output,{recursive:true});
+const output=path.resolve(process.env.CONTEXT_PROBE_OUTPUT||'artifacts/context-indexing-ui');fs.mkdirSync(output,{recursive:true});
 (async()=>{
  const browser=await chromium.launch({headless:true});
  try{
   const context=await browser.newContext({viewport:{width:1440,height:1050}}),page=await context.newPage();
   const errors=[];page.on('pageerror',error=>errors.push(error.message));
-  const login=await context.request.post(origin+'/api/auth/login',{headers:{Origin:origin},data:{access_key:fs.readFileSync('.local/secrets/core/bootstrap_access_key','utf8')}});
+  const login=await context.request.post(origin+'/api/auth/login',{headers:{Origin:origin},data:{access_key:fs.readFileSync(process.env.CONTEXT_PROBE_KEY_FILE||'.local/secrets/core/bootstrap_access_key','utf8')}});
   assert.equal(login.status(),200);const session=await login.json();
   await page.goto(origin+'/settings');const card=page.locator('[data-card="context_indexing"]');
   await card.locator('[name="template_path"]').waitFor();
+  await card.getByRole('checkbox',{name:'Enable Bibliotekar',exact:true}).waitFor();
+  assert.equal(await page.getByRole('heading',{name:'Obsidian & Weaver',exact:true}).count(),1);
   assert.equal(await card.locator('input[readonly]').inputValue(),'root/crusher');
   await card.scrollIntoViewIfNeeded();
   await card.locator('[name="template_path"]').fill('draft.md');

@@ -2,6 +2,7 @@
 import hashlib
 import json
 import threading
+from itertools import pairwise
 
 from .errors import DomainError
 
@@ -72,16 +73,52 @@ class Embeddings:
             return {"model_sha256": self.model_sha, "dimensions": 384, "vectors": vectors.tolist(),
                     "token_counts": [sum(item.attention_mask) for item in encoded]}
 
-    def chunks(self, text):
+    def chunks(self, text, *, sections=None, overlap=0):
         if self.tokenizer is None:
             raise DomainError("EMBEDDINGS_UNAVAILABLE", "The offline tokenizer is unavailable.", 503)
+        if type(overlap) is not int or overlap not in {0, 32, 64}:
+            raise DomainError('INVALID_CHUNKS', 'Unsupported overlap size.', 422)
+        sections = [{'start': 0, 'end': len(text), 'heading': ''}] if sections is None else sections
+        if not isinstance(sections, list) or len(sections) > 100000 or any(not isinstance(s, dict) or
+                type(s.get('start')) is not int or type(s.get('end')) is not int or
+                not 0 <= s['start'] <= s['end'] <= len(text) or not isinstance(s.get('heading', ''), str)
+                for s in sections):
+            raise DomainError('INVALID_CHUNKS', 'Invalid section boundaries.', 422)
+        if any(a['end'] > b['start'] for a, b in pairwise(sections)):
+            raise DomainError('INVALID_CHUNKS', 'Section ranges must be ordered and disjoint.', 422)
         with self.lock:
-            # Offsets refer to canonical characters; repeated prefix/special tokens
+            # Offsets refer to supplied characters; repeated prefix/special tokens
             # leave room below the 512-token model boundary for every passage.
             self.tokenizer.no_truncation()
             try:
-                encoded = self.tokenizer.encode(text, add_special_tokens=False)
+                result = []
+                for section in sections:
+                    base = section['start']
+                    body = text[base:section['end']]
+                    encoded = self.tokenizer.encode(body, add_special_tokens=False)
+                    heading = section.get('heading', '')
+                    heading_tokens = self.tokenizer.encode(heading, add_special_tokens=False)
+                    if len(heading_tokens.ids) > 64:
+                        heading = heading[:heading_tokens.offsets[63][1]]
+                    # Includes both E5 prefixes, separators and model special tokens.
+                    width = 500-len(self.tokenizer.encode(heading, add_special_tokens=False).ids)
+                    i = 0
+                    while i < len(encoded.ids):
+                        j = min(i+width, len(encoded.ids))
+                        # Prefer a complete paragraph; never cross a section.
+                        if j < len(encoded.ids):
+                            a, b = encoded.offsets[i][0], encoded.offsets[j-1][1]
+                            boundary = body.rfind('\n\n', a+(b-a)//2, b)
+                            if boundary >= 0:
+                                while j > i+overlap+1 and encoded.offsets[j-1][1] > boundary:
+                                    j -= 1
+                        result.append({'start': base+encoded.offsets[i][0], 'end': base+encoded.offsets[j-1][1],
+                                       'heading': heading, 'section_start': base,
+                                       'source_start': section.get('source_start', 0),
+                                       'source_end': section.get('source_end', len(text))})
+                        if j == len(encoded.ids):
+                            break
+                        i = max(i+1, j-overlap)
+                return result
             finally:
                 self.tokenizer.enable_truncation(max_length=512)
-            return [{"start": encoded.offsets[i][0], "end": encoded.offsets[min(i+479, len(encoded.ids)-1)][1]}
-                    for i in range(0, len(encoded.ids), 480)]

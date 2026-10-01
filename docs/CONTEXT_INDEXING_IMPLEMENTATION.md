@@ -1,5 +1,8 @@
 # Context-indexing implementation ledger
 
+Historical verification record for the pre-Weaver implementation. Current behavior,
+measurements and outstanding deployment gates are in [WEAVER](WEAVER.md).
+
 Date: 2026-09-19. Contract: [approved specification](../mastermind_retrieval_curator_pipeline_final.md).
 Operation/API: [context-indexing](context-indexing.md).
 This records local implementation and qualification, not a production release

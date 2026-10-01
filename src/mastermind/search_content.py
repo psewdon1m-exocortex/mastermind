@@ -6,7 +6,7 @@ from itertools import pairwise
 
 import yaml
 
-VERSION = "search-content.v1"
+VERSION = "search-content.v2"
 STOP = frozenset(["the", "a", "an", "of", "on", "in", "and", "or", "to", "for", "from", "with", "this", "that", "is", "are", "by", "as", "at", "it", "be", "into", "these", "those", "и", "в", "во", "на", "для", "из", "по", "с", "со", "о", "об", "как", "что", "это", "или", "к", "от", "до", "не", "а", "но", "при", "этот", "эта", "эти", "свой", "также", "source", "facts", "about", "note", "summary", "material", "заметка", "заметки", "материал", "источник", "сведения", "связи", "признаки"])
 STRUCTURAL = {"main", "key", "root", "pool", "template"}
 
@@ -16,7 +16,7 @@ def terms(text):
             if w not in STOP and not w.isdigit() and not re.fullmatch(r"[a-f0-9]{16,}", w)}
 
 
-def content(text):
+def content(text, *, layout=False):
     """Preserve human labels and topical metadata; discard syntax and opaque identifiers."""
     topical = []
     technical_tags = set()
@@ -46,8 +46,12 @@ def content(text):
     text = re.sub(r"!?\[([^\]\n]*)\]\([^\n)]*\)", r"\1", text)
     text = re.sub(r"(?:https?://|obsidian://)\S+", "", text)
     text = re.sub(r"(?<!\w)#([\w/-]+)", lambda m: "" if m[1].casefold() in STRUCTURAL | technical_tags else m[1], text)
-    text = re.sub(r"(?m)^\s*(?:#{1,6}\s+|[-*+]\s+|>\s*)", "", text)
+    text = re.sub(r"(?m)^[ \t]*(?:[-*+][ \t]+|>[ \t]*)", "", text)
+    if not layout:
+        text = re.sub(r"(?m)^[ \t]*#{1,6}[ \t]+", "", text)
     text = re.sub(r"[\[\]`*_]", "", text)
+    if layout:
+        return re.sub(r'\n{3,}', '\n\n', '\n'.join(line.strip() for line in [*topical, *text.splitlines()])).strip()
     return "\n".join(line.strip() for line in [*topical, *text.splitlines()] if line.strip())
 
 
@@ -59,7 +63,7 @@ def template_signature(text):
     return re.sub(r'«[^»]+»|"[^"\n]+"', '<label>', text.casefold())
 
 
-def evidence(text):
+def evidence(text, *, layout=False):
     """Unfilled fields and headings of empty sections are structure, not facts.
 
     Applied to every document, including ordinary notes with a partial template.
@@ -74,7 +78,59 @@ def evidence(text):
                 end += 1
             if not terms(content('\n'.join(lines[index+1:end]))):
                 lines[index] = ''
-    return content('\n'.join(lines))
+    return content('\n'.join(lines), layout=layout)
+
+
+def prepare(text):
+    """One deterministic representation for documents and queries, with sections.
+
+    Offsets address prepared text, not canonical Markdown. Source section ranges
+    identify the original Markdown under its SHA; cleanup never rewrites a note.
+    """
+    from markdown_it import MarkdownIt
+    lines = text.splitlines(keepends=True)
+    offsets = [0]
+    for line in lines:
+        offsets.append(offsets[-1]+len(line))
+    headings = []
+    for token in MarkdownIt('commonmark').parse(text):
+        if token.type == 'heading_open' and token.map:
+            a, b = token.map
+            headings.append((content(''.join(lines[a:b])), offsets[a]))
+    result, sections, stack = '', [], []
+    current = {'start': 0, 'heading': '', 'source_start': 0}
+    cursor = 0
+    for line in evidence(text, layout=True).splitlines(keepends=True):
+        match = re.match(r'^(#{1,6})\s+(.+)', line)
+        source_start = next((position for name, position in headings if position >= cursor and
+                             match and name == match[2].strip()), None)
+        # A code sample may contain '# heading'. Only actual Markdown heading
+        # tokens establish section boundaries; preserve its text as body evidence.
+        if match and source_start is None:
+            line = match[2].strip()+'\n'
+            match = None
+        if match:
+            if len(result) > current['start']:
+                sections.append({**current, 'end': len(result)})
+            level, label = len(match[1]), match[2].strip()
+            stack = [(depth, value) for depth, value in stack if depth < level]+[(level, label)]
+            cursor = source_start+1
+            current = {'start': len(result), 'heading': ' / '.join(v for _, v in stack)[:800],
+                       'source_start': source_start}
+            line = label+'\n'
+        result += line
+    result = result.rstrip()
+    if len(result) > current['start']:
+        sections.append({**current, 'end': len(result)})
+    for i, section in enumerate(sections):
+        section['source_end'] = sections[i+1]['source_start'] if i+1 < len(sections) else len(text)
+    return {'text': result, 'sections': sections, 'version': VERSION}
+
+
+def chunk_text(text, span):
+    body = text[span['start']:span['end']]
+    heading = span.get('heading', '')
+    return (heading+'\n'+body) if heading and not body.startswith(heading) else body
 
 
 class Corpus:
