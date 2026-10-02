@@ -295,7 +295,7 @@
       "method": "GET",
       "path": "/api/v1/internal/chronos/monthly-template",
       "source": "src/mastermind/api.py",
-      "exposure": "canonical_https",
+      "exposure": "canonical_https_service_authenticated",
       "principal": "chronos_reporter",
       "indexable": false
     },
@@ -493,7 +493,7 @@
       "method": "POST",
       "path": "/api/v1/internal/chronos/monthly-reports",
       "source": "src/mastermind/api.py",
-      "exposure": "canonical_https",
+      "exposure": "canonical_https_service_authenticated",
       "principal": "chronos_reporter",
       "indexable": false
     },
