@@ -1,4 +1,4 @@
-import {ItemView, MarkdownView, Notice, TAbstractFile, TFile, WorkspaceLeaf} from "obsidian";
+import {ButtonComponent, ItemView, MarkdownView, Notice, TAbstractFile, TFile, WorkspaceLeaf} from "obsidian";
 import type MastermindBridge from "./main";
 import {contextQuery, RelatedController, RelatedResponse, RelatedState} from "./related_state";
 
@@ -23,7 +23,8 @@ export class RelatedNotesView extends ItemView {
     this.contentEl.empty();this.contentEl.addClass("mastermind-related");
     const heading=this.contentEl.createDiv({cls:"mastermind-related-heading"});
     heading.createEl("h3",{text:"Related notes"});
-    this.refreshEl=heading.createEl("button",{text:"Refresh",attr:{"aria-label":"Refresh related notes"}});
+    this.refreshEl=new ButtonComponent(heading).setButtonText("Refresh").buttonEl;
+    this.refreshEl.setAttribute("aria-label","Refresh related notes");
     this.sourceEl=this.contentEl.createDiv({cls:"mastermind-related-source"});
     this.statusEl=this.contentEl.createDiv({cls:"mastermind-related-status",attr:{role:"status","aria-live":"polite"}});
     this.itemsEl=this.contentEl.createEl("ul",{cls:"mastermind-related-list","attr":{"aria-label":"Related notes"}});

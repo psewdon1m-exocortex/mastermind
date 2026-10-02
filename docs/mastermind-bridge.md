@@ -25,6 +25,105 @@ Managed Bridge reads the names/history dictionary from the Bridge-only `/interna
 
 Use the native command palette's **Create note through Mastermind** and **Delete current note through Mastermind** commands. Rename/move coordinates native `FileManager.renameFile` and recognized `@` references. The required native “Automatically update internal links” preference must be enabled. Unknown external/plugin writes remain possible within Obsidian's inherited trust model; validation detects unsupported states and blocks later managed writes rather than pretending they passed preflight.
 
+## Bridge theme API
+
+Vault follows the active **Obsidian** theme, including live light/dark, accent and
+snippet changes. The Mastermind Shell's palette is not injected into the editor.
+Standard form rows, text fields and action buttons use `Setting`, `TextComponent`
+and `ButtonComponent`; dialogs and sidebars use native `Modal` and `ItemView`.
+Recommendation cards retain custom DOM inside semantic buttons. CSS owns their
+layout and uses the native semantic variables below for appearance.
+
+The following `--mm-*` properties are the public override contract for custom
+Bridge UI. With no override, each property falls back to the active Obsidian
+token at the element using it. Native buttons and inputs retain Obsidian's own
+component styling; use Obsidian tokens to theme those standard controls.
+
+| Public property | Default | Applies to |
+| --- | --- | --- |
+| `--mm-surface` | `--background-primary` | Related pane and pause overlay |
+| `--mm-surface-raised` | `--background-secondary` | Recommendation and resource cards |
+| `--mm-border` | `--background-modifier-border` | Card borders |
+| `--mm-text` | `--text-normal` | Custom UI text |
+| `--mm-text-muted` | `--text-muted` | Status, excerpts, unresolved references |
+| `--mm-text-faint` | `--text-faint` | Recommendation paths |
+| `--mm-text-accent` | `--text-accent` | Recommendation titles |
+| `--mm-text-error` | `--text-error` | Note-command error messages |
+| `--mm-link` | `--link-color` | References and resource entries |
+| `--mm-accent` | `--interactive-accent` | Recommendation hover border and keyboard focus |
+| `--mm-hover` | `--background-modifier-hover` | Recommendation hover surface |
+| `--mm-radius` | `--radius-s` | Card corners |
+| `--mm-card-shadow` | `--input-shadow`, otherwise `none` | Recommendation card shadow |
+| `--mm-font-interface` | `--font-interface` | Custom UI font family |
+| `--mm-line-height` | `--line-height-normal` | Custom UI line height |
+| `--mm-card-padding` | `--size-4-3` | Card padding |
+| `--mm-panel-padding` | `--size-4-4` | Related pane and pause overlay padding |
+| `--mm-gap` | `--size-4-2` (overlay: `--size-4-4`) | Card lists, heading and action groups |
+| `--mm-excerpt-lines` | `3` | Maximum visible lines in a recommendation excerpt |
+
+Put overrides in a theme or an Obsidian CSS snippet, for example:
+
+```css
+body {
+  --mm-surface-raised: var(--background-primary-alt);
+  --mm-radius: var(--radius-m);
+  --mm-card-shadow: none;
+}
+.mastermind-related {
+  --mm-card-padding: var(--size-4-2);
+  --mm-excerpt-lines: 5;
+}
+```
+
+Bridge intentionally uses `var(--mm-surface-raised, var(--background-secondary))`
+at the consuming property. It does **not** assign public defaults on local roots:
+such an assignment would mask an inherited `body` override, regardless of snippet
+load order. Tokens can therefore be inherited from `body` or scoped to one pane.
+No theme-name detection, JS color cache, hardcoded palette, global selectors or
+`!important` rules are needed. Fonts retain Obsidian's `--font-ui-*` sizes.
+Busy recommendations keep their text contrast; live status and `aria-busy`
+communicate the update. Narrow headings and action groups wrap instead of clipping.
+
+Stable styling hooks are `.mastermind-related`, `.mastermind-related-heading`,
+`.mastermind-related-source`, `.mastermind-related-status`,
+`.mastermind-related-list`, `.mastermind-related-item`, `.mastermind-related-path`,
+`.mastermind-related-reason`, `.mastermind-related-excerpt`, `.mastermind-resource`,
+`.mastermind-resource-actions`, `.mastermind-link-row`, `.mastermind-reference`,
+`.mastermind-status`, `.mastermind-muted`, `.mastermind-pause`,
+`.mastermind-command`, `.mastermind-command-path`, `.mastermind-command-actions`
+and `.mastermind-command-error`. Child structure is not a public API. Prefer tokens
+over descendant selectors. New CSS rules must remain scoped to a Bridge class.
+
+Graph rendering remains native Obsidian rendering. Bridge only contributes
+references and labels; it does not own graph colors, geometry or a Canvas/WebGL
+renderer. Consequently there are no `--mm-node-*`/`--mm-edge-*` tokens or separate
+GraphThemeAdapter. Style Settings is optional and is not a plugin dependency.
+
+Validation commands, from the repository root:
+
+```sh
+npm --prefix bridge run check
+npm --prefix bridge test
+npm ci --ignore-scripts
+npx playwright install chromium
+node scripts/probe_bridge_theming.cjs
+npm --prefix bridge run build
+python -m unittest discover -s bridge/tests -p 'test_release.py' -v
+```
+
+The browser probe renders production Bridge components and CSS with a minimal
+Obsidian DOM shim and synthetic theme tokens. It checks live theme/accent/snippet
+changes, focus, preserved busy contrast, narrow panes, large fonts, dialog
+submission/error/retry and resource action behavior. Screenshots and a machine
+report go to `artifacts/bridge-theming/`. The Bridge workflow runs this probe.
+These are isolated UI regression tests, **not** qualification against real
+Obsidian or specific community themes. Native qualification must additionally
+check Default light/dark, representative community themes, live accent/snippet
+changes and pop-out windows in the pinned Runtime. The implementation was tested
+locally with the isolated probe; native requalification was unavailable because
+the local Docker engine was not running. No owner's Vault or theme settings were
+changed by these tests.
+
 ## Related notes
 
 The **Related notes** ribbon button (lightbulb) or **Mastermind Bridge: Open related

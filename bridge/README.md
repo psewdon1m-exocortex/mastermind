@@ -39,6 +39,8 @@ generic release packages never contain anyone's notes, credentials or history.
   Do not use these standalone downloads to update a managed runtime independently.
 
 See [Bridge architecture and behavior](../docs/mastermind-bridge.md) for details.
+Theme authors can use the documented [Bridge theme API](../docs/mastermind-bridge.md#bridge-theme-api)
+to customize cards and panes through CSS snippets while preserving native Obsidian controls.
 Community Plugins directory submission and licensing decisions are separate from
 this initial download workflow. These prereleases are for manual installation.
 

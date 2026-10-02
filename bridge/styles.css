@@ -1,35 +1,93 @@
+/* Public --mm-* overrides intentionally have no local declarations: a snippet
+   on body (or on an individual component) must win over native-token fallbacks.
+   Contract and supported selectors: docs/mastermind-bridge.md#bridge-theme-api. */
+.mastermind-pause, .mastermind-related, .mastermind-resource, .mastermind-command {
+  font-family: var(--mm-font-interface, var(--font-interface));
+  color: var(--mm-text, var(--text-normal));
+  line-height: var(--mm-line-height, var(--line-height-normal));
+}
 .mastermind-pause {
   position: fixed; inset: 0; z-index: 2147483647;
-  background: var(--background-primary); color: var(--text-normal);
-  font-family: var(--font-interface); display: flex; flex-direction: column;
-  justify-content: center; align-items: center; gap: var(--size-4-4);
+  background: var(--mm-surface, var(--background-primary));
+  display: flex; flex-direction: column; justify-content: center; align-items: center;
+  gap: var(--mm-gap, var(--size-4-4)); padding: var(--mm-panel-padding, var(--size-4-4));
+  text-align: center; overflow: auto;
 }
-.mastermind-reference {color: var(--link-color); cursor: pointer; text-decoration: underline;}
-.mastermind-reference.is-unresolved {color: var(--text-muted); text-decoration-style: dashed;}
-.mastermind-status {color: var(--text-muted);}
-.mastermind-muted {color: var(--text-muted); font-size: var(--font-ui-small);}
-.mastermind-link-row {display: block; width: 100%; text-align: start; margin: var(--size-2-1) 0;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--link-color);}
-.mastermind-resource {display:block;margin:var(--size-4-3) 0;padding:var(--size-4-3);border:1px solid var(--background-modifier-border);
-  background:var(--background-secondary);color:var(--text-normal);overflow-wrap:anywhere;}
-.mastermind-resource img,.mastermind-resource video,.mastermind-resource audio {display:block;max-width:100%;height:auto;margin:var(--size-4-2) 0;}
-.mastermind-resource iframe {width:100%;height:60vh;border:0;}
-.mastermind-resource button,.mastermind-resource a {margin:var(--size-4-2);}
-.mastermind-related {padding:var(--size-4-4);overflow:auto;}
-.mastermind-related-heading {display:flex;align-items:center;justify-content:space-between;gap:var(--size-4-2);}
-.mastermind-related-heading h3 {margin:0;font-size:var(--font-ui-medium);}
-.mastermind-related-heading button {font-size:var(--font-ui-small);}
-.mastermind-related-source {margin-top:var(--size-4-3);font-weight:var(--font-medium);overflow-wrap:anywhere;}
-.mastermind-related-status {color:var(--text-muted);font-size:var(--font-ui-small);margin:var(--size-4-2) 0 var(--size-4-4);}
-.mastermind-related-list {list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--size-4-2);}
-.mastermind-related-item {display:flex;flex-direction:column;align-items:flex-start;gap:var(--size-2-2);height:auto;
-  width:100%;padding:var(--size-4-3);text-align:start;white-space:normal;overflow-wrap:anywhere;
-  border:1px solid var(--background-modifier-border);box-shadow:none;background:var(--background-secondary);}
-.mastermind-related-item:hover {background:var(--background-modifier-hover);border-color:var(--interactive-accent);}
-.mastermind-related-item:focus-visible {outline:2px solid var(--interactive-accent);outline-offset:2px;}
-.mastermind-related-item strong {color:var(--text-accent);font-size:var(--font-ui-medium);}
-.mastermind-related-path {color:var(--text-faint);font-size:var(--font-ui-smaller);}
-.mastermind-related-reason {color:var(--text-normal);font-size:var(--font-ui-smaller);}
-.mastermind-related-excerpt {color:var(--text-muted);font-size:var(--font-ui-small);line-height:1.5;
-  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}
-.mastermind-related.is-updating .mastermind-related-list {opacity:.6;}
+.mastermind-reference {color: var(--mm-link, var(--link-color)); cursor: pointer; text-decoration: underline;}
+.mastermind-reference.is-unresolved {color: var(--mm-text-muted, var(--text-muted)); text-decoration-style: dashed;}
+.mastermind-status, .mastermind-muted {color: var(--mm-text-muted, var(--text-muted));}
+.mastermind-muted {font-size: var(--font-ui-small);}
+.mastermind-link-row {
+  display: block; box-sizing: border-box; width: 100%; max-width: 100%; text-align: start;
+  height: auto; min-height: var(--input-height);
+  margin: var(--size-2-1) 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--mm-link, var(--link-color));
+}
+.mastermind-resource {
+  display: block; box-sizing: border-box; min-width: 0; margin: var(--size-4-3) 0;
+  padding: var(--mm-card-padding, var(--size-4-3));
+  border: 1px solid var(--mm-border, var(--background-modifier-border));
+  border-radius: var(--mm-radius, var(--radius-s));
+  background: var(--mm-surface-raised, var(--background-secondary)); overflow-wrap: anywhere;
+}
+.mastermind-resource img, .mastermind-resource video, .mastermind-resource audio {
+  display: block; max-width: 100%; height: auto; margin: var(--size-4-2) 0;
+}
+.mastermind-resource iframe {width: 100%; height: 60vh; border: 0;}
+.mastermind-resource-actions, .mastermind-command-actions {
+  display: flex; flex-wrap: wrap; gap: var(--mm-gap, var(--size-4-2)); margin-top: var(--size-4-3);
+}
+.mastermind-resource-actions button, .mastermind-command-actions button {
+  max-width: 100%; height: auto; min-height: var(--input-height); white-space: normal;
+}
+.mastermind-related {
+  padding: var(--mm-panel-padding, var(--size-4-4)); overflow: auto;
+  background: var(--mm-surface, var(--background-primary));
+}
+.mastermind-related-heading {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--mm-gap, var(--size-4-2));
+}
+.mastermind-related-heading h3 {margin: 0; font-size: var(--font-ui-medium); overflow-wrap: anywhere;}
+.mastermind-related-heading button {
+  font-size: var(--font-ui-small); height: auto; min-height: var(--input-height);
+  max-width: 100%; white-space: normal;
+}
+.mastermind-related-source {margin-top: var(--size-4-3); font-weight: var(--font-medium); overflow-wrap: anywhere;}
+.mastermind-related-status {
+  color: var(--mm-text-muted, var(--text-muted)); font-size: var(--font-ui-small);
+  margin: var(--size-4-2) 0 var(--size-4-4);
+}
+.mastermind-related-list {
+  list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column;
+  gap: var(--mm-gap, var(--size-4-2));
+}
+.mastermind-related-item {
+  display: flex; flex-direction: column; align-items: flex-start; gap: var(--size-2-2);
+  box-sizing: border-box; min-width: 0; height: auto; width: 100%;
+  padding: var(--mm-card-padding, var(--size-4-3)); text-align: start; white-space: normal; overflow-wrap: anywhere;
+  font-family: inherit; line-height: var(--mm-line-height, var(--line-height-normal));
+  color: var(--mm-text, var(--text-normal));
+  border: 1px solid var(--mm-border, var(--background-modifier-border));
+  border-radius: var(--mm-radius, var(--radius-s));
+  box-shadow: var(--mm-card-shadow, var(--input-shadow, none));
+  background: var(--mm-surface-raised, var(--background-secondary));
+}
+.mastermind-related-item > * {max-width: 100%; min-width: 0;}
+.mastermind-related-item:hover {
+  background: var(--mm-hover, var(--background-modifier-hover)); border-color: var(--mm-accent, var(--interactive-accent));
+}
+.mastermind-related-item:focus-visible {outline: 2px solid var(--mm-accent, var(--interactive-accent)); outline-offset: 2px;}
+.mastermind-related-item strong {color: var(--mm-text-accent, var(--text-accent)); font-size: var(--font-ui-medium);}
+.mastermind-related-path {color: var(--mm-text-faint, var(--text-faint)); font-size: var(--font-ui-smaller);}
+.mastermind-related-reason {color: var(--mm-text, var(--text-normal)); font-size: var(--font-ui-smaller);}
+.mastermind-related-excerpt {
+  color: var(--mm-text-muted, var(--text-muted)); font-size: var(--font-ui-small);
+  display: -webkit-box; -webkit-line-clamp: var(--mm-excerpt-lines, 3); -webkit-box-orient: vertical; overflow: hidden;
+}
+/* Updating is conveyed by the live status and aria-busy, without dimming text. */
+.mastermind-command-path {flex-wrap: wrap; gap: var(--mm-gap, var(--size-4-2));}
+.mastermind-command-path .setting-item-control {flex: 1 1 100%; min-width: 0;}
+.mastermind-command-path input {width: 100%; min-width: 0;}
+.mastermind-command-actions {justify-content: flex-end;}
+.mastermind-command-error {color: var(--mm-text-error, var(--text-error)); overflow-wrap: anywhere;}

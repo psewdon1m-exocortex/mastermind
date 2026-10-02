@@ -48,6 +48,20 @@ jobs:
           npm --prefix bridge test
           npm --prefix bridge run build
           python -m unittest discover -s bridge/tests -p 'test_release.py' -v
+      - name: Test Bridge theming and UI contracts in isolated Chromium
+        run: |
+          npm ci --ignore-scripts
+          npx playwright install --with-deps chromium
+          npm run test:bridge-ui
+      - name: Retain isolated UI evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bridge-ui-${{ github.sha }}
+          path: artifacts/bridge-theming/
+          if-no-files-found: warn
+          retention-days: 30
+          overwrite: true
       - name: Package the exact build and verify the installation archive
         env:
           BUILD_REF: ${{ github.ref }}

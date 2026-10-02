@@ -1,0 +1,59 @@
+/* Synthetic host tokens, not a copy of Obsidian or a community theme. */
+body {
+  --background-primary: #fff;
+  --background-secondary: #f5f5f5;
+  --background-modifier-border: #aaa;
+  --background-modifier-hover: #e5e5e5;
+  --text-normal: #222;
+  --text-muted: #555;
+  --text-faint: #666;
+  --text-accent: #633bb5;
+  --text-error: #b00020;
+  --interactive-accent: #633bb5;
+  --link-color: #633bb5;
+  --interactive-normal: #fafafa;
+  --font-interface: system-ui;
+  --font-ui-medium: 16px;
+  --font-ui-small: 14px;
+  --font-ui-smaller: 12px;
+  --font-medium: 500;
+  --line-height-normal: 1.6;
+  --radius-s: 5px;
+  --input-height: 32px;
+  --input-shadow: 0 1px 2px #0002;
+  --size-2-1: 2px;
+  --size-2-2: 4px;
+  --size-4-2: 8px;
+  --size-4-3: 12px;
+  --size-4-4: 16px;
+  color: var(--text-normal); background: var(--background-primary);
+  font: var(--font-ui-medium)/var(--line-height-normal) var(--font-interface); margin: 0;
+}
+body.theme-dark {
+  --background-primary: #202020;
+  --background-secondary: #303030;
+  --background-modifier-border: #777;
+  --background-modifier-hover: #444;
+  --text-normal: #eee;
+  --text-muted: #ccc;
+  --text-faint: #bbb;
+  --text-accent: #c4a5ff;
+  --interactive-accent: #c4a5ff;
+  --link-color: #c4a5ff;
+  --interactive-normal: #393939;
+}
+* {box-sizing: border-box;}
+button, input {font: inherit; color: var(--text-normal); border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s); padding: 4px 10px; background: var(--interactive-normal);}
+button {height: var(--input-height); box-shadow: var(--input-shadow); cursor: pointer;}
+button:disabled {opacity: .5; cursor: default;}
+button.mod-cta {border-color: var(--interactive-accent);}
+button.mod-destructive {color: var(--text-error);}
+.setting-item {display: flex; align-items: center; justify-content: space-between;}
+.setting-item-control {display: flex;}
+.modal {position: fixed; top: 24px; left: 24px; width: min(480px, calc(100vw - 48px));
+  padding: 24px; border: 1px solid var(--background-modifier-border); background: var(--background-primary);}
+.modal h2 {margin-top: 0; font-size: var(--font-ui-medium);}
+#workspace {display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; padding: 24px;}
+#resource-column {min-width: 0;}
+#related {min-width: 0;}

@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "test:bridge": "npm --prefix bridge test",
+    "test:bridge-ui": "node scripts/probe_bridge_theming.cjs",
     "build:bridge": "npm --prefix bridge run build",
     "test:shell": "node scripts/probe_shell.cjs",
     "test:soak": "node scripts/soak_runtime.cjs"

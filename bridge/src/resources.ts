@@ -1,4 +1,4 @@
-import {MarkdownRenderChild, Modal, Notice} from "obsidian";
+import {ButtonComponent, MarkdownRenderChild, Modal, Notice} from "obsidian";
 import {randomBytes} from "node:crypto";
 import {ClientRequest, IncomingMessage, ServerResponse, request} from "node:http";
 import type MastermindBridge from "./main";
@@ -103,18 +103,20 @@ export class ResourceCard extends MarkdownRenderChild {
       }else if(mime==="application/pdf"){
         element.createEl("iframe",{attr:{src:media.url,title:metadata.name||"Saturn PDF",sandbox:"allow-scripts allow-same-origin"}});
       }
-      const download=element.createEl("button",{text:"Download"});
-      download.onclick=()=>{download.disabled=true;void this.bridge.core("/external/download",{target:this.target})
+      const actions=element.createDiv({cls:"mastermind-resource-actions"});
+      const download=new ButtonComponent(actions).setButtonText("Download");
+      download.onClick(()=>{download.setDisabled(true);void this.bridge.core("/external/download",{target:this.target})
         .then(()=>new Notice("Download is ready in the Vault toolbar."))
         .catch(()=>new Notice("Could not prepare this download."))
-        .finally(()=>{download.disabled=false;});};
-      const refresh=element.createEl("button",{text:"Refresh"});refresh.onclick=()=>void this.refresh();
+        .finally(()=>{download.setDisabled(false);});});
+      new ButtonComponent(actions).setButtonText("Refresh").onClick(()=>void this.refresh());
     }catch{
       if(generation!==this.generation)return;
       this.state="unavailable";
       this.containerEl.empty();this.containerEl.createDiv({text:this.kind+" unavailable"});
       this.containerEl.createDiv({text:this.target,cls:"mastermind-muted"});
-      const retry=this.containerEl.createEl("button",{text:"Retry"});retry.onclick=()=>void this.refresh();
+      const actions=this.containerEl.createDiv({cls:"mastermind-resource-actions"});
+      new ButtonComponent(actions).setButtonText("Retry").onClick(()=>void this.refresh());
       this.timer=setTimeout(()=>{if(this.inViewport)void this.refresh();else this.state="loading";},30000);
     }
   }
@@ -122,12 +124,13 @@ export class ResourceCard extends MarkdownRenderChild {
     const parameters=new URLSearchParams({path,limit:"100"});if(cursor)parameters.set("cursor",cursor);
     const result=await this.bridge.core<{entries:Entry[];next_cursor:string|null}>("/resources?"+parameters);
     if(generation!==this.generation)return;
-    for(const entry of result.entries){const button=this.containerEl.createEl("button",{
-      text:(entry.type==="folder"?"▸ ":"")+(entry.name||entry.path.split("/").pop()),cls:"mastermind-link-row"});
-      button.onclick=()=>openResource(this.bridge,"saturn",entry.path);
+    for(const entry of result.entries){
+      new ButtonComponent(this.containerEl).setButtonText((entry.type==="folder"?"▸ ":"")+(entry.name||entry.path.split("/").pop()||entry.path))
+        .setClass("mastermind-link-row").onClick(()=>openResource(this.bridge,"saturn",entry.path));
     }
-    if(result.next_cursor){const more=this.containerEl.createEl("button",{text:"Load more"});
-      more.onclick=()=>{more.remove();void this.list(path,result.next_cursor,generation).catch(()=>new Notice("Saturn listing is unavailable."));};}
+    if(result.next_cursor){const actions=this.containerEl.createDiv({cls:"mastermind-resource-actions"});
+      new ButtonComponent(actions).setButtonText("Load more").onClick(()=>{
+        actions.remove();void this.list(path,result.next_cursor,generation).catch(()=>new Notice("Saturn listing is unavailable."));});}
   }
 }
 

@@ -3,6 +3,7 @@ import {readFile, mkdir} from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 await import('./tests/related.mjs');
+await import('./tests/theming.mjs');
 await mkdir('dist',{recursive:true});
 await build({entryPoints:['src/portable_parser.ts'],outfile:'dist/portable-parser.cjs',bundle:true,platform:'node',format:'cjs'});
 const {parse}=createRequire(import.meta.url)('./dist/portable-parser.cjs');
