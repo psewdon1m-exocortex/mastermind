@@ -7,7 +7,6 @@ from .errors import DomainError
 from .fs import safe_relative, sha_bytes
 from .references import parse
 
-
 SLOT = re.compile(r"\{\{([^{}\n]+)\}\}")
 ALLOWED_SLOTS = {
     "chronos.month", "chronos.month_title", "chronos.timezone", "chronos.period",
