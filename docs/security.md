@@ -12,6 +12,7 @@ The service is non-indexable and access controlled. Nginx is the only public ent
 | Runtime/Bridge | Canonical Vault and own Runtime state; no Core database or provider/agent secrets |
 | Worker | Current job source/chunks and private work directory; no canonical commit |
 | Chronos reader | Minimal authenticated event card |
+| Chronos monthly reporter | Read one Vault template under `root/templates/` and create one immutable report note per calendar month in the Vault root |
 | Neptune | Own archive/mirror registration and independent read-only resource credential |
 | Updater | Registered Mastermind head, verified group manifest, bounded sealed backup spool and recovery |
 
@@ -24,6 +25,7 @@ Core resolves these bindings through Kernel; Register contains Volt references, 
 | Core name | Kernel binding suffix below `services.mastermind.secrets.` |
 | --- | --- |
 | `chronos_service_token` | `chronos_service_token` |
+| `chronos_report_token` | `chronos_report_token` |
 | `share_pepper_v1` | `share_pepper_v1` |
 | `recovery_identity` | `recovery_identity_v1` |
 | `recovery_recipient` | `recovery_recipient_v1` |

@@ -57,5 +57,11 @@ if destination.exists():
     assert destination.read_text() == value, "Existing local credential differs from the generated fixture"
 else:
     destination.write_text(value, encoding="utf-8")
+report_destination = ROOT / ".local/secrets/core/chronos_report_token"
+report_value = (FIXTURE / "chronos-report.token").read_text()
+if report_destination.exists():
+    assert report_destination.read_text() == report_value, "Existing report credential differs from the generated fixture"
+else:
+    report_destination.write_text(report_value, encoding="utf-8")
 record_path.write_text(json.dumps({"event_id": event["public_id"], "paths": paths, "media_fixture_image": fixture_image}))
 print("PASS: actual Saturn image/video/audio/PDF fixtures and minimal Chronos event prepared.")

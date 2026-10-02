@@ -45,7 +45,7 @@ def seed_register():
     checked(volt.post("/api/v1/session", json={"access_key": (FIXTURE / "volt-access").read_text()}))
     defaults = json.loads((ROOT / ".local/services/kernel/data/defaults/register.json").read_text())
     values = {item["key"]: "integration-unconfigured" for item in defaults}
-    for service in ("kernel", "volt", "saturn", "chronos"):
+    for service in ("kernel", "volt", "saturn", "chronos", "mastermind"):
         values.update({f"services.{service}.sni": service + ".mastermind.test", f"services.{service}.port": "443"})
     values.update({"services.saturn.paths.backup_ingest": "/api/v1/backups", "services.saturn.paths.sync": "/dav/",
                    "mastermind.crusher.text_model": "integration-text-model", "mastermind.crusher.video_model": "integration-video-model",

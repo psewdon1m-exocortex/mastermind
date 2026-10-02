@@ -35,6 +35,7 @@ from .integrations import Chronos, Neptune, resource_path
 from .kernel import Kernel
 from .locking import FileMutex
 from .native_rename import NativeRename
+from .monthly_reports import create_report, template_info
 from .references import excluded_spans, parse
 from .restore import Restore
 from .runtime_client import RuntimeClient
@@ -405,6 +406,12 @@ def create_app(config=None, service=None):
                                                          "Bearer " + read_credential_file(configured)):
             raise DomainError("UNAUTHORIZED", "Updater authorization is required.", 401)
 
+    def chronos_report_agent(request: Request):
+        token = context.secrets.read("chronos_report_token")
+        if not token or not hmac.compare_digest(request.headers.get("authorization", ""), "Bearer " + token):
+            raise DomainError("UNAUTHORIZED", "Chronos report authorization is required.", 401)
+        context.data_ready()
+
     def cookies(response, session):
         response.set_cookie(OWNER_COOKIE, session["token"], max_age=12*3600, secure=True, httponly=True,
                             samesite="strict", path="/")
@@ -489,6 +496,15 @@ def create_app(config=None, service=None):
     def notes(query: str = "", limit: int = 100, offset: int = 0):
         context.data_ready()
         return context.vault.list(query, limit, offset)
+
+    @app.get("/api/v1/internal/chronos/monthly-template", dependencies=[Depends(chronos_report_agent)])
+    async def chronos_monthly_template(path: str):
+        return await asyncio.to_thread(template_info, context, path)
+
+    @app.post("/api/v1/internal/chronos/monthly-reports", dependencies=[Depends(chronos_report_agent)])
+    async def chronos_monthly_report(request: Request):
+        data = await bounded_json(request, min(context.config.max_note_bytes, 256 * 1024) + 4096)
+        return await asyncio.to_thread(create_report, context, data)
 
     @app.get("/api/note", dependencies=[Depends(owner)])
     def note(path: str):

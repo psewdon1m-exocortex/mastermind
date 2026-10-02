@@ -293,6 +293,15 @@
     {
       "component": "core",
       "method": "GET",
+      "path": "/api/v1/internal/chronos/monthly-template",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "chronos_reporter",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
       "path": "/healthz",
       "source": "src/mastermind/api.py",
       "exposure": "canonical_https",
@@ -477,6 +486,15 @@
       "source": "src/mastermind/api.py",
       "exposure": "canonical_https",
       "principal": "owner",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "POST",
+      "path": "/api/v1/internal/chronos/monthly-reports",
+      "source": "src/mastermind/api.py",
+      "exposure": "canonical_https",
+      "principal": "chronos_reporter",
       "indexable": false
     },
     {

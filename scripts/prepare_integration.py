@@ -94,6 +94,7 @@ save("volt-env.json", json.dumps({
 token("neptune-control.token")
 token("neptune-export.token")
 token("chronos-reader.token")
+token("chronos-report.token")
 save("chronos-env.json", json.dumps({
     "DATABASE_URL": saturn["DATABASE_URL"].removesuffix("/vault") + "/chronos",
     "CHRONOS_ACCESS_KEY": token("chronos-access"), "CHRONOS_SESSION_SECRET": token("chronos-session"),
@@ -126,7 +127,11 @@ save("nginx.conf", "user nginx;\nevents {}\nhttp { access_log off; error_log /de
          "proxy_set_header Host $host; proxy_set_header X-Forwarded-Proto https; proxy_set_header X-Forwarded-For $remote_addr; }}"
          for name, port in [("kernel", 18180), ("volt", 18184), ("saturn", 3000), ("chronos", 18280)]) +
      "\nserver { listen 443 ssl; server_name neptune.mastermind.test; ssl_certificate /fixture/tls.crt; ssl_certificate_key /fixture/tls.key; "
-     "location / { proxy_pass http://unix:/run/neptune/neptuned.sock:; }}\n}\n")
+     "location / { proxy_pass http://unix:/run/neptune/neptuned.sock:; }}\n"
+     "server { listen 443 ssl; server_name mastermind.test; ssl_certificate /fixture/tls.crt; ssl_certificate_key /fixture/tls.key; "
+     "resolver 127.0.0.11 valid=10s; set $mastermind_core mastermind-core; "
+     "location / { proxy_pass http://$mastermind_core:18390; proxy_set_header Host $host; "
+     "proxy_set_header X-Forwarded-Proto https; proxy_set_header X-Forwarded-For $remote_addr; }}\n}\n")
 
 common = {"restart": "no", "logging": {"driver": "json-file", "options": {"max-size": "10m", "max-file": "3"}},
           "networks": ["private"], "security_opt": ["no-new-privileges:true"], "pids_limit": 256}
@@ -177,7 +182,7 @@ services["gateway"] = {**common,
     "image": "nginx:1.29.4-alpine@sha256:4870c12cd2ca986de501a804b4f506ad3875a0b1874940ba0a2c7f763f1855b2",
     "entrypoint": ["nginx", "-g", "daemon off;", "-c", "/fixture/nginx.conf"], "mem_limit": "128m",
     "volumes": ["./:/fixture:ro", "neptune-socket:/run/neptune:ro"], "ports": ["127.0.0.1:19441:443"],
-    "networks": {"private": {"ipv4_address": "10.194.0.10", "aliases": [name + ".mastermind.test" for name in ["kernel", "volt", "saturn", "chronos"]]}, "edge": {"ipv4_address": "172.31.0.2"}},
+    "networks": {"private": {"ipv4_address": "10.194.0.10", "aliases": [name + ".mastermind.test" for name in ["kernel", "volt", "saturn", "chronos"]] + ["mastermind.test"]}, "edge": {"ipv4_address": "172.31.0.2"}},
     "depends_on": ["kernel", "volt", "saturn", "chronos", "neptune"]}
 services["saturn"]["depends_on"].update(postgres={"condition": "service_healthy"}, sftp={"condition": "service_started"})
 save("compose.yml", yaml.safe_dump({"name": "mastermind-integration", "services": services,
@@ -192,7 +197,7 @@ save("core-override.yml", yaml.safe_dump({"services": {"core": {
         "MASTERMIND_NEPTUNE_TOKEN_FILE": "/run/integration/neptune-control.token",
         "MASTERMIND_NEPTUNE_EXPORT_TOKEN_FILE": "/run/integration/neptune-export.token"},
     "volumes": [str(FIXTURE) + ":/run/integration:ro", "integration-neptune-socket:/run/neptune:ro"],
-    "networks": ["integration-private"]}},
+    "networks": {"integration-private": {"aliases": ["mastermind-core"]}}}},
     "networks": {"integration-private": {"external": True, "name": "mastermind-integration_private"}},
     "volumes": {"integration-neptune-socket": {"external": True, "name": "mastermind-integration_neptune-socket"}}}, sort_keys=False))
 print("Generated isolated integration fixture, TLS trust and protected test identities.")

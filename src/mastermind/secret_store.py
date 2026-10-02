@@ -38,6 +38,7 @@ class SecretStore:
 # Provision them through Volt/Kernel; never infer an unrelated existing record.
 SHELL_BINDINGS = {
     "chronos_service_token": "services.mastermind.secrets.chronos_service_token",
+    "chronos_report_token": "services.mastermind.secrets.chronos_report_token",
     "share_pepper_v1": "services.mastermind.secrets.share_pepper_v1",
     "recovery_identity": "services.mastermind.secrets.recovery_identity_v1",
     "recovery_recipient": "services.mastermind.secrets.recovery_recipient_v1",
