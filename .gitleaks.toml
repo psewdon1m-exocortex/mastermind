@@ -8,6 +8,6 @@ useDefault = true
 description = "Requirements table describes revoke/repair/idempotency"
 condition = "AND"
 targetRules = ["generic-api-key"]
-paths = ['''(?:^|/)(?:mastermind_service_requirements_final|requirements)\.md$''']
+paths = ['''(?:^|/)(?:mastermind_service_requirements_final|requirements|docs/history/design/requirements-2026-09)\.md$''']
 regexTarget = "secret"
 regexes = ['''^revoke/repair/idempotency$''']
