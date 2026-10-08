@@ -1,6 +1,11 @@
 # Deployment
 
-The supported production topology is Linux amd64, Docker Engine with Compose v2, three pinned images, an existing host Nginx, Kernel/Volt and the qualified host Updater. Neptune is enrolled separately through Settings. The development fixture is not a production bootstrap. Current unpublished producer patches and their qualification status are recorded in [compatibility.json](compatibility.json).
+The production contract is Linux amd64, Docker Engine with Compose v2, three
+pinned images, existing host Nginx and Kernel/Volt. Under central Part 13, the
+installer ensures Updater, Neptune, Gryphon and default local Wyvern; scoped
+enrollment and enabling service functions are separate steps. The development
+fixture is not a production bootstrap. See [Compatibility](compatibility.md) for
+producer qualification and [Conformance](conformance.md) for outstanding gaps.
 
 ## Prepare, configure, install
 
@@ -16,7 +21,7 @@ Preparation starts no application and changes no ingress. It generates internal 
 | `TRUST_CA_FILE` | Optional existing CA bundle; empty selects the system trust store |
 | `MASTERMIND_TIMEZONE` | IANA timezone; defaults to UTC |
 
-Then run `sudo mastermind-install install`. The installer validates immutable locks and file hashes, pulls the three exact linux/amd64 images, installs or reuses the host Updater, registers only the Mastermind head and initializes only its owned volumes. It preserves other host agent registrations and never installs/reloads Nginx.
+Then run `sudo mastermind-install install`. The installer validates immutable locks and file hashes, pulls the three exact linux/amd64 images, installs or reuses the declared host dependencies, registers only the Mastermind head and scoped clients and initializes only its owned volumes. It preserves other host agent registrations and never installs/reloads Nginx.
 
 ## Secrets and volumes
 
@@ -40,7 +45,12 @@ Inspect `installation.json`, `mastermind-install status` and `mastermind-install
 
 An operator renders `packaging/nginx/mastermind-server.conf.template` with the exact hostname and existing certificate paths. Include `mastermind-http.conf` once inside the existing `http` block. The template binds Host and TLS SNI, protects private paths, applies upload/rate limits and redacts capability paths. Run `nginx -t`, reload the existing host Nginx, then verify HTTPS from an independent client. Do not expose the raw Runtime, Worker or host agent sockets.
 
-Sign in using the generated Access Key file, open Vault and confirm trust for the expected Vault. Enter a fresh 32-character Mastermind code from Saturn Synchronization in Settings → Backup → Initialize. `COMPLETED` requires the actual archive, mirror and authenticated reader. Repeat doctor and run both pipelines. Public DNS/certificate/external-vantage acceptance is an operator deployment check; a local test certificate does not certify a real public hostname.
+Sign in using the generated Access Key file, open Vault and confirm trust for the expected Vault. Enter a fresh 32-character Mastermind code from Saturn Synchronization in Settings → Backup → Initialize. The setup code declares archive, mirror or both capabilities. `COMPLETED` requires
+all declared capabilities; mirror includes the authenticated resource reader.
+Archive-only enrollment does not grant resource reads. Repeat doctor and observe
+the selected schedules and remote receipts. Paired profiles retain one shared
+enabled state and hourly interval. Enabling schedules does not request an immediate
+manual remote run. See the selective-enrollment qualification gap in Conformance. Public DNS/certificate/external-vantage acceptance is an operator deployment check; a local test certificate does not certify a real public hostname.
 
 ## Repetition and failure
 

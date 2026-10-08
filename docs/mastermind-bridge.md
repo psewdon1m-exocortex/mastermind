@@ -148,7 +148,7 @@ eligible, both as sources and candidates, with the same content requirements.
 Each card distinguishes an explicit link from content similarity and includes a short
 reason and a cleaned evidence excerpt. There is no minimum number of cards: the pane
 can abstain when it finds insufficient evidence, regardless of the note's role.
-Graph-only matches without topical evidence are omitted. Curator and Crusher's
+Graph-only matches without topical evidence are omitted. Bibliotekar and Crusher's
 placement/generation policy do not run. Search can return lexical suggestions
 with an incomplete-search notice while vectors are unavailable or rebuilding.
 There is one recommendation slot in Core and no unbounded inference queue.
@@ -158,8 +158,10 @@ remain local. Portable mode displays an explanation because it has no Core
 context-indexing connection. Native UI qualification is available through
 `scripts/qualify_related_notes.py`, using synthetic notes and actual local E5;
 it does not alter or deploy the owner's running Vault.
-The latest [quality regression report](related-notes-quality.md) covers template noise,
+The historical [pre-Weaver quality regression report](history/related-notes-2026-09-20.md) covers template noise,
 scope, directory relocation, multilingual retrieval and placement compatibility.
+The newer representation and measured acceptance boundary are documented in
+[Weaver](WEAVER.md#measurement-record-and-decisions).
 
 ## Process and transport lifecycle
 
@@ -168,6 +170,14 @@ The supervisor permits only fixed typed operations for the pinned editor and its
 The browser reaches KasmVNC only through Core's authenticated owner gateway. Logout, key rotation and session expiry revoke an existing WebSocket, including after the initial upgrade. The upstream KasmVNC connection does not use WebSocket Ping because the qualified server does not answer it; owner authorization is still revalidated continuously. Reconnect and full-screen retain native behavior.
 
 ## Portable export
+
+Settings → Backup also offers **Download Vault ZIP / Restore Vault ZIP** for the
+exact complete Vault folder, including `.obsidian`, attachments and plugin data.
+This plain format adds no portable-history snapshot. Unzip it and open the resulting
+directory as the Vault root in standard Obsidian. Manual restore replaces the whole
+managed Vault after inspection and confirmation, preserving Shell settings and
+reinstalling the current managed Bridge. It does not merge offline edits or add
+automatic synchronization; see [backup and restore](backup-restore.md).
 
 The owner portable-export API produces a filesystem copy, preserving original user files. The Vault tab exposes only Reconnect and Fullscreen; it no longer offers a portable-export button. Its own Bridge area contains a credential-free reference-history snapshot. The copy opens in standard pinned Obsidian outside Mastermind. With Bridge enabled on 1.13.7, native graphs and link panes retain the `@` integration using local names and that history. External nodes remain visible, but live Chronos/Saturn cards require the managed service connection and show unavailable in a portable copy. Native Markdown/wikilinks remain readable without Bridge; custom `@` behavior requires Bridge. There is no synchronization back from the exported copy.
 

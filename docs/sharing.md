@@ -42,7 +42,11 @@ all of that Share's visitor sessions and projections.
 
 ## Direct editing and collision policy
 
-Protected links first show a centered password gate with service reachability.
+Protected links first show a centered password gate. The new light presentation
+explains the password's purpose and reports service failures when relevant.
+The dark Mastermind presentation remains available with `?legacy=1`; both use
+the same access and editing mechanism. See [public Shared UI](public-shared.md)
+for scope, the private visual exception and verification.
 After unlocking, the title appears directly above the note. View permission
 renders sanitized Markdown; Edit permission opens inline Markdown fields
 immediately without an Edit toggle. Protected blocks are immutable placeholders.
@@ -72,7 +76,9 @@ This applies to two visitors, an owner API write and native Obsidian edits.
 The policy favors explicit review over silent last-write-wins, including changes
 to different paragraphs. Revocation, expiry and permission changes stop writes.
 
-`probe_public_editing.cjs` qualifies actual server saves, two browser sessions,
+`qualify_public_shared.py` runs paired new/legacy browser scenarios against an
+isolated real Core and synthetic Vault. `probe_public_editing.cjs` qualifies the
+retained legacy view's actual server saves, two browser sessions,
 in-flight typing, polling races, explicit merge and protected-byte preservation.
 `probe_native_shared.cjs` qualifies the same collision against a real edit in
 the native Obsidian viewport using one disposable note. Both clean up their test

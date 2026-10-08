@@ -1310,6 +1310,24 @@
     {
       "component": "core",
       "method": "GET",
+      "path": "/s/{token}/brand.png",
+      "source": "src/mastermind/shared_routes.py",
+      "exposure": "canonical_https",
+      "principal": "share_entry",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
+      "path": "/s/{token}/font-regular.woff2",
+      "source": "src/mastermind/shared_routes.py",
+      "exposure": "canonical_https",
+      "principal": "share_entry",
+      "indexable": false
+    },
+    {
+      "component": "core",
+      "method": "GET",
       "path": "/s/{token}/font.woff2",
       "source": "src/mastermind/shared_routes.py",
       "exposure": "canonical_https",

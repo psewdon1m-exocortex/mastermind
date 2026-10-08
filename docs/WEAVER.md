@@ -1,57 +1,74 @@
 # Weaver
 
-Weaver is Mastermind's internal graph work engine. It retrieves information,
-compares notes, traverses references and executes placement requested by Crusher.
-Bibliotekar is its optional local AI search-refinement assistant.
+Weaver is Mastermind's internal engine for retrieving and organizing knowledge in
+an Obsidian Vault. It finds relevant notes and passages, follows existing links,
+and plans and executes authorized note placement. It returns the result to the
+service that requested the work. Bibliotekar is its optional local AI assistant
+for refining a search.
 
-## Authority and implementation scope
+Concept and implementation boundaries reviewed on **2026-10-06**. The new
+[retrieval and evidence contract](weaver-evidence.md) documents implemented
+task-specific relevance, common evidence/diagnostics, bounded Lookup planning,
+context expansion and registered consumer placement profiles, with local tests
+and quality measurements. The older qualification record below is dated
+**2026-10-02**. Neither record constitutes deployment acceptance for a new build.
 
-The workspace `.docs/PART_00_SYSTEM_UNIFICATION_SPECIFICATION.md` is authoritative;
-the [vendored policy index](policy/README.md) documents the standalone snapshot.
-This change preserves the existing Core/Worker trust boundary,
-private Bridge authentication, canonical Vault coordinator and schema-2 durable
-Crusher jobs. It does not publish a release or modify sibling services.
+## Concept
 
-| Guide | Applicability and verification |
+Weaver makes an ordinary Vault usable as a knowledge source for RAG consumers.
+It supplies retrieval and knowledge organization; the consuming service decides
+how to use the retrieved material. Answer generation is outside Weaver's current
+scope and is not needed for its search, recommendation or traversal operations.
+
+The useful mental model is a spider with both a map of existing links and a search
+index. Given a work order, it locates relevant material, can follow references to
+related objects, checks the evidence and returns a bounded result. Given prepared
+new content and an authorized placement policy, it can attach that content to the
+appropriate part of the graph. It does not roam indefinitely or reorganize the
+Vault on its own initiative. Background maintenance keeps derived indexes current;
+consumer requests determine retrieval and placement work.
+
+Weaver combines three views of the same knowledge:
+
+| View | Meaning |
 | --- | --- |
-| Part 01 | Combined Obsidian/Weaver Settings, accessible existing controls, embedded documentation |
-| Part 02 | Bounded timing/evidence diagnostics; no raw editor buffers or credentials in logs |
-| Part 03 | Settings and job checkpoints mandatory; vectors and indexes derived; restore/rebuild tests |
-| Part 04 | Core/Worker packages and health; no new deployment unit or listener |
-| Part 05 | Pinned native search dependency, previous-data compatibility, candidate startup |
-| Part 06 | Regression, quality, performance and integration evidence collected separately |
-| Part 07 | Scoped retrieval before ranking, canonical source verification, mutation authority |
-| Part 08 | N/A: no public indexable surface is added |
-| Parts 09–13 | Shared-agent ownership/installers unchanged; inspect integration regressions |
+| Canonical Vault | Markdown notes, their metadata, local attachments and recorded references; canonical content remains the source of truth |
+| Explicit graph | Resolved links between notes and references to other objects; traversal follows these actual relationships |
+| Derived search representations | Prepared text, lexical indexes, passage embeddings and branch profiles that help discover relevant material |
 
-## Verification record
+Graph proximity and semantic relevance answer different questions. `Walk` tells
+a caller what is connected to a starting note. `Lookup` and `Similar` can discover
+relevant notes even when no link connects them to the starting context. A semantic
+match is a recommendation, not a newly created graph edge. Directory nesting is
+not graph structure, and directory location does not confer topical relevance.
 
-Baseline revision: `0caf638`. Before implementation, the semantic, related-note,
-context-indexing, Curator and Crusher suites passed: **92 tests**.
-Real-model reports are written to `artifacts/weaver/` using synthetic data only.
-This document describes the implementation added on 2026-10-02. Older
-context-indexing ledgers describe earlier revisions, not acceptance of this one.
+For example, while someone writes about aircraft, `Similar` may suggest existing
+notes about aircraft designers or construction materials when their content
+supports that relationship. As the editor context changes, the Bridge requests
+updated suggestions. `Walk` instead returns existing connections around a selected
+note. Neither read operation adds links or changes the note being edited.
 
-Final native suite: **655 passed, 16 skipped**, 113.5 seconds. The skipped platform
-checks still require Linux. An earlier run hit the existing Windows watcher rename
-race; its isolated replay and the final full run passed. Python lint, repository
-policy/link validation, all 170 exposure entries, Bridge TypeScript/parser/lifecycle
-tests and build, 16 Bridge release tests, and wheel contents/calibration verification
-passed. The wheel is a local build artifact, not a published release.
+Weaver does process information to perform its work: it prepares text, computes
+similarity, ranks candidates and assesses evidence. Its responsibility ends at
+returning retrieved material, graph objects, a placement plan or a commit receipt.
+It does not compose a final answer, author a new note from source material or
+decide the caller's next action. For Crusher, source acquisition, understanding,
+content generation and validation remain Crusher responsibilities.
 
 ## Responsibilities and work orders
 
-Weaver is a module in Core, not a fourth container, autonomous background agent or
-public API. Its facade is `mastermind.weaver.Weaver`. Core owns one instance at
-`service.weaver`; consumers submit typed requests through `run()`.
+Weaver is a module in Core. Its facade is `mastermind.weaver.Weaver`; Core owns one
+instance at `service.weaver`. The typed internal interface is `run()`. Existing
+Bridge and Crusher adapters also call the corresponding methods directly. Weaver
+has no separate deployment unit or generic public work-order API.
 
 | Request | Result and authority |
 | --- | --- |
-| `Lookup(query, scope, filters, deadline, limit)` | Up to 20 (maximum 50) supported note matches, scores and evidence; no generated answer or writes |
+| `Lookup(query, scope, filters, deadline, limit, planning, refine, context, context_bytes)` | Up to 20 (maximum 50) strong/tentative note matches, scores, common evidence and diagnostics; no generated answer or writes |
 | `Similar(path, text, focus, scope)` | Up to eight related notes from the current, possibly unsaved editor buffer; never saves that buffer |
 | `Walk(path, scope, direction, depth, limit)` | Bounded graph fragment of notes and referenced objects, with edges and revision identity |
-| `Placement(understanding, text, snapshot, profile, operation_id, deadline)` | Policy-controlled placement recommendation with source receipts; currently the `crusher` profile |
-| `ExecutePlacement(job, content, plan, profile)` | Canonical creation through the existing durable Crusher journal and coordinator; returns the commit receipt |
+| `Placement(understanding, text, snapshot, profile, operation_id, deadline, operation)` | Policy-controlled plan with source receipts; Crusher or a trusted registered consumer profile |
+| `ExecutePlacement(job, content, plan, profile, operation)` | Authorized canonical mutation through the existing coordinator/journal; returns a durable commit receipt |
 
 Example, from an already authenticated internal consumer:
 
@@ -68,8 +85,28 @@ Scope is supplied by the authenticated adapter, never taken on trust from a
 public request. Public Shared and Crusher visitors cannot query Weaver. Scope is
 applied before candidate limits, statistics, graph expansion and vector scoring.
 An empty result is valid; Weaver does not fill the list with weak matches.
+An empty result means that this bounded search found no sufficiently supported
+matches; it does not prove that the Vault contains no relevant information.
 `Lookup.deadline` uses monotonic time; placement keeps the durable job's Unix
 deadline and translates it into a bounded monotonic retrieval budget.
+
+### Current consumers
+
+The Obsidian Bridge's Related notes pane sends the active note path, a bounded
+editor buffer and optional focus through the private
+`POST /internal/bridge/related-notes` adapter. The Bridge schedules refreshes as
+the context changes and prevents older responses from replacing newer results.
+Weaver performs the corresponding similarity search, including unsaved text, and
+returns suggestions for the pane to display. It never persists that editor buffer.
+
+Crusher requests a placement plan for understood source material, prepares and
+validates the new note, then requests placement execution. Weaver supplies graph
+and retrieval decisions within Crusher's policy; Crusher owns the surrounding job.
+
+Other authenticated internal consumers can use the typed interface. Existing
+owner `GET /api/search/semantic` calls the lower-level semantic search directly;
+it is not an HTTP adapter for the full `Lookup` pipeline. A new consumer adapter
+must establish identity, scope and the appropriate operation contract explicitly.
 
 ### Objects and traversal
 
@@ -83,7 +120,7 @@ scope; their binary contents are not embedded or read by traversal. Remote
 objects have `availability: unverified`: a link is not proof of access or existence.
 Their bodies still require the existing authorized service resolvers. Weaver
 currently searches note text and human resource labels, not arbitrary remote
-object contents. There is no multimodal attachment index in this change.
+object contents. There is currently no multimodal attachment index.
 
 ### Placement belongs to Weaver; policy belongs to the consumer profile
 
@@ -105,14 +142,39 @@ a job from a different service instance. This is deliberately a typed, trusted
 job adapter, not an API allowing arbitrary graph mutations. A new consumer needs
 an explicit registered placement policy and mutation authority.
 
+## Operations and supporting components
+
+`Lookup`, `Similar`, `Walk`, `Placement` and `ExecutePlacement` are work orders.
+The embedder and Bibliotekar are supporting mechanisms used to carry out those
+orders; neither is an independent owner of the Vault.
+
+| Component | Responsibility |
+| --- | --- |
+| Weaver facade | Dispatch typed requests and expose the engine's settings and readiness |
+| Graph snapshot and traversal | Resolve authorized links, track note revisions and return bounded graph fragments |
+| Content preparation and index maintenance | Prepare searchable text and maintain disposable metadata, chunks, vectors and profiles |
+| Embedder | Convert prepared queries and passages into local E5 vectors; vectors provide one relevance signal |
+| Retrieval pipeline and knowledge verifier | Combine search channels, inspect candidate passages, rank results and reject unsupported or stale evidence |
+| Bibliotekar | Optionally suggest bounded search refinements when the configured operation needs them |
+| Placement policy | Interpret evidence according to a consumer's rules; production registers Crusher, trusted bootstrap can register additional scoped profiles |
+| Placement executor | Revalidate and commit an accepted placement through the canonical coordinator and durable journal |
+
+Core owns graph access, retrieval orchestration and mutation authority. Model
+inference runs in the private Worker. The embedder is used for ordinary semantic
+search; Bibliotekar is optional. Lookup can request one configured refinement;
+Similar retains its fast path without Bibliotekar. Turning off Bibliotekar does
+not turn off embeddings.
+
 ## Retrieval and evidence
 
-The pipeline remains: query preparation → authorized graph snapshot → parallel
-retrieval channels (FTS/BM25, E5 vectors, entities, metadata, real graph links and
-branch profiles) → candidate fusion → reranking → bounded graph expansion →
-consistency/confidence assessment → optional Bibliotekar refinement and one
-second retrieval. Placement additionally applies its consumer policy and checks
-the current hierarchy before commit.
+Retrieval takes an authorized graph snapshot, prepares the query and searches
+through independent channels: FTS/BM25, E5 vectors, entities, metadata and real
+graph links. Placement also uses branch profiles. Candidates are combined,
+ranked, expanded through bounded graph traversal and assessed again. Lookup and
+similarity additionally verify candidate passages. Enabled placement refinement
+may invoke Bibliotekar and perform one additional retrieval. Before returning
+results, Weaver checks the source revisions of the returned evidence. Placement
+also applies its consumer policy and revalidates before commit.
 
 `search-content.v2` provides the same deterministic preparation for indexed text
 and queries. Technical YAML, structural tags, opaque IDs and URL targets are
@@ -135,10 +197,34 @@ prefer the verified evidence. Generic repeated titles cannot independently
 authorize a match. The same rule applies to ordinary, root, pool and template
 notes; there is no service-note blacklist or directory relevance bonus.
 
-Interactive lookup and note similarity are separate tasks and evaluation sets.
-They share preparation and retrieval infrastructure, but can use different
-document-prefix representations. Interactive calls disable Bibliotekar so typing
-does not initiate an expensive reasoning call.
+Lookup and note similarity have separate request types, ranking/acceptance rules
+and evaluation sets. Lookup exposes tentative matches to improve recall;
+Similar applies stricter selection. [Current measurements](weaver-evidence.md)
+are separate from the older record below. Both share preparation and
+retrieval infrastructure and can use different document-prefix representations.
+Similar disables Bibliotekar, so editor updates do not initiate its reasoning call.
+Passage verification uses the same E5 model, not a separate cross-encoder reranker.
+
+### What the caller receives
+
+Results are structured data rather than generated answers. The current contracts
+are specific to each operation:
+
+| Operation | Returned information |
+| --- | --- |
+| `Lookup` | Supported note matches with paths, source hashes, scores, excerpts, retrieval strategies and graph paths where available; semantic hits may also carry passage receipts; the envelope includes snapshot and retrieval status |
+| `Similar` / Bridge Related notes | A compact list of path, title, excerpt, relation and reason, with `degraded` and `sampled` flags; common evidence and diagnostics accompany it |
+| `Walk` | Nodes and actual edges, a snapshot identity and a truncation flag; note nodes include source hashes, not full note bodies |
+| `Placement` | A policy decision with an anchor or pool, evidence revisions and the information needed to revalidate the plan |
+| `ExecutePlacement` | The durable commit receipt for the created note |
+
+Scores express ranking evidence, not probabilities of truth. A missing or degraded
+retrieval channel can reduce coverage. Consumers must respect the status and limits
+of the operation and use authorized Vault access if they need complete note bodies.
+All four planning/read operations expose `evidence_packet` (`weaver.evidence.v1`).
+Lookup/Similar also expose `diagnostics` and `outcome`, retaining their original
+result lists. [The contract](weaver-evidence.md) specifies versioned fragments,
+coordinates, graph chains, partial-index and concurrent-edit behavior.
 
 ## E5 modes and the exact engine
 
@@ -210,15 +296,65 @@ No destructive rename of persisted settings or job stages occurs:
 - Qualified placement thresholds now live in `weaver/calibration.json`, bound to
   `search-content.v2`, model and corpus hashes. Unqualified combinations use pool.
 
-Rebuild Core and Worker together to deploy this change. The old runtime may rebuild
-derived data for its own representation on rollback; use the managed rollback or
-compatible backup workflow for authoritative state. This task does not deploy a
-candidate into the existing local Vault or publish an update.
+Rebuild Core and Worker together when deploying changes to their shared contracts
+or models. An older runtime may rebuild derived data for its own representation
+on rollback; use the managed rollback or compatible backup workflow for
+authoritative state.
+
+## Current development boundary
+
+The 2026-10-06 implementation adds separate task selection, shared evidence,
+rejection diagnostics, bounded Lookup decomposition/refinement, paragraph/section
+context and trusted consumer placement profiles. [Implementation and tests](weaver-evidence.md)
+record both the improvements and remaining cross-language misses/false matches.
+Next relevance changes should be compared using those task-specific corpora and
+loss-stage diagnostics. Generated answers remain a caller concern.
+Generic moves of existing files, autonomous graph reorganization, automatic
+semantic-link creation and indexing Saturn/Chronos bodies are not implied by the
+current placement or traversal contracts.
+
+## Authority and implementation scope
+
+The workspace `.docs/PART_00_SYSTEM_UNIFICATION_SPECIFICATION.md` is authoritative;
+[Governance](governance.md) maps it to the project guides and explains the external evidence reference.
+Weaver preserves the existing Core/Worker trust boundary, private Bridge
+authentication, canonical Vault coordinator and schema-2 durable Crusher jobs.
+This concept does not add a deployment unit or change sibling-service contracts.
+
+| Guide | Applicability and verification |
+| --- | --- |
+| Part 01 | Combined Obsidian/Weaver Settings, accessible existing controls, embedded documentation |
+| Part 02 | Bounded timing/evidence diagnostics; no raw editor buffers or credentials in logs |
+| Part 03 | Settings and job checkpoints mandatory; vectors and indexes derived; restore/rebuild tests |
+| Part 04 | Core/Worker packages and health; no new deployment unit or listener |
+| Part 05 | Pinned native search dependency, previous-data compatibility, candidate startup |
+| Part 06 | Regression, quality, performance and integration evidence collected separately |
+| Part 07 | Scoped retrieval before ranking, canonical source verification, mutation authority |
+| Part 08 | N/A: no public indexable surface is added |
+| Parts 09–13 | Shared-agent ownership/installers unchanged; inspect integration regressions |
+
+## Verification record
+
+The following records describe the implementation qualified on 2026-10-02. They
+are historical evidence, not acceptance of later changes or the currently deployed
+stand. Older context-indexing ledgers describe earlier revisions.
+
+Baseline revision: `0caf638`. Before implementation, the semantic, related-note,
+context-indexing, Curator and Crusher suites passed: **92 tests**.
+Real-model reports are written to `artifacts/weaver/` using synthetic data only.
+
+Final native suite: **655 passed, 16 skipped**, 113.5 seconds. The skipped platform
+checks still require Linux. An earlier run hit the existing Windows watcher rename
+race; its isolated replay and the final full run passed. Python lint, repository
+policy/link validation, all 170 exposure entries, Bridge TypeScript/parser/lifecycle
+tests and build, 16 Bridge release tests, and wheel contents/calibration verification
+passed. The wheel is a local build artifact, not a published release.
 
 ## Measurement record and decisions
 
-All measurements below used synthetic data, the pinned real E5 model and local
-CPU execution. They do not imply universal recommendation accuracy.
+All measurements below belong to the 2026-10-02 qualification and used synthetic
+data, the pinned real E5 model and local CPU execution. They do not imply universal
+recommendation accuracy.
 
 The long-note bilingual corpus has 12 distinct topics, 26 documents and separate
 calibration/test topic groups. Each group has six lookup and six similarity tasks.
@@ -268,12 +404,13 @@ Real Bibliotekar was ready; the separate placement run exercised two real calls.
 The browser Settings probe passed validation, note picker, stale revision conflict,
 draft preservation, rebasing and narrow/wide layouts.
 
-Docker Desktop could not start its Linux engine because its local inference Unix
-socket returned a Windows filesystem error. Consequently this change has **not**
-yet been rechecked in the three-container stack/native Obsidian or under Linux
-sandbox and cgroup limits. Native HTTP/model tests do not replace those gates.
-No external generation key was read or used. No current paid-provider end-to-end
-quality or sibling-service live integration claim is made.
+At that qualification, Docker Desktop could not start its Linux engine because
+its local inference Unix socket returned a Windows filesystem error. The record
+therefore does **not** establish acceptance in the three-container stack/native
+Obsidian or under Linux sandbox and cgroup limits. Native HTTP/model tests do not
+replace those gates. No external generation key was read or used in those checks;
+the record makes no paid-provider end-to-end quality or sibling-service live
+integration claim.
 
 ## Reproduction and next deployment gate
 
@@ -304,5 +441,4 @@ are the container paths. The accepted threshold file contains report digests.
 Before release: commit the reviewed candidate, run the normal clean-revision CI
 with images, the Linux sandbox/resource gates, and the bounded native Obsidian
 probe against the rebuilt Core/Worker. Run live external-provider acceptance only
-with an explicitly configured authorized provider. Existing pending component
-pushes/CI and their commits were not rewritten or superseded by this work.
+with an explicitly configured authorized provider.

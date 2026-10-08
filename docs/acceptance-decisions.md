@@ -1,8 +1,9 @@
-# Current acceptance decisions
+# Scoped owner decisions
 
 The owner's explicit instructions on 2026-09-15 supersede the corresponding
-Mastermind concept and acceptance requirements. General project Parts 00–12
-remain authoritative for every unaffected requirement.
+Mastermind concept and acceptance requirements. Current central Parts 00–13 remain authoritative. Historical test outcomes and
+update details below apply only to their checkpoint; use [Governance](governance.md),
+[Releases](releases.md) and [Conformance](conformance.md) for the active contract.
 
 - Development and all active local verification use the main C: drive and its
   Docker Desktop engine. The external WSL migration has been abandoned.

@@ -4,7 +4,12 @@ The engine is now **Weaver**, with Bibliotekar as its local refinement assistant
 [WEAVER](WEAVER.md) is the current architecture, module API, measurement and migration
 record. This page preserves the detailed retrieval, settings and placement contracts;
 `context-indexing` remains a compatibility identifier in routes and stored records.
-The [earlier qualification ledger](CONTEXT_INDEXING_IMPLEMENTATION.md) is historical.
+The [earlier qualification ledger](history/context-indexing-2026-09-19.md) is historical.
+
+The detailed limits below describe the reviewed Weaver baseline. Concurrent
+Lookup planning, task-specific relevance and evidence/diagnostic additions are
+identified in [Weaver](WEAVER.md); their presence in the working tree is not a new
+qualification result for these contracts.
 
 ## Data flow and authority
 
@@ -13,7 +18,7 @@ The [earlier qualification ledger](CONTEXT_INDEXING_IMPLEMENTATION.md) is histor
 2. An authorized immutable graph snapshot feeds independent FTS/BM25, local E5
    vector, entity, metadata/temporal, graph and branch-profile channels. Ordinary
    notes participate, whether or not they have structural tags.
-3. RRF combines candidates; explicit semantic/lexical features rerank them.
+3. Channels contribute a candidate union; task-specific semantic/lexical features rerank it. Placement includes an RRF feature, while knowledge lookup/similarity use their own weighted ranker.
    Related-note expansion follows real edges in both directions, then the whole
    union is reranked. Provenance retains source paths and content hashes.
 4. Consistency and confidence assessment distinguish sufficient, ambiguous and
@@ -216,5 +221,5 @@ Search/similarity experiments, remaining false matches, source hashes and the
 Docker/Linux verification gap are recorded in [WEAVER](WEAVER.md).
 
 The older 80/80 replay, 30-case external-provider comparison and earlier corrective
-iterations remain historical evidence in [the original ledger](CONTEXT_INDEXING_IMPLEMENTATION.md).
+iterations remain historical evidence in [the original ledger](history/context-indexing-2026-09-19.md).
 They do not establish acceptance of the new representation or a fresh live-provider run.

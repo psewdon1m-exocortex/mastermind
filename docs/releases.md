@@ -20,19 +20,49 @@ The release contains the Compose bundle, manifest and detached signature, bootst
 
 ## Apply and automatic recovery
 
-Core asks its authenticated Updater head to resolve the approved repository independently and pre-pull all three candidate images before retaining the snapshot barrier. It creates a consistent encrypted preimage and streams it to a head/request-bound spool, which Updater verifies and seals. Apply retries preserve durable identity.
+This is the required current workflow under central Parts 03 §13.2 and 05 §34.
+The inspected source implements saved-copy protocol 2 but has a storage/limit
+gap documented in [Conformance](conformance.md). Earlier disk-preimage and
+24-hour-spool instructions are superseded.
 
-Updater validates both installed and candidate topology, pinned images, source/target mounts, UID, capabilities and loopback listener. It stops only Core, Runtime and Worker, changes the versioned deployment files and release metadata, runs the typed offline migration, starts the group and checks schema, canonical Vault, actual Bridge/Obsidian and Worker/model. Core resumes owner writes only after observing a verified terminal result.
+1. Discover and select an exact compatible application version. Show its scope
+   and recovery consequences before the operator's one confirmation.
+2. Create a standard full encrypted recovery ZIP while holding the canonical
+   writer barrier. Download that exact ZIP to the operator; do not substitute a
+   settings-only export, a remote backup or a newly generated second snapshot.
+3. Continue the same authorized update using the saved bytes and a receipt bound
+   to the application, version, request, size and SHA-256. Do not require a second
+   normal confirmation or file-picker round trip. Retain the original local ZIP.
+4. Updater validates the exact topology and three-image compatibility group,
+   executes migration and verifies native Bridge/Obsidian, Core and Worker health.
+   Observe persisted job state; closing a browser does not cancel accepted work.
+5. Uninterrupted failed updates may recover from the in-memory original ZIP.
+   After helper restart or for later data rollback, request the original operator
+   copy, verify its job-bound digest and explain that snapshot restore discards
+   later edits. Distinguish rejection, verified rollback and rollback failure.
 
-A failed migration or functional check restores the prior deployment files, image group and pre-update data before starting the old application. A process interruption retains a recovery job and blocks unsafe new work. `ROLLBACK_FAILED` is a distinct state requiring operator recovery. A completed update cannot be rolled back by calling the legacy endpoint without a fresh Core barrier; it would otherwise discard subsequent native edits without a verified current snapshot.
+Archive bytes may live only in bounded memory or verified private tmpfs during
+execution. Durable archive destinations are the operator computer and authorized
+remote backup storage. The privileged update boundary defaults to 128 MiB decoded
+ZIP; every participant must agree on a supported effective limit. Oversized full
+backups block mutation rather than losing required contents. Ordinary reboot does
+not require ZIP restoration. Retained metadata is not proof that backup bytes exist.
 
-Settings → Updates → Return to previous version starts a new transaction. Updater accepts only the exact previous manifest and component digests recorded by a completed update of the currently installed own head. Core creates a fresh encrypted snapshot and retains its barrier. A compatible previous release opens the current data; it does not rewind notes to the earlier update date. Incompatible schemas reject the change and recover the current version/data. CLI equivalents are `mastermind update previous` and `mastermind update rollback --job <id> --yes`.
+Core's current `mastermind.saved-copy.v2` integration requires matching Updater
+capability and signed `saved_copy_protocol: 2` on compatible source/target releases.
+A legacy source needs the explicitly qualified first-transition procedure from
+Part 05 §35. Do not silently downgrade the protocol or use an undocumented old-image
+restart command as migration. Later previous-version operations remain scoped to
+the recorded own-head job and must state whether data is preserved or restored.
 
-Application Apply also updates its own verified copies in `vendor/updater` so that a later explicit installation/repair can verify the complete signed inventory. Apply never executes those copies or changes the installed host agent/trust. Terminal Core preimages and sealed host spools expire after 24 hours; uncertain or failed recovery retains its data and excludes new host mutations.
+Shared Updater/Neptune/Gryphon/Wyvern install/check/update runs through
+`sudo updater tui`, with exact version and shared impact confirmation. Those binary
+operations do not use the application ZIP workflow. The installed service never
+owns or uninstalls the shared agents.
 
 ## Gates
 
-`python scripts/ci.py --images --secrets` executes the reproducible verification subset on a clean committed checkout. It validates the tag namespace, policy inventory, standalone links, pinned inputs, Python and Bridge checks; builds all three images; tests the code inside the exact Worker image under the production UID/read-only/capability limits; exercises the real offline model and extractor sandbox; and scans complete Git history plus an exported source tree. Results retain each command, exit code, duration, log hash and local image identity in `artifacts/ci/<revision>/result.json`. These component/image checks do not claim a host update or an eight-hour soak.
+`python scripts/ci.py --images --secrets` executes the reproducible verification subset on a clean committed checkout. It validates the tag namespace, the pinned external policy digest, standalone links, pinned inputs, Python and Bridge checks; builds all three images; tests the code inside the exact Worker image under the production UID/read-only/capability limits; exercises the real offline model and extractor sandbox; and scans complete Git history plus an exported source tree. Results retain each command, exit code, duration, log hash and local image identity in `artifacts/ci/<revision>/result.json`. These component/image checks do not claim a host update or an eight-hour soak.
 
 The verification workflow runs on pull requests, main pushes, plain `v*` tags and manual dispatch with read-only permissions and no signing secrets. Every third-party action is pinned in `.github/actions.lock.json`. Install the optional local hook with `git config core.hooksPath .githooks`. Set `MASTERMIND_PYTHON` if the interpreter is not named `python3`. Before a push, place the reviewed `mastermind.pre-push.v1` record for each outgoing commit in `artifacts/pre-push/<full-sha>.json`; `scripts/pre_push.py --record <record> --base <remote-sha> --revision <outgoing-sha>` validates the same record independently. A new remote branch uses forty zeroes as its base. Every record covers the complete changed-path list, all seven areas, inspected paths and hashed executed evidence from that revision. Security and private exposure cannot be marked N/A. Missing or stale evidence blocks the hook; the ordinary CI workflow repeats its machine-verifiable subset.
 
@@ -54,12 +84,22 @@ The separate `mastermind-release-publication` environment has no release private
 
 Repository/environment settings and GitHub-hosted attestations cannot be exercised by local unit tests. The local tests cover real RSA signatures and archive verification plus adversarial evidence, identity, staging and failure controls; actual local bootstrap/update tests are recorded separately in the implementation ledger. No workflow, tag, key or artifact is published by running the local verification scripts.
 
-## Context-indexing candidate
+## Weaver compatibility
 
 The local candidate uses state schema 2 (migration input schema 1). Release
 packaging binds `curator-model.lock.json` as well as the existing embedding lock.
 The Worker embeds pinned Qwen3 GGUF weights, verified llama.cpp runner inventory
 and their licenses. Preparation fetches these artifacts; runtime never downloads
 an alternative. A previous schema-1-only Core cannot be run against schema-2 state.
-See [qualification](CONTEXT_INDEXING_IMPLEMENTATION.md) for local evidence; this
-checkpoint does not publish a signed release or assert a remote CI result.
+See [Weaver](WEAVER.md#verification-record) for the newer evidence and remaining
+stack qualification. The earlier context-indexing report is historical.
+
+## Central evidence without a vendored policy tree
+
+[Governance](governance.md) documents `docs/policy-lock.json` and offline central
+checkout selection. Standalone verification can fetch the immutable catalog with
+digest verification. CI still requires every active ID and exact candidate evidence;
+removing copied Markdown never disables the gate. `publication_ready: false` remains
+a blocker until current central changes and implementation gaps are qualified.
+Release bundles include the active documentation and history under `docs/`, with
+README as the only root Markdown document. They do not embed a second policy tree.

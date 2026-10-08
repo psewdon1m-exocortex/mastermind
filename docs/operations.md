@@ -40,7 +40,7 @@ Documentation keeps its two independent scroll regions. This Shell rule does
 not rewrite native Obsidian themes or editor configuration.
 
 Dashboard contains CPU, RAM, Disk and Uptime followed by Connectedness (2x),
-Total items (2x), Activity Heatmap (4x) and Crusher access (1x). Saved card and
+Total items (2x), Activity Heatmap grouped by month (4x) and Crusher access (1x). Saved card and
 navigation orders persist; obsolete Analytics/Service status entries are
 filtered when preferences are read and newly available cards are appended.
 The old `/analytics` browser destination redirects to Dashboard. The existing
@@ -57,7 +57,7 @@ code; clipboard denial retains the complete selectable value and allows retry.
 The Vault toolbar offers Reconnect and Fullscreen. Recovery snapshots remain
 in Settings → Backup; the owner portable-export API remains available.
 
-Documentation follows [Part 01](policy/PART_01_INTERFACE_AND_INTERACTION_UNIFICATION.md):
+Documentation follows [Part 01](https://github.com/psewdon1m-exocortex/general/blob/main/PART_01_INTERFACE_AND_INTERACTION_UNIFICATION.md):
 grouped navigation and one continuous operator guide have separate bounded
 scroll regions on desktop and mobile. Search includes titles, summaries,
 keywords and body text; a changed query resets article scrolling. The active
@@ -66,7 +66,11 @@ the current collection and keep input focus. Search filters do not alter data.
 
 ## Host operations
 
-For releases, `mastermind update check` discovers an approved candidate, `mastermind update apply <version>` starts a whole-group update, and `mastermind update status` observes its durable progress. `mastermind update previous` lists the verified previous version; `mastermind update rollback --job <id> --yes` returns to it using a fresh backup and preserves compatible current data. These commands use the running Core's private admin socket.
+`mastermind update check`, `mastermind update status` and `mastermind update previous`
+inspect the own-head release/job state through Core's private admin socket. The
+normal application update uses Settings and the saved-copy workflow in
+[Releases](releases.md#apply-and-automatic-recovery). CLI apply/rollback entry points
+do not waive its backup, compatibility or explicit recovery requirements.
 
 Run host commands from `/opt/exocortex/mastermind`. `mastermind-install status` describes containers; `mastermind-install doctor` checks canonical state and authenticated dependencies separately. The Core CLI talks to a private same-container Unix socket and does not publish administration over TCP.
 
@@ -90,7 +94,7 @@ Use `docker compose -f compose.production.yaml up -d --no-build` with the instal
 
 `NOT_READY`, duplicate basenames, missing opaque data, `RECOVERY_REQUIRED` or `POST_RESTORE_RECOVERY_REQUIRED` stop writes. Preserve the entire service volumes and recovery directories before investigating. Correct an independently understood configuration/storage problem and restart the group to run journal recovery, then repeat `vault validate` and doctor. An unresolved generation/rollback marker requires recovery from a verified archive, not an ad hoc database edit.
 
-If Kernel or Volt is unavailable, restore its own bootstrap/trust first. Mastermind recovery keys cannot be recovered solely from an archive encrypted by those keys. If Neptune is partial or unavailable, Settings distinguishes the state; retrieve a fresh setup code and use Repair. Archive and mirror success times/generations are separate. Mastermind Settings owns one shared automatic backup switch and hourly interval for both pipelines; Saturn stores the authoritative revision and owns quotas, identities and credential revocation. **Unlink Neptune agent** revokes only Mastermind's profile and preserves stored archives. There is no manual remote-run action. Host agent releases use `sudo updater tui`.
+If Kernel or Volt is unavailable, restore its own bootstrap/trust first. Mastermind recovery keys cannot be recovered solely from an archive encrypted by those keys. If Neptune is partial or unavailable, Settings distinguishes the state; retrieve a fresh setup code and use Repair. Archive and mirror success times/generations are separate. Mastermind Settings owns the selected schedules; paired profiles use one shared automatic backup switch and hourly interval; Saturn stores the authoritative revision and owns quotas, identities and credential revocation. **Unlink Neptune agent** revokes only Mastermind's profile and preserves stored archives. There is no manual remote-run action. Host agent releases use `sudo updater tui`.
 
 ## Backup, restore and updates
 
@@ -101,23 +105,26 @@ docker exec mastermind-core-1 mastermind backup create
 docker exec mastermind-core-1 mastermind operation OPERATION_ID
 ```
 
-The resulting staged operation is retained for at most 24 hours; inspect its ID, size and SHA-256 before download. CLI `backup create --output /tmp/recovery.zip` requires an exclusive writable destination in that container. CLI `restore inspect /tmp/recovery.zip` and `restore apply /tmp/recovery.zip --yes` require a bounded regular source file, not a symlink/FIFO. Keep recovery keys outside the archive. See [backup-restore](backup-restore.md).
+Operation retention depends on its kind; Vault ZIP staging expires after 15 idle minutes and transient exports are removed after transfer. For an encrypted recovery operation, inspect its ID, size and SHA-256 before download. CLI `backup create --output /tmp/recovery.zip` requires an exclusive writable destination in that container. CLI `restore inspect /tmp/recovery.zip` and `restore apply /tmp/recovery.zip --yes` require a bounded regular source file, not a symlink/FIFO. Keep recovery keys outside the archive. See [backup-restore](backup-restore.md).
 
-Settings → Updates checks the approved repository through the own host Updater. A compatible exact version can be applied after confirmation. Core prepares a recovery snapshot and retains the write barrier; Updater applies all three components and accepts only functional health. An interrupted response is reconciled through durable job identity. Failed migration/health triggers restoration of prior components and pre-update data. A failed rollback remains blocked and is never displayed as success. See [releases](releases.md) for release and rollback qualification.
+Settings → Updates discovers the approved exact application version. The required
+flow downloads a fresh full encrypted ZIP to the operator and submits the same
+bytes to the scoped host job without a second normal confirmation. Keep the saved
+ZIP for interrupted or later recovery. Observe the durable job, actual runtime
+version and functional health; a lost response is not a successful update.
+See [Releases](releases.md#apply-and-automatic-recovery) for the complete contract
+and the explicitly recorded implementation gap.
 
 ## Diagnostics and retention
 
-The current local Crusher stand is connected to real Google Gemini 3.8 Flash.
-Submissions consume the provider account's quota. Use the tested image and local
-live Compose override documented in [Crusher](crusher.md#operating-the-local-live-profile)
-when restarting it; adding the controlled-provider override silently changes
-the behavior back to a fixture. Provider credentials belong to Volt/Kernel.
-The current source's Wyvern migration has a separate deployment contract and
-must not be substituted for this image without its own qualification.
-In that source workflow, `sudo updater tui` installs/checks/updates the shared
-Wyvern instance and manages Adapters and client grants. Mastermind Settings
-selects an allowed Adapter for its functions; its existing lifecycle/version
-buttons only explain the TUI path and do not submit host operations.
+Provider readiness must be checked against the running source/image and selected
+Wyvern Adapter. A September direct-provider result does not establish today's
+configuration. Use [Crusher](crusher.md#configuring-a-wyvern-backed-provider) for
+current setup; the old image and restart commands remain only in history.
+
+`sudo updater tui` installs/checks/updates shared components and manages Wyvern
+Adapters and Gryphon pairing. Mastermind Settings selects scoped function bindings;
+it is not the host release authority.
 
 Settings contains a bounded log tail and a redacted archive download. Audit records omit raw credentials and note bodies. Use the configured Docker JSON log rotation and inspect free space on the actual Vault filesystem. Failed sources, completed operation spools and old restored generations have bounded retention; active uploads/download leases are protected. Do not clear the backup/recovery spool while an operation or host update is pending.
 

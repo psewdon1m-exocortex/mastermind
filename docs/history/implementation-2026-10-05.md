@@ -1,0 +1,609 @@
+# Mastermind implementation and verification ledger
+
+> Historical source / non-normative. Preserved during the 2026-10-06 documentation
+> consolidation. Statements about current behavior, deployment, versions and
+> policy below apply only to their original checkpoint. For the active contract,
+> use the [documentation index](../README.md).
+
+Authority: [Part 00](https://github.com/psewdon1m-exocortex/general/blob/main/PART_00_SYSTEM_UNIFICATION_SPECIFICATION.md), Parts 01–12 and the owner's explicit decisions recorded in [final requirements](design/requirements-2026-09.md). Scope: complete standalone Mastermind, necessary Neptune/Updater changes, local integration and browser verification. No production deployment or publication is implied by local test success.
+
+## Public Shared presentation, 2026-10-05
+
+Implemented the explicitly requested derivative of central Part 01 section 11:
+light public note and password gate, with the current dark Mastermind view at
+`?legacy=1`. The common controller preserves capability isolation, inline
+Markdown editing, ETag conflicts and retained drafts. Link expiry is returned
+only in the authorized projection and remains visible on mobile in the new
+view. Owner/Crusher/Obsidian styles are outside this change.
+
+Windows validation: 706 Python tests passed, 16 skipped; Ruff, repository and
+174-route exposure checks passed. The isolated real Core/Chromium qualifier
+passed paired new/legacy scenarios, including concurrent edits, typing during
+polling, expiry, revoke, responsive layouts and contrast, with no browser/CSP
+errors. This is offline Runtime coordination, not a native Obsidian run.
+[Scope, commands and evidence](../public-shared.md) record the precise boundaries.
+CI now includes the browser qualifier; no push or remote CI run was performed.
+
+## Context-indexing checkpoint
+
+The new context-indexing implementation and CP0–CP7 evidence are tracked in
+[the dedicated ledger](context-indexing-2026-09-19.md). Its current placement,
+template and provider boundaries supersede the historical placement below.
+
+## Baseline
+
+Historical pre-context-indexing AI checkpoint, 2026-09-19: the owner supplied a Google credential
+through a local file. Provisioned one secret Volt field and reference-only
+Kernel bindings; switched the existing qualified image to its normal factory.
+Live Gemini 3.8 Flash completed browser file upload, public webpage, speech
+drag/drop and unambiguous root/main/key placement. Outcomes and scopes are in
+[Crusher live qualification](../crusher.md); evidence and synthetic outputs are
+under `artifacts/live-ai-20260919/`. Safe Inbox fallback at 0.85 and branch commit
+at 0.95 both passed. Test notes were individually removed after digest checks.
+Remote audio deletion was confirmed by complete successful listing, not by its
+ambiguous 403 GET response. Final local service health is HEALTHY.
+
+The first real generation exposed the legacy parser's rejection of
+`thoughtSignature` on valid text. Repaired only the deployed legacy image using
+the checked-in `scripts/integration/patch_legacy_google.py`; four isolated
+offline test methods in `verify_google_signature.py` pass, including quota and
+malformed-output failures. Clarified actual Markdown newline generation in both
+the deployed prompt and current source after observing a double-escaped result.
+The in-progress Wyvern source migration was preserved and not deployed. No live
+provider key enters the build context, browser, repository or test evidence.
+
+2026-09-15: Mastermind contained four requirements documents and no implementation. Linux Docker Engine is available on this Windows workstation. Python 3.12.14 and Node 24.14.0 are available. Host .NET SDK/Go are absent; isolated SDK containers are available. Existing containers are unrelated and must not be changed. Kernel/Volt documentation and central Part 12 contain pre-existing edits and must be preserved.
+
+## Applicability and accepted decisions
+
+The [2026-09-15 owner acceptance decisions](../acceptance-decisions.md) supersede
+historical eight-hour and actual 8 GiB test gates. Use bounded native/transport
+regressions and report those excluded measurements as not tested. All active
+development returns to C: and Docker Desktop. The external WSL daemon is stopped;
+automatic execution review rejected its physical deletion (`blocked by policy`),
+so its E: directory is still present. Transfer scripts and path overrides have
+been retired. The owner connected the GitHub remote on 2026-09-16. The hosted CI
+result below is distinct from the earlier local qualification evidence.
+
+Parts 00, 02–07, 09–10, 12 apply. Part 01 applies to all owned UI; the native Obsidian viewport inherits Obsidian UI/UX by explicit owner decision. Part 08 indexable publication is N/A because all routes are non-indexable. Part 11 is reference integration guidance, not authorization to deploy its original topology. Node-canvas project/revision semantics are N/A to Markdown. User plugin data, secrets and binaries remain opaque and unchanged inside the Vault; shell secrets belong to Kernel/Volt, and full recovery protects the Vault with encrypted payloads. These exceptions were decided by the owner before implementation, and require no repeated approval.
+
+## Stages
+
+| Stage | Entry | Deliverables | Exit checks | Status |
+| --- | --- | --- | --- | --- |
+| S0 — Scope/environment | Final requirements and authority available | Applicability, environment inventory, isolated project/test namespace | Tools/engines available, existing edits recorded | PASS |
+| S1 — Storage and references | S0 | SQLite state, safe paths, parser/history, graph/FTS, coordinator/journal | Unicode collisions, code exclusions, concurrent writes, crash recovery, no-clobber and ETag tests | PASS |
+| S2 — Recovery and identity | S1 | Exact Access Key auth, sessions/CSRF, audit, encrypted full backup/restore | Access-key parity, secret redaction, complete round-trip, hostile archives, interrupted rollback, >350 MiB | PASS |
+| S3 — Native Runtime and Bridge | S1/S2 | Official pinned Obsidian/KasmVNC, supervisor, Bridge, native/@ rename, Activity | Native editor smoke, dirty-buffer quiesce, rename consistency, reconnect/revoke, themes/export | PASS locally |
+| S4 — Integrations | S2 | Kernel/Volt/Chronos adapters; two Neptune pipelines/read/Range; Updater spool/group | Real local producer-consumer tests, scope isolation, partial enrollment, large handoff/rollback | PASS locally; producer publication open |
+| S5 — Shared and Crusher | S1/S2 and qualified S4 reader/secret contracts; final group-update gate follows Worker | Safe shared projection, source/progress-only Crusher, worker, hierarchy placement | Reference injection, path revival, expiry, SSRF, source extractors, idempotent commit, bounded context | PASS with controlled Google endpoint |
+| S6 — Web and operations | S2–S5 | Unified Shell/Settings/Documentation, telemetry, logs, CLI | Browser workflows, accessibility/keyboard/clipboard, responsive screenshot review | PASS locally |
+| S7 — Packaging | S1–S6 | Locked images/dependencies, bootstrap/install, signed manifests, CI/pre-push/known-problem gate | Clean install, own profile update/rollback, artifact/trust and secret scans | IN_PROGRESS |
+| S8 — End-to-end qualification | S1–S7 | Local related-service stack, representative dataset and final evidence | Complete owner/shared/Crusher/recovery flows, fault tests, resource limits, bounded native regression | IN_PROGRESS |
+
+No stage passes because its code exists. Each gate records exact commands, counts, outcome and remaining limitations below. Blocked integration tests do not become mocked PASS. Product decisions are closed; implementation feasibility is tested as work proceeds.
+
+## Firefox file hashing repair — 2026-09-19
+
+The owner's `File hashing failed.` report reproduced in Firefox 153 for a tiny
+file before any upload. Chromium, installed Chrome 153 and Edge 129 computed
+the same digest successfully. The worker response inherited `default-src 'none'`
+without a script directive; Firefox rejected its static `sha256.js` import.
+Changing only that response header in a controlled browser interception made
+the same Firefox operation succeed. The server now gives only
+`/assets/hash-worker.js` a `script-src 'self'` exception, retaining default deny
+for network/other resources and disallowing inline code/eval. Other assets,
+API responses, Shell and Shared policies retain their existing restrictions.
+Workers use their own response policy as described in the
+[MDN worker CSP documentation](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers#content_security_policy).
+
+Exit checks: **34 API/operator/Shared API tests passed**, including the worker
+policy regression; changed Python source/test lint passed. The served worker
+passed eleven SHA-256 vectors per engine in Chromium and Firefox, covering
+empty files, SHA padding boundaries and 1 MiB chunk boundaries, plus progress
+and cancellation before/during hashing. No request interception was used in
+these final hash tests. Firefox file selection and a separate real drag/drop
+both hashed, uploaded, passed the server's digest check and completed the actual
+local pipeline. Google responses remained the explicit fixture. Both generated
+test notes were verified and removed. Evidence: `artifacts/hashing-fix`.
+
+The local deployment is a single-file image patch over the running Core image;
+its base tag, Dockerfile and build log are retained with that evidence. The
+installed `api.py` digest matches the corrected workspace file. This preserves
+the other in-progress workspace changes without introducing them into the
+running service. Core was replaced and Neptune reattached; Runtime, Worker,
+credentials and canonical Vault were retained. The standard source build also
+contains the fix for the next complete build.
+
+## Crusher columns and hidden scrollbars — 2026-09-19
+
+The owner's three layout follow-ups remove the visible Submissions heading,
+place processing history/search left and source input/drop right, and suppress
+visual scrollbars across the Shell and public pages. Two equal columns use the
+actual available width; at 820px or less they stack with input first. The native
+Obsidian UI remains governed by the existing viewport exception.
+
+The rebuilt local Core passed browser checks at 390/720/1024/1100/1440/1920px,
+with no horizontal overflow or page errors. At 1920px each column measures
+790px with the fixed sidebar and 915px with it hidden. Wheel and Page Down still
+scroll. All Shell routes and nested fields hide scrollbar visuals; the isolated
+public Shared page also retains wheel scrolling. The existing public Crusher
+activation, link/drop, accent and responsive probe passed. Source/test lint,
+JavaScript syntax and repository validation passed. No backend behavior changed.
+Evidence: `artifacts/crusher-layout-20260919/result.json` and screenshots.
+
+The Shell regression probe now opens an automatically hidden sidebar before
+clicking navigation; its earlier assumption of a permanently fixed sidebar was
+incompatible with the owner's saved preference.
+
+## Public Crusher and direct Shared editing — 2026-09-19
+
+Entry: the owner's twelve-point follow-up, supplied screenshots and root Part 01.
+The specific password, clipboard and navigation decisions supersede earlier
+choices as recorded in [acceptance decisions](../acceptance-decisions.md).
+
+Deliverables: another 180-degree favicon rotation; sidebar numbers without dot
+handles and invisible edge reveal; public Crusher code gate and inherited accent,
+automatic link classification, file selection/drop and fullscreen drag overlay;
+repeatable authenticated Share copy after reload; create/copy/close overlay and
+optional password accepting `1`; centered public password gate and direct note
+view/editing. The [Sharing contract](../sharing.md) records the signed URL format,
+legacy aliases and old-binary rollback limitation, 900ms autosave, five-second
+clean refresh and native-flush/ETag/journal collision boundary. No DB migration
+or plaintext-capability storage was added.
+
+Exit checks on the rebuilt local Core:
+
+- **202 Linux tests passed**, no skips, 37.48s, in a non-root/read-only/network-
+  disabled container with 2 GiB/2 CPU limits. Coverage: Shared and its API,
+  operator behavior, Crusher access/pipeline, Gemini adapters, hierarchy,
+  recovery, native protocol and release packaging. The disposable test volume
+  was removed. The focused Windows Shared/API/recovery run passed **107 tests**.
+- `probe_public_editing.cjs`: real create/copy/close with password `1`, copy after
+  reload, two independent editors, read-only view, text typed during an in-flight
+  save, stale-write conflict, retained draft, explicit merge, protected bytes,
+  clean-page refresh, delayed-read race, revocation and 390/720/1440px layout all
+  passed with no page errors.
+- `probe_native_shared.cjs`: the same note was edited through the actual VNC
+  Obsidian editor while the public editor held a draft. The stale public save
+  was rejected, native text remained canonical, the public draft survived and
+  hidden reference bytes stayed unchanged. The final noninteractive run passed;
+  only its disposable note and Share were cleaned up.
+- `probe_crusher_drop_ui.cjs`: actual visitor activation/scope denial, code gate,
+  automatic URL classification, file chooser, full-screen drag overlay, accent
+  and three responsive widths passed. Upload/job HTTP responses in this layout
+  probe are explicitly browser fixtures.
+- `probe_crusher_readiness.cjs --file-ui`: a separate real browser file selection,
+  incremental hashing, Core upload/digest verification and acceptance traversed
+  all ten real pipeline states and committed one note. The digest/provenance and
+  progress-only response were checked, then only that note was deleted. Google
+  HTTP remains the explicit controlled REST fixture; no paid provider was enabled.
+- Updated Shared/search/notifications and Shell regression probes passed:
+  copy/policy/revoke, legacy URL route, PNG sizes, dot-free navigation, search,
+  notices, Dashboard, native Vault connectivity, responsive layouts and searchable
+  Documentation. Python source/test lint, repository validation and the reviewed
+  136-entry exposure inventory passed.
+
+Evidence: `artifacts/public-editing-20260919` (Linux log, JSON results and screenshots),
+`artifacts/shared-ui-20260919`, `artifacts/ui-refresh-20260919`.
+Final clipboard-denial verification also passed: creation closed the overlay,
+kept one record and exposed the complete selectable URL with a retry action.
+The final status snapshot is **HEALTHY**, Runtime/Bridge running and unpaused,
+semantic index **READY**, 87/87 notes, no pending native Activity.
+Core was rebuilt and replaced; Neptune was reattached to the new Core network
+namespace. Runtime, Worker and the neighboring local services were retained.
+No endurance test, 8 GiB transfer, repository push or production publication ran.
+
+The broader ad-hoc `ruff check src tests scripts` invocation also reports 20
+pre-existing lint findings in unrelated qualification scripts. The supported
+source/test lint scope passes; those historical script findings are not fixed
+or represented as a passing whole-repository lint result here.
+
+## Shared, search, notifications and Crusher readiness — 2026-09-19
+
+Entry: the owner's eight UI/provider follow-up points and root Part 01 search,
+notice and navigation contracts. Existing uncommitted work was retained.
+
+Deliverables: canonical Shared destination with legacy bookmark compatibility;
+expandable note rows, actual file modification time/size, policy/copy/revoke;
+revoked records excluded before pagination with revocation tombstones retained;
+permanent sidebar ordinals beside separate reorder handles; canonical search
+icon/input/clear geometry; five-item green/red dismissible notice stack; native
+16/32/64px PNG favicons cropped to the supplied artwork and turned another 90°
+from the preceding tab icon. The oversized embedded SVG and its special CSP
+exception were retired. Runtime secret/plugin data were not changed.
+
+Exit checks: **144 Linux tests passed** (Shared, operator, Crusher access and
+pipeline, Gemini text/media adapters, hierarchy and release packaging), plus the
+focused Windows Shared/operator run (**77 passed**). Browser checks verified
+real Share create/copy/policy/revoke, invalidation of the previous visitor session,
+404 for the revoked capability, search geometry/filter/clear/Escape, sorting,
+keyboard expansion and 390/720/1000/1920px layouts. Notifications verified the
+five-item cap, semantic colors, dismissal and 4.5s/8s durations. Dashboard access,
+hover, navigation, Vault and Documentation regression probes passed with no
+browser page errors. The final deployed build also passed login layout,
+clipboard/focus/reachability checks and discovery of the new provider-readiness
+article through Documentation search. Evidence is in `artifacts/shared-ui-20260919`,
+`artifacts/ui-refresh-20260919` and `artifacts/dashboard-cards-20260919`.
+
+A new bounded text job traversed all ten states, committed a real note, and
+exposed only progress through its public job response. The probe verified the
+committed digest and removed its own note. **Live Google access is not enabled**:
+Core runs the explicit local REST fixture with `integration-text-model` and
+`integration-video-model`. Pipeline success must not be reported as live model
+quality or production readiness. [Crusher documentation](../crusher.md) describes
+this boundary and the remaining live-provider setup. No paid call, remote push,
+large transfer or endurance test was performed.
+
+## Dashboard cards and native network — 2026-09-19
+
+The sidebar wordmark is one line; the browser icon composes the unchanged supplied
+PNG with a clockwise 90-degree SVG rotation. Heatmap and Crusher access now use
+the Dashboard hover behavior. The former broad Crusher button-width rule no
+longer stretches the 32px top-right reorder handle over the title.
+The initial embedded SVG favicon was superseded by browser-sized PNG assets in the Shared/UI follow-up above. The special data-image CSP exception has been removed.
+
+Crusher access follows the owner's compact 1x reference: ordinal, title, Create
+& copy, then the complete code and copy/expiration status inside the same card.
+Repeated copy reuses the current code, expiration resets the card, and raw values
+remain only in the owner browser until reload/logout. Clipboard denial retains
+selection and retry. No credential format or database migration changed.
+
+The native catalog failure reproduced as DNS resolution failure in Runtime's
+internal-only Docker network. Development and production Compose now declare
+`runtime-egress`; the local Runtime received the additional network without
+recreating its container. HTTPS fetched the official theme and plugin catalogs;
+the actual Obsidian theme browser rendered 758 themes and their previews.
+Runtime still has no host port bindings, and the internal service network remains
+internal. Compose validation passed for both topologies.
+
+`node scripts/probe_dashboard_cards.cjs` passed live creation, clipboard copy,
+keyboard recopy, visitor code activation, handle bounds, card hover, mobile
+layout, and unchanged favicon artwork. Browser fixtures covered denied clipboard,
+pending duplicates, expiry and server rejection, with zero browser/CSP errors.
+Screenshots and JSON: `artifacts/dashboard-cards-20260919/`.
+Crusher/operator/release packaging regression passed **41 tests on Linux with no
+skips**, in a non-root read-only container with network disabled. The first run's
+small tmpfs could not satisfy the existing free-space reservation check; rerun
+used a disposable disk-backed test volume, then removed it. No large transfer
+was run. Log: `artifacts/dashboard-cards-linux-tests-20260919.log`.
+Repository validation (30 documents), Python lint and JavaScript syntax passed.
+The existing Shell refresh probe also passed navigation hover, search, the
+Documentation workspace and Vault. The later favicon policy change passed the
+29 API/operator checks, a focused final policy check and the repeated live
+Dashboard probe including a separate SVG-document console check.
+These changes are deployed to the local stand; no GitHub publication is claimed.
+
+## Login conformance — 2026-09-19
+
+The login follows central Part 01 §§4.1 and 10.1: a centered 560×268 panel,
+72px wordmark, undistorted 100px icon box, 511×31 visible Access Key field with
+a 44px hit target, and 511×50 submit button. Availability has independent neutral,
+success and danger states. Pending and rejection preserve panel geometry; errors
+return focus to the key. Reset clears both the displayed and exact opaque value.
+The existing user-provided artwork and configured accent are retained.
+
+`node scripts/probe_login_layout.cjs` passed against the rebuilt local Core:
+reference coordinates, five viewport sizes (including 320px and short landscape),
+availability polling/recovery, reduced motion, pending duplicate prevention,
+opaque Unicode/CRLF clipboard handling, error focus, reset, and actual sign-in
+with the current configured key followed by logout. Rejected credentials and
+unavailable health responses were browser fixtures; the final successful login,
+health/readiness and status requests used the real local service. No key rotation.
+Evidence and reviewed screenshots: `artifacts/login-refresh-20260919/`.
+API/operator regression: 28 passed; Python lint, JavaScript syntax and diff checks
+passed. Core, Runtime and Worker are healthy. These are local results.
+
+## Shell revision — 2026-09-19
+
+The owner's ten UI corrections are implemented on the local development stand:
+hover bounds, grouped continuous Documentation, Dashboard card consolidation,
+removal of the Analytics tab and Vault export button, lowercase page headings,
+the two supplied logos, Dashboard Crusher invitations and a shared search unit
+with an accessible clear icon. Total items counts knowledge files, including
+attachments, while hidden configuration/plugin content stays outside the count.
+Saved layout preferences are normalized without rewriting Vault or backup data.
+
+Validation: 34 targeted Linux API/preferences/filesystem tests passed in the
+non-root read-only Core image with network disabled and no skips. The browser
+probe checks the live Core/Runtime/Worker stand, all requested card spans,
+actual invitation creation, native readiness, hover bounds, search clearing,
+and Documentation filtering, active topic, keyboard and independent scrolling
+at 1920×1080, 1280×720, 1000×800, 390×844 and 720×420. Browser/CSP errors: none.
+Evidence: `artifacts/ui-refresh-linux-tests-20260919.log` and
+`artifacts/ui-refresh-20260919/result.json`, with reviewed screenshots alongside.
+The 2026-09-16 hosted CI evidence below remains bound to its original revision;
+this UI revision is locally verified and does not claim a new GitHub run.
+
+## GitHub migration — 2026-09-16
+
+The complete repository was pushed to `psewdon1m-exocortex/mastermind`, branch
+`main`: 310 tracked files and all 30 commits through
+`1f9730e708c36f71137bae19dd05e34b7eca21b6`. Local `main` tracks `origin/main`.
+The first hosted [Verify run](https://github.com/psewdon1m-exocortex/mastermind/actions/runs/35124494309)
+passed on GitHub's `ubuntu-24.04` runner in 3 minutes 56 seconds. It independently
+built Core, Runtime and Worker; passed **510 Linux tests with zero skips**,
+549 parser parity cases, Bridge type/build checks, the actual offline model,
+isolated extractor and Chrome/SSRF probes, and full source/history secret scans.
+The Linux suite reported two upstream deprecation warnings.
+
+The run's verification artifact contains 37 successful steps and their logs.
+Its downloaded ZIP was checked against GitHub's SHA-256
+`bb844a85e51fcd457988fcdafebc5bdcaccde5ebcde0a43816b4ac4ee4384696`.
+Evidence is retained in GitHub Actions for 90 days and locally as
+`artifacts/github-verification-1f9730e.zip` and
+`artifacts/github-verification-1f9730e.json`. Hosted verification now runs on
+main pushes, pull requests and manual dispatch. Native and related-service
+qualification below remains the separately recorded local evidence.
+
+The subsequent [documentation-commit run](https://github.com/psewdon1m-exocortex/mastermind/actions/runs/35125080690)
+exposed a test-only floating-point comparison: uptime `123.00000000000003` was
+compared with exact integer `123` (509 passed, one failed). The regression now
+uses a deterministic fractional monotonic baseline and a one-nanosecond absolute
+tolerance. The original exact comparison was reproduced failing locally before
+the assertion was corrected; production telemetry behavior is unchanged.
+
+This source/CI migration follows the scoped [owner decision](../acceptance-decisions.md).
+It publishes no release tag or container image and performs no deployment.
+The dependency, producer-identity and protected-promotion gates remain open.
+
+## Local qualification — 2026-09-15, main disk
+
+This section supersedes every historical RUNNING, transfer, eight-hour and 8 GiB
+statement below. No long test is running. Development and all active fixtures use
+C: and Docker Desktop. The stopped external WSL registration/data still exist
+because automatic execution review rejected their deletion. The only image pushes
+in this qualification checkpoint were to the loopback qualification registry;
+the GitHub source remote was connected the following day.
+
+The three candidate 0.1.0 images built from implementation revision
+`6e11a0f14831f957a2b865db8e0ceaacdd02b23f` passed full local CI:
+**510 Linux tests, zero skips**, Bridge parser/type/build,
+real offline model and isolated Chrome/SSRF checks, complete source/history
+secret scans. Exact Docker image identities are in `artifacts/final-image-identities.json`
+and `artifacts/ci/6e11a0f14831f957a2b865db8e0ceaacdd02b23f/result.json`.
+Docker Desktop exposes OCI index identities here, not config digests. The rebuild
+changed provenance index bytes; all RootFS layers and runtime configuration are
+identical to the preceding b42891f images, as verified in
+`artifacts/final-image-payload-equivalence.json`. Historical host/security evidence
+retains its original identity; the final native run uses the new exact images.
+
+| Executed exit check | Result and retained local evidence |
+| --- | --- |
+| Bounded native operation | PASS in 97.582 s on final images: 6 actual keyboard saves, 2 coordinated mutations, 368,915,870 export bytes, reconnects, no OOM/container restart, persisted final native Activity. `native-runtime-6e11a0f/result.json` |
+| Native boundaries and resources | PASS actual lost acknowledgement, stale dirty buffer, socket revocation, native/@ rename, attachment/folder moves, graph, Chronos cards and Saturn image/video/audio/PDF/Range. `native-lost-ack-b42891f.log`, `native-boundaries-b42891f.log`, `native-rename-b42891f.log`, `native-moves-b42891f.log`, `native-graph-b42891f.log`, `native-resources-b42891f-v2.log` |
+| Independent Runtime restart | PASS 5.830 s; Core process unchanged, saved text retained, browser reconnected. `native-restart-current.log` |
+| Shared and owned UI | PASS password/edit/conflict/revoke, retained protected references, real clipboard/fallback, settings, keyboard/modal/focus, browser backup/download/inspect/resume/restore, log export. `shared-b42891f.log`, `shell-workflows-b42891f-v2.log` |
+| Responsive UI | PASS 1920×1080 and 390×844, navigation/documentation search, no horizontal overflow or browser/CSP errors; screenshots reviewed. `shell-responsive-current.log`, `shell/` |
+| Crusher | PASS 15 jobs on final images including real Worker extraction, expected failures/retry, actual Core SIGKILL/restart and exactly one resulting commit. Only Google's paid REST endpoint is controlled; provider quality/availability is not claimed. `crusher-final-6e11a0f.log` |
+| Encrypted native restore | PASS 23.906 s, 368,028,205 archive bytes, 350 MiB attachment hash preserved, old session revoked and verification copy removed. `large-native-restore-b42891f.log` |
+| Independent archive and mirror | PASS on the newly fixed Neptune image in 45.141 s, exact 350 MiB reader hash, extra Neptune RSS 25,788,416 bytes below 128 MiB bound. `large-pipelines-neptune-migration.log`, `large-pipelines.json` |
+| Actual producer contracts | PASS real Saturn SFTP/Range, immutable reader, principal isolation, Kernel/Volt and minimal Chronos projection, repeated after the final Core crash/restart. `final-reader-after-core-crash-v2.log` |
+| Saturn transport faults | PASS actual process SIGKILL with held persisted upload lease, interrupted HTTP 502, retry and reader hash. Real loopback SSH/SFTP server then withheld READ after OPEN: bounded failure, early bytes retained and new connection recovered. `saturn-process-kill-current.log`, `saturn-real-sftp-stall-current-v2.log` |
+| Fresh OS install | PASS authenticated signed bootstrap, install, native trust on generated empty Vault, Settings → Updater → Neptune enrollment and reader readiness. Separate C: volumes, database and SFTP namespace. `clean-host-bootstrap.log`, `clean-host-install-v2.log`, `clean-host-native-trust.log`, `clean-host-enrollment.log` |
+| Installation diagnostics | PASS current installer returns READY/exit 0; stopped Neptune produces detailed NOT_READY JSON/exit 1; restart restores READY. `clean-host-doctor-recovery.log` |
+| Host bounded snapshot spool | PASS actual 4 MiB streaming/hash/seal, wrong identity, cancellation, expiry and oversized declaration rejected before allocation. No actual 8 GiB transfer. `host-spool-bounded-current-v3.log` |
+| Actual host update/recovery | PASS 0.0.2 → 0.1.0, manual return retaining new notes, Updater SIGKILL after candidate write → automatic ROLLED_BACK, return to 0.1.0 and canonical HTTPS edge checks. `host-update-0.1.0.log`, `host-manual-rollback-current-0.0.2.log`, `host-updater-interruption-current.log`, `host-fault-0.0.5-current.log`, `host-return-current-0.1.0.log`, `host-edge-b42891f.log` |
+| Post-fault data identity | PASS original 350 MiB attachment SHA-256 `055621ce89f553eb434851825a44986eb91efe091569238303f44872fbfe33c5` and byte-for-byte unchanged synthetic opaque plugin data. `host-post-fault-exact-bytes-final.json` |
+
+All evidence names in this table are relative to ignored `artifacts/`. Earlier
+failed runs remain failures. Subsequent passes describe corrected code or corrected
+harness preconditions; overlapping test runs are never added together.
+
+The complete clean producer suites also pass: Neptune **69 tests**, all **20
+Saturn packages** with their declared tests/typechecks, Chronos **37 tests** on a
+fresh private PostgreSQL database, and all Updater Go packages. Evidence:
+`neptune-migration-all-tests.log`, `saturn-all-packages-current.log`,
+`chronos-replay/45e4c4fa2aff/`, `updater-all-packages-current-v2.log`.
+All four exported producer patches replay cleanly (`producer-patch-replay.json`).
+
+The new Neptune patch fixes an observed concurrent SQLite migration race: the
+column check and ALTER now share an immediate transaction. Fresh and legacy
+databases are tested with 16 concurrent initializers across four iterations.
+The current installer preserves doctor diagnostics on dependency failure. Clean
+host preparation now initializes its own Saturn volume permissions and runs real
+database migrations before starting API/worker. These changes are included in
+the tested implementation revision 6e11a0f. The later evidence-only documentation
+checkpoint does not change executable/image inputs. Native receipts bind both
+source SHA and actual running image identities; historical results must not be
+relabelled. The final Linux suite took 84.60 s and reported two upstream
+FastAPI/Starlette deprecation warnings, with no failed or skipped tests.
+
+### Remaining gates
+
+- **Security remains REVIEW_REQUIRED**, not PASS: exact-image raw matches are
+  Core 51 High/0 Critical, Runtime 70 High/2 Critical and Worker 71 High/9 Critical.
+  See [dependency remediation](../dependency-remediation.md) for current facts and
+  concrete next steps. No exception, waiver or scanner suppression was added.
+- The four producer patches are qualified local candidates, not upstream releases.
+  A public release requires immutable published producer identities and replay.
+- The effective central Part 12 contains the owner's existing worktree changes;
+  the exact accepted bytes are not yet in an immutable central commit.
+- Hosted verification passed in the separate GitHub migration checkpoint above.
+  Release attestation, protected signing, public release and production
+  installation remain unverified.
+- Actual paid Gemini, eight-hour endurance and 8 GiB transfers were not run.
+  The latter two are explicitly excluded by the owner, not unfinished tests.
+- Physical cleanup remains blocked by automatic execution review (`blocked by
+  policy`): the stopped E: WSL copy and the five obsolete C: TLS files plus the
+  disabled `.local/use-qualification-docker.ps1` shim remain. Separate removal of
+  those six C: files was also rejected before execution. Only Docker Desktop is
+  active; no transfer helper is being used.
+
+## Historical checkpoints — superseded by current qualification
+
+The following entries preserve the investigation history. RUNNING and required
+wording records its original checkpoint only; it is not the current work plan.
+
+**Main-disk qualification checkpoint:** source d5b0897 passed complete local CI
+with **507 Linux tests, zero skips**, actual isolated Chrome/SSRF and offline
+model probes, Bridge checks and source/history secret scans. The five producer
+images rebuilt from the locked sources; all four exported patches replayed
+cleanly. Current real Saturn SFTP/Range, Neptune reader through Kernel/Volt and
+Chronos projection/principal-separation probes pass. Evidence is in
+`artifacts/ci/d5b08977ec7ba46ff159fba32fa412b690cb257e/result.json`,
+`producer-build-current/result.json`, `producer-patch-replay.json` and
+`integration-contract-current.log`.
+
+Native Activity now reaches the Core database with current Bridge 0.1.0.
+The extended browser runner first exposed three harness defects: opening the
+viewer before startup, selecting an invisible auxiliary canvas, and using an
+incorrect SQLite filename. These failed runs remain FAIL; the corrected runner
+still requires a complete new PASS. Startup errors are now visible as bounded
+codes in owner status. The disposable Linux host and its registry are recreated
+from the original C: volumes via `scripts/integration/host.compose.yml`; the
+current installer repairs the legacy Updater executable permissions and own-head
+registration. Current-image installation, update and rollback remain open.
+
+**Current owner-directed scope:** rebuild on the main Docker Desktop engine with
+approximately 151 GiB available on C:. Original named fixture volumes remain;
+their old Desktop containers/images are absent and will be recreated. Later
+historical transfer/soak statements below are superseded by acceptance-decisions.md.
+
+Final candidate version is **0.1.0**. Earlier 0.0.x images are unpublished qualification baselines and fault fixtures; they are not advertised upstream releases. Final clean-install, oldest-baseline update, rollback and long-running tests must reuse the exact 0.1.0 CI image identities. Runtime's component lock now records the actual official KasmVNC Debian 13 archive and validation rejects version/archive drift.
+
+The local Saturn patch now also bounds stalled SFTP reads after a handle has opened, propagates consumer cancellation and retains bytes produced before a consumer attaches. The targeted storage suite passes **20 tests** and its TypeScript check passes (`saturn-storage-current.log`, `saturn-read-idle-typecheck.log`). The four added lifecycle tests include a progressing stream whose total duration exceeds the idle limit. Fresh producer image/replay and real transport regression remain required.
+
+**Latest status, 11:49 UTC:** no full Runtime soak is currently running. Both earlier Docker Desktop runs were interrupted by engine/storage failures. The 11:12 WSL attempt **failed at 11:18** on a native-save timeout during bulk image/volume import; delayed input was subsequently visible, but this remains FAIL. The concurrent WSL CI attempt was stopped while awaiting filesystem journal I/O and is also FAIL. Qualification resumes only after the one-time stand transfer has finished. Original stand volumes remain preserved on Desktop; only this task's copies move to the separate WSL daemon on E:. Historical RUNNING statements below describe their checkpoint time and are superseded by this status.
+
+The retained snapshot barrier now includes the coordinator's paused checkpoint in its shared deadline. The targeted deadline/update suite passes **21 tests** (`snapshot-retained-budget-tests.log`). The newly implemented protected release workflow has **54 passing local promotion/gate/packaging tests and four Windows skips** (`release-promotion-tests.log`); Linux verification of those platform-dependent tests is pending. No actual GitHub publication or hosted attestation is claimed. The full final-image CI, final host scenarios and uninterrupted eight-hour soak remain required.
+
+12:15 UTC source checkpoint: the Worker now pins official Chrome for Testing 153.0.8010.36 (archive SHA-256 `167a098c4fdec156b58a9f678c90a84f9072d789f9c6e7b35496a6987b8b7ef8`) and full CI includes the real isolated JS/SSRF probe. Runtime lost-acknowledgement cancellation, late-request rejection, safe resume reconciliation and retention of uncertain Apply barriers pass **55 targeted tests** (`runtime-cancel-current-tests.log`). These new source changes still require rebuilt images and the actual native lost-response probe before the next full soak. The interrupted archive import is being repeated with 1 MiB tar input records instead of 10 KiB records over Windows–WSL 9p; original archives and source fixture volumes remain retained.
+
+- S3: native restore verifies a temporary Vault generation with the real Bridge before commit. `artifacts/native-restore-live.log` confirms restored bytes, removed verification copy and owner-session revocation; 7.534 seconds. The isolated Runtime fixture contains 2,003 notes and a 350 MiB attachment. Its first sustained run failed: KasmVNC does not answer WebSocket Ping, and the upstream client disconnected after its Pong timeout. `scripts/probe_vnc_ping.py` reproduced this with an explicit Ping. Core now disables that incompatible upstream Ping while retaining owner-session checks. A fresh full 480-minute run began at **05:59:02 UTC**; it is **RUNNING, not PASS** until the elapsed-time gate completes. Exact images, restarts, hashes, periodic native edits and exports are recorded by `scripts/soak_runtime.cjs` in `artifacts/runtime-soak/`.
+- S6: owned Shell pages, server-persisted preferences, actual server CPU/RAM/Vault-filesystem metrics, timezone-aware Activity, documentation search, owner Shares, Crusher intake/progress, protected Vault toolbar and durable maintenance operations are implemented. OFL Space Grotesk is bundled with source/hash/license. The Obsidian viewport retains its native interface.
+- `scripts/probe_shell.cjs` passed desktop 1920×1080 and mobile 390×844 navigation, documentation search and overflow checks. Screenshots in `artifacts/shell/` were inspected. `scripts/probe_shell_workflows.cjs` now passes actual settings persistence/reordering, modal focus/dirty guard, browser ZIP create/download/hash/inspect/resume/restore, Share password/edit/revoke and clipboard fallback, real Worker Crusher submission, native fullscreen/reconnect, and log archive download, with no browser/CSP errors (`artifacts/shell-workflows.log`). Only the paid Google REST endpoint uses the explicitly declared integration fixture.
+- Current full Linux regression: **353 passed, no skips**, 63.60 seconds (`artifacts/linux-s6-checkpoint.log`). Subsequent lifecycle/operations/Shared/API changes have **32 passed, no skips** in the same non-root/read-only/network-disabled container (`artifacts/linux-operator-current.log`). Operation expiry respects active download leases; cancelled upload writes complete before closing their descriptor; committed recovery is not reclassified by a later audit failure.
+- S4/S6: Neptune Initialize/Repair now uses the own-head Updater lifecycle required by Parts 09–10. Only the request/job identity is persisted; a lost acceptance response is recovered from Updater's own-head job list. `COMPLETED` requires the actual archive/mirror/reader profile and a successful reader request. A completed producer job with a missing scope is a failure. Component tests pass; the actual privileged Updater initialization/install/update/rollback gate remains open and is not represented as completed by these tests.
+
+## Evidence
+
+- 11:12 UTC: a new full 480-minute native soak started on **independent Ubuntu 24.04 WSL/Docker storage on E:** (`artifacts/runtime-soak-wsl-final/`, run `f9cc3ce33b27`). It uses the exact Debian 13 OCI bytes built at `ddba7cd`, with validated OCI-index-to-config identity after import. Core config `9d5befb5701468966f8f36359d77545965e42780fbeebe1fbe419342e7f0abe6`, Runtime config `1e6f5281f27dc8a4fabf438c62942abb5291d2fc7ccee53095814669ecfd8367`. The earliest possible completion is 19:12 UTC; it is RUNNING. No existing Docker Desktop storage was moved. Only generated archive copies and a new task-owned WSL distribution reside under `E:/mastermind-qualification-cache-20260915`; its private transfer directory has a restricted Windows ACL. Its Docker API listens on loopback with a separate short-lived mutual-TLS identity.
+- The second Desktop soak was also **ENVIRONMENT_INTERRUPTED** at the 10:47 UTC containerd SIGBUS/disk-I/O failure, after 19 native checkpoints. CI `ddba7cd` built the complete new candidate but its Linux run ended with Docker EOF and is FAIL. Desktop was restored without image/volume reset; stopped unrelated services were restarted to their prior running state. A requested cleanup of generated image archives was rejected by automatic approval review; a subsequent non-destructive move preserved those archives on E:. The request to move shared Docker storage is superseded by the independent task-owned WSL environment.
+- Actual patched Chronos image against a new private PostgreSQL database: **37 passed**, no skips (`artifacts/chronos-replay/fb96aeac79a2/pytest.log`). The real Updater socket small transport check passes forged/wrong-head denial, streamed bytes/seal, request substitution rejection, cancellation, wrong hash and periodic expiry without deleting another spool (`host-spool-smoke.json`). It is explicitly SMOKE_PASS; the actual 8 GiB transfer remains outstanding. Canonical Nginx now also passes authenticated/anonymous `/api/graph` checks (`host-edge-current.log`).
+- CI can reuse a previously built OCI candidate after qualification-only edits: it verifies unchanged complete image build inputs, original build record hash, each OCI descriptor/config hash and the loaded image identity. Changed service code, altered OCI bytes and wrong architecture are rejected by four new tests. This preserves the exact images under the long-running soak instead of rebuilding different bytes for documentation/harness changes.
+- Snapshot preparation now shares one monotonic 120-second budget across file traversal/copy/hash, indexing, SQLite snapshot, ZIP/encryption and the pre-apply Updater handoff. A timeout aborts before privileged Apply and resumes safe writers; uncertain accepted Apply retains its recovery barrier. Seven new fault/boundary checks plus the update/large-backup regression pass (**21 tests**, `artifacts/snapshot-deadline-tests.log`). Ordinary backup serialization remains outside the native pause. Encryption cancellation kills and joins its child before deleting private output.
+- The initial Debian 13 image scan completed with remaining findings: Core 51 High / 0 Critical, Runtime 90 High / 18 Critical, Worker 508 High / 162 Critical (`artifacts/supply-chain/20260915T103716Z-048c3ea7`). Counts include repeated source-package/CPE matches; they are not an applicability verdict. Build-only curl is removed from the next Runtime image. Unresolved findings remain a publication blocker pending individual vendor/applicability review, not an automatic waiver for unavailable fixes.
+- 10:30 UTC checkpoint: `python scripts/ci.py --images --secrets` passed on clean source **52f2f27d7c885e16857c1f5b355c7ea381b1ed54**. **428 Linux tests**, no skips, plus exact-image offline model/sandbox (1,184,608,256-byte RSS in the earlier equivalent image run), Bridge checks/build, all source syntax, policy/tag/exposure checks and Gitleaks history/source scans. Final evidence is `artifacts/ci/52f2f27d7c885e16857c1f5b355c7ea381b1ed54/result.json`. Earlier CI fixture failures (Windows bind filesystem semantics, absent ignored Bridge build output, insufficient tmpfs headroom and directory initialization ownership) remain recorded as failures; each was corrected before the complete PASS.
+- Producer replay: Neptune **67 passed, zero skipped** (`artifacts/neptune-clean-replay.log`); all **20 Saturn packages** passed their declared Vitest suites and TypeScript checks (`artifacts/saturn-clean-replay-packages.log`). The producer Docker deployment stage's pnpm shortcut unexpectedly pruned test dependencies; direct execution of the same pinned package test tools produced the actual passing evidence. The compiled Chronos image from its clean replay has built; its full database-backed suite is still pending.
+- Supply-chain gate is **REVIEW_REQUIRED**, not PASS. Official checksum-pinned Syft 1.51.1 and Grype 0.118.0 generated actual three-image SBOM/vulnerability reports under `artifacts/supply-chain/20260915T102444Z-019bc066`. Debian 12 baseline counts contain unresolved and duplicate package-level findings. Authoritative Debian advisories confirm available Debian 13 fixes for OpenSSL, glibc and SQLite, so the three service images are being rebuilt on pinned Python 3.12/Debian 13 with security updates and the official KasmVNC 1.5.0 trixie asset. The original running Runtime soak remains an explicitly identified old-image baseline. New-image functional/security checks and a separate full Runtime soak must finish before those replacement images are qualified.
+- 10:09 UTC checkpoint: current source at `4423ada` passed **409 Linux tests**, no skips, in 79.17 seconds (`artifacts/linux-rollback-current.log`). All Updater package tests on the clean exported-patch replay passed; Bridge passed type checking and 549 parser parity cases plus native/portable reference regressions.
+- Actual Ubuntu update/return: signed unpublished `0.0.6`, source `c8bef4511b3e1023b138b7dd886fb985f5d6367b`, completed from `0.0.2`; a subsequent typed manual return to `0.0.2` completed in 33.982 seconds and preserved a note created after the update (`artifacts/host-update-0.0.6.*`, `artifacts/host-manual-rollback-0.0.2.*`). These immutable qualification variants differ from the initial service version; they are not published producer/service releases.
+- Actual canonical Nginx gate: `node scripts/probe_host_edge.cjs` passed public minimal health, private route concealment, anonymous/forged-bot denial, Host/SNI enforcement, body bounds, host-only secure cookies, CSRF, logout and real capability/query log redaction (`artifacts/host-edge.json`). The deployed template was syntax-checked and reloaded only inside the disposable host. Public production DNS/certificate readiness remains an operator check.
+- S0: `docker version` reports Linux amd64 Engine 29.1.3; existing container names/ports inventoried. `git status --short` records pre-existing changes above. New service repository initialized locally; no remote created or pushed.
+- S1: `.venv/Scripts/python -m pytest tests/test_storage.py tests/test_storage_qualification.py` — 27 checks passed in separate runs (24 + 3). Qualification includes a real competing process, 1,650 generated notes, 3,300 unique graph edges, full indexing below 30 seconds and one-note incremental processing below 5 seconds. Measured timings are in `artifacts/storage-qualification.xml`. `ruff check src tests` passes. Runtime/native rename and watcher delivery remain separate S3/S8 gates.
+- S2: `pytest tests/test_storage.py tests/test_storage_qualification.py tests/test_recovery.py tests/test_audit_bounds.py --junitxml=artifacts/stages-s1-s2.xml` — 62 passed. Recovery tests cover exact opaque keys, secure sessions/CSRF, rotation, recursive redaction, audit count/age/bytes and file rotation, full encrypted restore into a separate home, opaque plugin secret bytes, empty folders, six interrupted generation switches, unknown writer preservation, hostile ZIPs, 24-hour retention and quota accounting. This is local storage qualification; native Runtime and agent transfer are later gates.
+- Large S2 fixture: `pytest tests/test_backup_large.py --junitxml=artifacts/backup-large.xml` — PASS with a generated 356 MiB incompressible attachment, complete encrypted ZIP and restored matching SHA-256. Initial measurement: backup 5.031 s, restore 3.750 s, extra combined Core/crypto-process RSS 21,680,128 bytes. Re-run after directory-inventory/durability changes also passed in `artifacts/recovery.xml`. Synthetic data, not the owner's private archive.
+- Initial HTTP gate: `pytest tests/test_api.py` — 4 passed (owner/Bridge capability separation, cookies/CSRF, ETag conflicts, request bounds, error redaction, unauthorized Runtime WebSocket). Actual proxy/browser flows remain S3/S8.
+- S3 protocol/storage checkpoint: `pytest -q --junitxml=artifacts/storage-native-checkpoint.xml` — 83 passed, including a repeated 356 MiB round-trip, Activity epoch/checkpoint recovery, independently durable native dirty intents, eight native-rename protocol fault cases and API tests. Native protocol unit peers are not counted as official editor qualification.
+- Actual native editor: `node scripts/probe_native_edit.cjs` — a keyboard edit delivered through the authenticated KasmVNC gateway was read back from canonical Markdown. `node scripts/probe_native_rename.cjs` — PASS on official Obsidian 1.13.7: native `[[...]]` and custom `@...` propagation, preserving code and comments. An initial probe exposed `DataAdapter.process` as another propagation writer; the adapter was included before the passing run.
+- Linux boundary: non-root, read-only, network-disabled Docker test container ran `test_fs_security.py test_native_protocol.py test_activity_watcher.py` — 22 passed in 1.32 s. Includes directory-symlink swaps between validation and open, hardlink rejection, preservation of executable/read-only opaque plugin files, and installing the trusted Bridge before the restored-generation digest. Windows skips for POSIX-specific checks are covered by this real Linux run.
+- Native graph browser gate: `node scripts/probe_native_graph.cjs` — PASS. Actual Obsidian view displayed 5 notes and 2 edges; 0.60 ms measured draw, 52.10 ms worker startup/layout, no idle redraw, and no hidden-view redraw. Screenshot: `artifacts/runtime-native-graph.png`. This small fixture does not replace the representative graph/resource qualification in S8.
+- Live dirty-buffer/session gate: `node scripts/probe_runtime_boundaries.cjs` — PASS. Native keyboard input survives a stale owner save (409); the authenticated transport remains connected during a safe mutation, logout closes the existing transport in 321 ms, and reconnect is rejected.
+- S4 isolation: local Git worktrees on branch `mastermind-integration` live in `.local/services/{kernel,volt,chronos,saturn,neptune,updater}`. The user's original checkouts and their pre-existing documentation changes are preserved. Producer changes will be reviewed and qualified in these worktrees; no remote release has been published. Rechecked official stable releases: Saturn `saturn-v0.1.15` / `3fa28fef80e6578bb24a2f3f4dac066e24d08014`; the other §147 stable versions remain current. The GitHub generic latest alias is stale for Kernel/Neptune, so service-qualified release lists were checked as well.
+- S4 real services: generated local TLS and identities, actual Kernel/Volt/Saturn/Chronos/Neptune plus PostgreSQL/SFTP. Saturn applied all 36 migrations. `scripts/probe_integrations.py --seed --enroll --reader --neptune --chronos` (individual runs) verified reference-only Register, exact secret resolution, three distinct enrollment credentials, one-use code, 2 MiB reader bytes/SHA/Range/If-Range/suffix/416, and the minimal Chronos event capability. `--repair` injected an actual PostgreSQL BEFORE INSERT failure: no live orphan mirror, previous reader retained, repair succeeded, replacement/revoke invalidated both device capabilities. Injection was removed in `finally`.
+- Core reader isolation: `scripts/integration/probe_core_reader.py` passed in a non-root, read-only, network-disabled Core container with only Neptune's Unix socket and generated credentials mounted. This was an actual Neptune → Kernel/Volt → Saturn/SFTP transfer, not a mock transport.
+- Core checkpoint: `pytest -q --junitxml=artifacts/core-regression.xml` — 126 passed, 4 Windows skips (POSIX checks have separate Linux evidence), including the 356 MiB encrypted recovery regression. `tests/test_kernel.py` and `tests/test_integrations.py` cover memory-only secret cache expiry/rotation, metadata bounds, reader cancellation/leases, strict purpose/path routing and Chronos field minimization.
+- Updater spool checkpoint: real Linux Go tests uploaded/sealed/claimed a 356 MiB generated archive in 1.68 s; additional Go TotalAlloc was 3,196,408 bytes. State tests cover interruption, retry, head/request binding, tampering, restart, expiration and failed-rollback retention. A separate actual HTTP server test passed authentication, 2 MiB upload, seal/rewrite and strict JSON checks. Logs: `artifacts/updater-spool-tests.log`, `artifacts/updater-spool-http-tests.log`. This does not yet qualify daemon RSS or the component-group update/rollback.
+- Neptune export checkpoint: `dotnet test tests/Neptune.Core.Tests/Neptune.Core.Tests.csproj` in the pinned Linux SDK — 55 passed, including durable generation across restart, hash/size/purpose faults, hostile mirror archives and bounded metadata. `pytest tests/test_api.py tests/test_exports.py` — 9 passed, including export capability separation, exact receipt matching, lease release and independent mirror behavior when archive keys are unavailable.
+- `scripts/probe_pipelines.py` — PASS against running official Obsidian/Core and actual Neptune/Saturn/SFTP: both independent pipelines completed and the mirrored note returned exact Unicode bytes. Evidence: `artifacts/pipeline-live.json`. The run exposed a Runtime restart/next-barrier race and the old producer's unconditional `encrypted=false`; both were corrected before the passing run. Large pipeline, outage, delete reconciliation and group rollback remain open S4/S8 gates.
+- S4 group checkpoint: Core offline migration/physical preimage rollback, future-schema rejection and six interrupted rollback boundaries pass (`tests/test_updates.py`, `artifacts/core-update-regression.log`). Updater signed group preparation, three-image pre-pull, sealed spool confirmation, migration/functional failure and rollback contracts pass with its full Go regression (`artifacts/updater-regression.log`, `artifacts/updater-group-contracts.log`). Group Docker actions in those Go tests use a fake runner; actual three-component daemon update/rollback remains an open gate.
+- S5 Shared: `pytest tests/test_shared.py tests/test_shared_api.py tests/test_api.py` — 67 passed. Existing forbidden literals/hidden frontmatter/comments survive byte-for-byte; normalized injection and cross-segment context changes are rejected; token/session/policy/expiry/CSRF separation, path revival, bounded projections and safe conflicts pass. Ambiguous Markdown blocks containing references/HTML are immutable as a whole; independent text blocks remain editable. This conservative editor choice preserves source bytes without requiring public access to a resolver.
+- S5 Crusher acceptance/network: one-use concurrent activation, status-only tickets after submit expiry, principal/idempotency binding across database reopen, completed-source hashing, interrupted upload cleanup, queue/space limits and DNS-pinned public fetch/redirect bounds pass. `tests/test_crusher_access.py tests/test_worker_fetch.py` — 36 passed. No generated note is returned by these APIs; processing engine/provider/hierarchy completion is still in progress.
+- S5 extraction/model: 16 deterministic extractor checks pass for HTML, office ZIP, PDF fallback, media sniffing, secret-like source exclusions, malicious/colliding archive paths and bounded output. Build-time E5 artifacts at the approved source revision pass their SHA-256 inventory (`embedding-model.lock.json`); runtime inference uses local files only. `scripts/integration/probe_worker.py` in a real non-root/read-only/network-disabled Linux Worker container passed multilingual ranking, 16 chunks of at most 484 tokens, actual text extraction, and Landlock/seccomp rejection of network, service credential and sibling-job access. Initial retained RSS was 1,312,337,920 bytes under the 2 GiB cgroup; allocator changes require a fresh resource run.
+- S5 actual browser/native boundary: `node scripts/probe_shared.cjs` — PASS on the running Core/official Obsidian Runtime. Visitor edits preserve protected bytes, concurrent owner save returns a safe merge projection with the unsaved visitor draft retained, owner routes remain inaccessible, and the public page makes only its scoped requests. Desktop/mobile screenshots are in `artifacts/shared-*.png`; no mobile horizontal overflow. Follow-up renewal/empty-segment UI improvements still need a rebuild and browser re-run.
+- Current Python checkpoint: `pytest -q --junitxml=artifacts/core-shared-worker-regression.xml` — 252 passed, 4 Windows POSIX skips, including the 356 MiB backup/restore regression. Full service qualification remains incomplete: passing component checks do not mark S3–S8 complete.
+- S5 processing checkpoint: durable Crusher stages, persisted three-attempt retry schedule, local hierarchy handles/context budgets, strict generated Markdown and commit recovery pass component tests. Five interruption boundaries include the coordinator's prepared/file/committed journal states. Gemini REST/Files tests cover fixed upload origin, streamed bytes, file identity, schema/output limits, clipping disclosure and remote cleanup; these use controlled provider responses.
+- `node scripts/probe_crusher.cjs` — PASS for 12 accepted jobs on real Core/Worker/Obsidian and Kernel/Volt/Neptune/Saturn/SFTP: owner/public text, transient retry, rejected schema, DOCX, scanned PDF, audio, YouTube, actual public webpage, actual public Git clone, selected Saturn resource and SIGKILL/restart of Core during generation. Every success has exactly one local note; the failed job has none. Status responses expose only the declared progress fields. Only the paid Google endpoint is a controlled REST fixture, explicitly mounted through `scripts/integration/crusher-fixture.compose.yml`; it is absent from production images. Evidence: `artifacts/crusher-live.json` and `.log`.
+- Local semantic index: incremental edit/delete invalidation, concurrent source replacement, durable batch progress/30-minute deadline, model-change confirmation and disposable rebuild pass six component tests. The live Crusher run additionally verified owner semantic search using the actual offline E5 Worker. Background indexing yields to accepted Crusher jobs and has separate readiness; no remote embedding endpoint exists.
+- Actual sandbox/resource follow-up: public Git clone through the bounded broker passes (`artifacts/worker-git-live.log`). Real Chromium executes a controlled JavaScript article while private-address fetch is rejected by the actual public-address guard. With E5 loaded concurrently, the 2 GiB container's measured peak was 990,879,744 bytes; Worker RSS after browser close was 875,741,184 bytes (`artifacts/worker-browser-model-live.log`). Actual socket drip tests additionally prove a fixed wall-clock deadline for headers/body and early 16 KiB header rejection.
+- Current Linux checkpoint: full suite in a non-root/read-only/network-disabled 2 GiB / 2 CPU container — **309 passed, no skips**, 51.13 seconds (`artifacts/linux-current.log`, `.xml`). Includes the 356 MiB round-trip, POSIX link/race cases, Shared, provider/Crusher, semantic index and Runtime observer. Later source changes require their own targeted checks before the next full gate.
+- Shared follow-up: `node scripts/probe_shared.cjs` again passes after renewal/empty-segment changes (`artifacts/shared-browser-current.log`); desktop/mobile screenshots were visually inspected. Final Part 01 typography/layout qualification remains S6.
+- Independent Runtime restart: the Core observer repeats recovery before reopening a restarted supervisor and never releases an active update/native barrier. `node scripts/probe_runtime_restart.cjs` passes against actual Obsidian: Core process unchanged, saved text preserved, authenticated gateway reconnected, 6.694 seconds measured (`artifacts/runtime-restart-live.log`, `runtime-restarted.png`). Bridge handshake now checks its bundled manifest version and protocol version instead of a hardcoded Bridge release.
+- Native resources: `node scripts/probe_native_resources.cjs` passes actual Chronos minimal cards and Saturn SVG/video/audio/PDF delivery inside official Obsidian. The native HTML5 player reached readyState 4; the Core → Neptune → Saturn/SFTP path returned two actual Range responses. The private Chronos annotation is absent from the card. Screenshot `artifacts/native-resources.png` was visually inspected. Follow-up viewport loading/stream revocation and external autocomplete changes require the next native browser run. Native Download now queues a protected owner action for the forthcoming Vault toolbar; that toolbar is an open S6 deliverable.
+- Core leadership now precedes SQLite schema opening; a second Core is rejected before even calling the database constructor (`tests/test_api.py`). Worker source metadata/length/MIME/digest and parser-created link boundaries have additional focused checks; their new Linux cases remain queued for the next container regression.
+- Portable export now has a separate owner-only endpoint and generated manifest/history under the Bridge directory. `tests/test_portable.py`, `npm test --prefix bridge` pass byte equality, isolated metadata, 549 Core/parser Unicode and Markdown conformance cases, graph density, backlinks, autocomplete and history after rename/restart. A real export preserved all 38 original files (326,924-byte ZIP); standard Obsidian 1.13.7 opened it at `/copy/vault` on an isolated network, without Core, supervisor API or host credentials. Native `[[...]]` and Bridge `@...` both followed a rename to `Portable renamed`; the exported deleted name remains broken, and Chronos/Saturn show unavailable. Screenshots `portable-sample.png`, `portable-graph.png`, `portable-reference-open.png`, `portable-renamed-links.png` were visually inspected; `portable-export-live.json` records the pre-open inventory check.
+- Native resource follow-up with viewport loading and stream revocation passes (`artifacts/native-resources-lazy.log`): image, video, audio, PDF and minimal Chronos card loaded in actual Obsidian, with two Range responses. The separate portable display gateway exists only in `scripts/integration/portable.compose.yml` to expose VNC on loopback while Obsidian has no external network route.
+- Runtime orphan supervision: Linux child-subreaper adopts a double-forked `setsid` descendant. Its presence rejects both stopped-writer confirmation and a new editor startup, preserving its saved data (`tests/test_runtime_descendants.py`, real Linux test). Actual Runtime restart/quiesce remains successful with that policy, Core process unchanged, 8.215 seconds (`artifacts/runtime-descendants-live.log`).
+- Native move protocol now covers attachments, folders and empty subfolders, with streaming binary recovery payloads, complete folder inventories and Share paths per moved note. The 19 protocol tests include four interruption points for both attachment and folder operations; binary preimages may not be read wholesale into memory. `node scripts/probe_native_moves.cjs` passes against actual FileManager: attachment rename, folder move, native link propagation, unchanged attachment SHA, empty subdirectories and Share path (`artifacts/native-moves-live.log`). Later session-path remapping and descriptor-safe final writes require their targeted follow-up.
+
+## Checkpoint — 2026-09-15 07:55 UTC
+
+- S3/S4 actual large-data qualification: `artifacts/large-native-restore.json` records a native restore of a 368,028,205-byte archive with a 350 MiB attachment in **14.547 s**, exact attachment SHA, old owner-session revocation and removal of the temporary native verification copy. `artifacts/large-pipelines.json` records both independent pipelines complete and exact 367,001,600-byte Neptune/Saturn/SFTP reader delivery in **47.093 s**; additional Neptune RSS **30,576,640 bytes**. Prior failed attempts remain in separate logs.
+- The large-data failures exposed three actual producer issues, now fixed in local candidates: WebDAV URI spelling of parentheses/percent escapes, small network chunks causing excessive SQL/SFTP work, and Saturn file-operation leases surviving a process restart. Neptune compares decoded safe path segments; Saturn coalesces bounded 1 MiB writes and disables Nagle on SFTP connections. API/Worker startup recovers orphan leases only while holding the existing exclusive PostgreSQL maintenance barrier, and raw WebDAV/reader requests now hold its shared side through complete streaming. The real PostgreSQL contention/recovery test passed (`saturn-maintenance-live.log`). A deliberate held-upload process-kill test remains to run.
+- S6 private operations: local admin Unix socket mode 0600, read-only doctor, reindex/graph, replication control and durable CLI backup/restore are implemented. Real Linux admin/API/operations checks: **44 passed** (`admin-linux.log`). Later recovery/audit/operation checks: **44 passed, 1 POSIX-only skip on Windows** (`recovery-audit-current.log`). Restore reports a committed outcome even if post-commit cleanup/resume fails, with an explicit recovery warning. Audit ZIP uses one bounded SQLite snapshot, logs initially show the recent tail, and verified dual receipts release completed dirty-outbox entries.
+- All seven shell-secret bindings have been provisioned through the actual local Volt and Kernel; the main Core now uses the Kernel backend. `admin-kernel-live-doctor.json` was READY before adding the required Updater and Worker probes. The final current doctor result must be re-qualified with the real host Updater; the earlier report does not cover that new check.
+- S5 extraction: DOC uses bounded antiword in the existing Linux sandbox; RTF uses pinned striprtf 0.0.33; XLSX resolves shared/rich strings and cached cell values in workbook order; PPTX follows presentation relationships. **21 Linux tests passed** (`documents-linux-current.log`), including a synthetic binary Word 97 fixture generated by real LibreOffice. Very short legacy DOC text streams rejected by antiword produce a sanitized extraction error. The new formats still need the final real Worker/Crusher browser pass.
+- S7 now has a three-component production Compose, authenticated immutable-release bootstrap generator, standalone signature/bundle verifier, two-stage local installer, and namespaced host Nginx includes. **8 Linux packaging tests passed** (`packaging-linux-current.log`) for signature/role/version, hostile archives and component privilege/mount boundaries. Clean install, actual signed group update/rollback, edge acceptance and the full release gate are still pending; this is not a completed packaging stage.
+- A new isolated Ubuntu 24.04 qualification host runs real systemd and its **own Docker 29.1.3/overlay2**, without mounting the workstation Docker socket. Its outer container is `mastermind-qualification-host`; its HTTPS port is loopback 18445. Its own local registry uses loopback 18500. These are test infrastructure, not production deployment. The actual Updater and self-contained Neptune binaries have been built for the next tests.
+- Required changes to four producers are exported by `scripts/export_integration_patches.py` into `integrations/patches`, with baseline/source/patch digests in `docs/compatibility.json`. They remain **unpublished local candidates**, not features attributed to existing upstream releases. The effective central Parts 00–12 are copied without modification into `docs/policy` with hashes in `docs/policy-lock.json` for isolated checkout/release use.
+- The full 8-hour Runtime soak is still **RUNNING**: 23 native-save checkpoints by 07:52:51 UTC, with coordinated restarts and large exports. It must not be marked PASS before the full elapsed-time gate. Its frozen images differ from the evolving Core candidate and remain explicitly identified by the soak evidence.
+
+
+## Checkpoint — 2026-09-15 09:46 UTC
+
+- The first full Runtime soak is **ENVIRONMENT_INTERRUPTED**, not PASS. Docker Desktop's WSL engine stopped at 08:45 UTC after 33 native checkpoints. Stale Windows Unix sockets prevented Desktop restart; only the verified socket directories were retained under recovery names and recreated. Images, volumes, unrelated project state and all Vault data were preserved. The replacement full run began at **09:13:29 UTC**, with its own `artifacts/runtime-soak-final/` evidence and frozen image identities. It remains RUNNING until 480 minutes actually elapse.
+- Core now retries an unavailable startup dependency with bounded backoff and exits retries promptly on shutdown. On the isolated Runtime stand, Core was started while Runtime was stopped; it became ready automatically when Runtime was started 53 seconds later. Its process did not restart. The actual host's synthetic 350 MiB attachment retained SHA-256 `055621ce89f553eb434851825a44986eb91efe091569238303f44872fbfe33c5` after the engine outage.
+- Actual Settings initialization installed the signed local Neptune 0.1.7 candidate via host Updater, creating archive/mirror/reader capabilities on a separate real Saturn API/Worker/PostgreSQL/SFTP namespace. The initial browser lost its session while Core was recreated; a new authenticated review confirmed COMPLETED. User-facing reconnection and first native trust messages were improved. Fresh final bootstrap remains a separate gate.
+- Current full non-root/read-only/network-disabled Linux regression: **393 passed, no skips**, 74.84 s (`linux-host-current.log`). Subsequent gate, version-rollback and retention checks are targeted until the next full run. All current Updater Go packages pass (`updater-retention-and-recovery-lock.log`); the latest exported producer patches replay byte-for-byte on four clean baseline clones (`producer-patch-replay.json`).
+- Actual signed whole-group update **0.0.1 → 0.0.2 completed in 41.387 s** using a 367,411,150-byte encrypted spool. New Core, Runtime/Bridge and Worker/model passed functional checks; doctor returned READY. The browser probe recovered the invalidated owner session. An initially incorrect probe assertion used `/api/status.version`; the corrected probe verifies the version from `/api/owner/agents` and its separate review passed. Evidence: `host-update-0.0.2.log`, `host-update-0.0.2-review.log`, and the verification JSON.
+- A deliberately signed **0.0.3 migration failure** wrote a candidate-only note and then failed. Updater automatically restored 0.0.2, the prior deployment/data, the exact large attachment hash and absence of the rejected note. A **0.0.4 functional failure** after group start also returned ROLLED_BACK. Evidence: `host-update-0.0.3*` and `host-update-0.0.4*`.
+- A signed **0.0.5 delayed migration** was interrupted with SIGKILL to only the disposable host's Updater PID after the candidate note write was observed. Systemd restarted the real daemon and automatic recovery returned ROLLED_BACK; the original data hash and exact prior Bridge/Obsidian/model passed, and the temporary migration container exited. Evidence: `host-updater-interruption.log`, `host-update-0.0.5*`. Later hardening reserves the host for any pending recovery, including the delay before the restart recovery loop; its new regression passes and needs the final actual-host repeat.
+- Version rollback through a fresh Core snapshot/barrier, CLI, owner API and Settings is implemented with strict recorded previous-release identity and source-schema checks. It preserves current compatible notes instead of replaying a stale old backup. Go/source tests pass; the actual final-candidate version-return scenario remains open.
+- Standalone technical docs and the immutable policy image dependencies are included. `validate_repository.py` checks all 28 active documents, numeric version agreement, pinned dependencies, source whitespace and policy/patch hashes; all 97 active Part 12 IDs parse. `known_problems_gate.py` rejects missing/duplicate/stale/UNKNOWN/FAIL evidence and uncommitted central policy before publication; 14 adversarial tests pass. The effective Part 12 includes the owner's existing central worktree edit: publication remains fail-closed until an immutable central revision contains those exact bytes. This does not fabricate a production deployment result.
+- Gitleaks 8.30.1, pinned OCI digest, scanned all seven existing source commits and runtime source. One exact requirements prose phrase (`revoke/repair/idempotency`) was reviewed as a false positive; its narrow rule/path/value exception passed the repeated scan. Current uncommitted source, final images/bundles, CI/pre-push and final signed-asset evidence still require their concluding gates.
+
+- Owner-scope revision: release evidence validation passes 40 tests (one Windows OpenSSL-dependent skip); repository validation passes for 0.1.0, 29 documents and 97 known-problem IDs; Python lint and the bounded native runner syntax pass. External WSL deletion was rejected before execution; non-destructive termination succeeded. No endurance or 8 GiB transfer was run.
+
+- Main-disk checkpoint: revision 919b5a4 passed full local CI with 502 Linux tests, no skips, actual Chrome 153 JavaScript/private-fetch denial, offline model/sandbox and source/history scans. Its six-save/two-mutation/export native regression passed in 94.094 seconds (368,913,646 exported bytes), and real lost-ack tests passed. Screenshot review then exposed rejected native Activity: the API still required literal Bridge 0.0.1. The corrected endpoint uses the service version; the extended native gate requires a newly persisted final edit session after all snapshot operations. API/activity/release regression: 61 tests passed, one Windows skip. This source fix needs rebuilt images and a fresh native run.
+- Fresh 919b5a4 image scan is REVIEW_REQUIRED: Core 51 High/0 Critical, Runtime 70 High/2 Critical, Worker 73 High/9 Critical. These are raw package matches including duplicates and known version-database errors; no blanket exemption or security PASS is claimed. The unused Worker Xvfb package is being removed before the next image check. All five local producer images rebuilt successfully; current producer replay matches all four exported patches.
+
+## 2026-09-19 — Native reference views
+
+The native reference adapter and removal of the redundant Bridge views passed the pinned **Obsidian 1.13.7** qualification in a separate credential-free Docker Runtime. `scripts/qualify_native_references.py` installs the built Bridge into its synthetic Vault, runs both probes and removes only its own container. It does not upgrade the running managed service. Artifacts are in `artifacts/native-references/` (ignored, local evidence).
+
+- `probe_native_references.cjs`: **13 checks passed, no page errors**, 5.623 seconds in the final run. Real global/local graph nodes and labels; native Backlinks snippets and backlink counts; native Outgoing links; graph/direct-leaf/context-menu resource activation; six keyboard saves; simultaneous `[[Target]]` and `@Target` rename; create/delete history; disable/re-enable; editor reload; migration of saved legacy panes. Original Markdown survives; no virtual resource files are created. External cards were tested in their expected portable unavailable state, not against live Chronos/Saturn contents.
+- `probe_native_reference_scaling.cjs`: **1000 generated notes**, 12.741 seconds including editor reload and native indexing. One edit re-parsed **one** note and updated its edge in **101 ms**; no extra parsing during the two-second idle observation. Debouncing structural events reduced dictionary requests from **1007 to 3** in this fixture. This measures the reference adapter, not a sustained rendering or service soak.
+- Bridge typecheck, build, **549 parser parity cases**, UTF-16 projection checks for those cases, resource-target round trips and portable behavior passed. **71 Python tests** passed across API, exposure inventory, portable exports, native protocol, storage and hierarchy. Repository validation and all **137** classified route boundaries passed. No whole-service release, production restart or renewed long-duration soak is claimed by these checks.
+
+To reproduce, build `bridge/dist` and install repository Node dependencies, then run `python scripts/qualify_native_references.py --image mastermind-runtime:development` against a built pinned Runtime image. The test-only CDP port is bound to `127.0.0.1:19393`; production Runtime still has no published debug port. The harness refuses an existing fixture directory without its ownership marker. The managed gateway probe `scripts/probe_native_graph.cjs` now checks native graph nodes and idle reference parsing, but was not run against the unchanged live service in this qualification.
+
+### Local development deployment — 2026-09-19
+
+At the owner's subsequent request, Core and Runtime were rebuilt and recreated on the actual local development stand. The native supervisor saved/verified open buffers and stopped the editor before replacement; queued Activity was delivered to Core. A SHA-256 inventory confirmed all **98 user files unchanged** after startup. Previous images remain tagged `before-native-references-20260919` for local rollback.
+
+The new Bridge reports ready with no indexing error, **89 indexed notes**, and the already-open native Local graph contains **6 nodes / 5 edges** for Native resources. The private dictionary returns HTTP 200. The saved native Existing files only setting was already disabled. The gateway check confirmed real Chronos and Saturn cards, loaded SVG, video/audio metadata and the PDF frame. Evidence: `artifacts/native-reference-live.json` and `artifacts/native-reference-live-local.png`.
+
+This development Neptune fixture shares Core's network namespace (`network_mode: container:mastermind-development-core-1`); it must be recreated after Core replacement. Doing so restored Saturn metadata/content access. Worker was restarted separately while idle. This is a local development deployment, not a signed production release or endurance qualification.
+
+## 2026-10-04 — Manual complete Vault backup and restore
+
+Settings → Backup now has paired plain Vault ZIP download/restore actions alongside
+encrypted service recovery, following Volt's functional-file backup layout. The raw
+ZIP contains the actual Obsidian Vault root. Import preserves current Shell settings
+and connections and uses the existing paired Vault/SQLite generation transaction.
+See [backup and restore](../backup-restore.md) for the distinct scopes and access invalidation.
+
+- Final focused suite: **43 passed** in `tests/test_vault_archive.py`. Complete bytes,
+  hidden/plugin data and empty directories; empty Vault; wrapped roots; classic/ZIP64
+  boundaries; corruption, hostile paths, links, collisions and expansion limits;
+  insufficient space; all pre-commit fault phases and interrupted recovery; private
+  Runtime verification and rejection using an injected peer; managed Bridge reinstall;
+  authenticated streamed operations, exact confirmation digest and concurrent polling.
+- Whole Windows regression: **694 passed, 16 skipped**. Skips require Linux/POSIX,
+  the Linux Worker/Runtime or unavailable OpenSSL. The final archive-boundary cases
+  were then covered by the focused suite above. Ruff, JavaScript syntax, repository
+  validation (37 active documents) and all 172 exposure-inventory entries passed.
+- `python scripts/qualify_vault_archive.py`: **five Chromium scenario groups passed**
+  against actual Core HTTP, SQLite and files, plus a byte-for-byte archive/restore
+  comparison. Downloads of both formats, wrong-format rejection, inspection without
+  mutation, Cancel, Review after reload, confirmed restore, session invalidation,
+  current Access Key/preferences retention and mobile layout were verified. Evidence:
+  `artifacts/vault-archive/` (screenshots, result JSON and test XML).
+
+The browser harness uses a generated, marked synthetic Vault and offline Runtime
+coordination; no owner data or external services are involved. It requires installed
+Python/Node dependencies, built `bridge/dist` and Playwright Chromium. No actual
+native Obsidian restore, deployment restart, maximum-size transfer or endurance run
+is claimed. GitHub verification now includes this browser scenario after the existing
+Linux/image gates; no remote CI or release was launched for this change.

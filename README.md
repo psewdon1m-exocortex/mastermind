@@ -18,15 +18,15 @@ native Obsidian runtime and retains Obsidian's own interface.
 The production group has three containers: Core, Runtime and Crusher Worker.
 Core coordinates every managed write and recovery boundary. The Worker has no
 Vault mount or commit privilege. Kernel/Volt own shell secrets; community plugin
-data inside `.obsidian` remains opaque. One typed Neptune enrollment provides
-independent full-backup and mirror pipelines plus scoped Saturn resource reads.
+data inside `.obsidian` remains opaque. The central enrollment contract supports
+archive, mirror or both, with the scoped Saturn reader accompanying mirror.
 The host Updater handles the signed three-image update and rollback transaction.
 
 The development version is **0.1.0**. Current acceptance evidence and remaining
 gates are recorded in [IMPLEMENTATION](docs/IMPLEMENTATION.md). Development images
 and local producer candidates are not published releases. See the exact
 [producer patch lock](docs/compatibility.json) and
-[final requirements](mastermind_service_requirements_final.md).
+[final requirements](docs/requirements.md).
 
 For local development, generate disposable credentials with
 `python scripts/prepare_local.py` (root on Linux), build the Bridge with `npm ci && npm run build`
@@ -37,21 +37,18 @@ is a qualification fixture and uses loopback port 18390. Production uses
 `compose.production.yaml`, an authenticated release bootstrap and
 `mastermind-install`; host Nginx is configured separately by the operator.
 
-The [docs/policy](docs/policy/README.md) snapshot is pinned by a
-[content lock](docs/policy-lock.json) to an earlier central revision for isolated
-checkout and release reproducibility. The current workspace contracts are in
-[Parts 09–10](https://github.com/psewdon1m-exocortex/general/blob/main/PART_09_SERVICE_AGENTS_DEPLOYMENT_AND_LIFECYCLE.md);
-re-vendor and qualify the newer policy before a release claims compliance with
-it. `scripts/export_integration_patches.py` exports the
-necessary neighboring changes from disposable local clones; release and runtime
-code do not read sibling checkouts.
+Central `.docs` / [general](https://github.com/psewdon1m-exocortex/general) owns the
+engineering rules. Mastermind links to it rather than retaining a policy copy.
+[Governance](docs/governance.md) explains the immutable evidence reference and
+[Conformance](docs/conformance.md) records remaining implementation gaps. Verification
+can read the pinned catalog from a central Git checkout or fetch it with digest
+verification; production runtime does not depend on a sibling source tree.
 
-Technical documentation: [architecture](docs/architecture.md),
-[installation](docs/deployment.md), [operations and CLI](docs/operations.md),
-[backup and restore](docs/backup-restore.md), [Bridge](docs/mastermind-bridge.md),
-[Crusher](docs/crusher.md), [Gryphon and Telegram](docs/gryphon.md), [Weaver](docs/WEAVER.md), [Shared](docs/sharing.md), [security](docs/security.md),
-[API](docs/api.md), [compatibility](docs/compatibility.md), and
-[releases](docs/releases.md).
+Use the [documentation index](docs/README.md) for product guides, operations and
+development. Start with [Requirements](docs/requirements.md),
+[Architecture](docs/architecture.md) or [Weaver](docs/WEAVER.md).
+Earlier specifications and qualification ledgers are preserved in
+[history](docs/history/README.md); they are not current deployment instructions.
 
 Verification uses `python -m pytest`, `npm --prefix bridge test`,
 `python scripts/validate_repository.py`, and the actual-host/browser probes in

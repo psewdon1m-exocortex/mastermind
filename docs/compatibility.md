@@ -1,24 +1,81 @@
-# Compatibility and decisions
+# Compatibility and integrations
 
-The initial candidate pins Obsidian 1.13.7, KasmVNC 1.5.0 and the multilingual E5 artifact in [embedding-model.lock.json](../embedding-model.lock.json). Python/Worker dependencies and the TypeScript toolchain are locked. Core, Runtime, Worker, Bridge, DB schema and local model form one signed compatibility group.
+Mastermind's Core, Runtime, Worker, managed Bridge, database schema and local
+models form one signed compatibility group. Current pins live in
+[component-lock.json](../component-lock.json), [embedding-model.lock.json](../embedding-model.lock.json),
+[curator-model.lock.json](../curator-model.lock.json) and the dependency lockfiles.
+Use those values rather than a historical prose version list.
 
-The neighboring baseline versions are Kernel 0.2.10, Volt 0.1.5, Saturn 0.1.15, Chronos 0.1.1, Neptune 0.1.7 and Updater 0.4.7. **Unmodified upstream releases are not sufficient for every new Mastermind contract.** [compatibility.json](compatibility.json) names the exact baseline source SHAs, exported patches and patch hashes used for local qualification. These changes are unpublished candidates; do not label them released producer versions.
+## Producer responsibilities
 
-| Producer | Required local change |
+| Producer | Mastermind contract |
 | --- | --- |
-| Saturn | Independent typed reader scope, bounded content/Range, durable operation-lock recovery and transport bounds |
-| Neptune | Scoped reader through discovery/Saturn, complete zip-tree mirror, exact streaming receipts, path/cancellation/large-transfer validation |
-| Updater | Own-head three-image group, pre-pull preparation, sealed streaming backup spool, functional rollback and typed enrollment |
-| Chronos | Bounded exact service credential consumption for the scoped card reader |
+| Kernel / Volt | Authorized Register discovery and exact Shell-secret resolution; references belong in Register, resolved values stay out of logs/backups |
+| Chronos | Separate scoped event-card reader and monthly report writer; neither authorizes general Vault access |
+| Saturn / Neptune | Declared recovery archive and/or Vault mirror, separately scoped mirror resource reader, bounded Range access and verified transfer receipts |
+| Updater | Host dependency installation, own-head three-image update, saved-copy protocol 2, scoped enrollment and verified recovery |
+| Gryphon | Paired stable Telegram identity, authenticated command delivery and scoped Crusher invitations |
+| Wyvern | Allowed Adapter/function bindings, provider transport and credentials; Mastermind owns prompts, budgets and output validation |
 
-The patches are reviewable under `integrations/patches`. Apply them only to the pinned clean producer revisions, run their own checks and the consumer integration suite, then release the producer changes before a public Mastermind release claims that dependency tuple. No direct Saturn fallback or second host Neptune daemon substitutes for the missing contracts.
+Mastermind never receives permanent Saturn credentials. Its owner resource API uses
+the distinct Neptune reader, validates project/purpose/subtree and streams bounded
+content. Public Shared and Crusher identities cannot use it. There is no direct
+Saturn fallback or second Neptune daemon. Archive-only enrollment grants no mirror
+reader; mirror-only enrollment cannot execute archive operations.
 
-## Closed product decisions
+Core verifies exported size, SHA-256 and generation; Neptune acknowledges only
+after a verified Saturn receipt or complete mirror reconciliation. A lost archive
+acknowledgement reuses its durable run/idempotency key. Mirror retries take a fresh
+complete snapshot; incomplete listing/export cannot authorize deletions. Selected
+pipelines retain independent execution and receipts. Settings owns schedule intent;
+paired profiles commit one enabled state and hourly interval atomically.
 
-Vault inherits Obsidian UI/UX; the Shell follows project rules. Native rename updates wikilinks. One Mastermind enrollment creates independent archive and mirror pipelines plus a distinct reader. Plugin configuration/secrets remain opaque. The approximately 350 MiB representative dataset is a qualification input. Shares suppress all external/internal resource links, are non-indexable, follow Saturn capability semantics and intentionally revive when a path is reused. Crusher displays input/progress only and places output using bounded root/main/key hierarchy context. Other unspecified decisions use the recommendations in the accepted final requirements.
+## Discovery, identities and enrollment
 
-## Release and deployment evidence
+Service origins are resolved through authorized Kernel bindings. Updater's own host
+machine identity owns shared-component release discovery; an application head or
+operator Access Key is not that authority. Root TUI fallback sources apply only
+when its Kernel connection is unavailable, never after authorization or integrity
+failure. Default Mastermind installation ensures Updater, Neptune, Gryphon and local
+Wyvern under [central Part 13](https://github.com/psewdon1m-exocortex/general/blob/main/PART_13_HOST_DEPENDENCIES_AND_EXTENSION_GUIDE.md).
 
-[IMPLEMENTATION](IMPLEMENTATION.md) is the stage/evidence ledger. It distinguishes actual service/host/browser tests from protocol units and controlled provider/transport fixtures. Production DNS/certificates, paid provider credentials and a published producer/release tuple require their own real observations. Those checks must remain NOT_RUN where no such observation exists.
+For Chronos event references, bind `services.mastermind.secrets.chronos_service_token`
+and `services.chronos.mastermind_reader_token` to the same Volt field, permitting
+each principal only its own key. Chronos resolves its expected token fresh in memory.
+Existing explicit file enrollment remains a migration path. Monthly reports use a
+separate `services.mastermind.secrets.chronos_report_token`; see [Deployment](deployment.md).
 
-The central policy snapshot includes the user's pre-existing Part 12 working-tree change. The exact effective bytes are pinned locally. Publication additionally requires an immutable central catalog revision containing those effective rules; an older central SHA must not be misrepresented as containing the changed catalog. The original central checkout is preserved.
+Gryphon adapter registration and one-time `/link CODE` owner pairing occur in
+`sudo updater tui`. Mastermind selects the paired adapter and receives only its
+scoped binding. Gryphon status must supply the stable connection/user/chat identities;
+older incompatible gateways cannot issue invitations. See [Gryphon](gryphon.md).
+
+Wyvern Adapters and client grants are managed in the host TUI. Mastermind selects
+allowed `text` and `media` bindings. `services.wyvern.management_url`, when present,
+must resolve to an existing authorized HTTPS management interface; the daemon has
+no implicit standalone web administration. Without a configured destination,
+report configuration required. Restored binding/schedule intent remains pending
+until the matching external identity and revision are verified. Resolved provider
+secrets are never included in that intent.
+
+## Source candidates versus published compatibility
+
+[compatibility.json](compatibility.json) preserves the exact September producer
+baselines, exported patch hashes and qualification status. Its `published: false`
+value is a release blocker. The baseline versions in that record are not today's
+recommended releases. Later producer work resides in the producer repositories;
+do not reapply the historical patches over newer trees or attribute their behavior
+to an unqualified published version.
+
+Before publication, identify the actual immutable producer artifacts, run their
+own checks and the consumer integration suite, then update dependency versions and
+digests together. Saved-copy updates require `mastermind.saved-copy.v2` on Updater
+and compatible signed protocol fields on source/target Mastermind releases.
+Both installation orders, shared singleton reuse, scoped unlink, update and rollback
+require actual host qualification. Producer source existence alone does not pass.
+
+Unit stubs are fault/protocol evidence. Isolated real producer/container tests,
+native Obsidian, public DNS/TLS and live provider/Telegram tests have separate
+acceptance boundaries. [Verification status](IMPLEMENTATION.md) and
+[Conformance](conformance.md) identify the recorded evidence and gaps; no current
+live integration is inferred from an old local checkpoint.

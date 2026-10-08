@@ -1,13 +1,9 @@
 # Architecture
 
-Gryphon is an optional host messaging gateway for Crusher access. The Core
-mounts only its client socket and Mastermind-specific credential directory.
-It issues scoped one-use codes through an authenticated command adapter;
-Gryphon retains bot credentials and stable Telegram bindings. The operator
-controls this integration in Settings → Gryphon Connection. See [contract and
-verification](gryphon.md).
-
-Mastermind is one independently released service with three Linux amd64 containers. The normative product contract is [requirements](../mastermind_service_requirements_final.md); the effective central rules are pinned in [policy-lock.json](policy-lock.json). The Vault tab deliberately inherits Obsidian UI/UX. The surrounding Shell follows Part 01.
+Mastermind is one independently released service with three Linux amd64 containers.
+[Requirements](requirements.md) defines product scope; [Governance](governance.md)
+maps the current central rules. The Vault tab inherits Obsidian UI/UX; the owned
+Shell follows Part 01. This source topology is separate from deployment acceptance.
 
 ```text
 Browser -> host Nginx :443 -> loopback Core :18390
@@ -17,6 +13,8 @@ Browser -> host Nginx :443 -> loopback Core :18390
                               |-- Kernel -> Volt references for Shell secrets
                               |-- Chronos service reader
                               |-- Neptune host UDS -> Saturn -> SFTP
+                              |-- Wyvern host UDS -> scoped model Adapter -> provider
+                              |-- Gryphon host UDS -> paired Telegram adapter
                               `-- Updater host UDS -> the registered three-container group
 ```
 
@@ -34,16 +32,17 @@ Obsidian owns native `[[links]]` propagation through its FileManager. Bridge and
 
 Owner sessions, public Crusher sessions/status tickets, Share capabilities, Runtime/Bridge, Worker, Chronos reader, Neptune export/control and Updater own-head credentials are separate principals. Kernel discovery supplies service origins and the Shell's Volt references. Existing Obsidian plugin secrets remain opaque Vault data.
 
-Archive and mirror are independent Neptune pipelines. Only the encrypted archive includes mandatory service state. Mirror is a protected Vault tree and an interactive reader uses a separate read-only scope. [Security](security.md), [backup](backup-restore.md) and [compatibility](compatibility.md) describe these boundaries in detail.
+Archive and mirror are independent Neptune capabilities with separate credentials
+and receipts. The central contract permits either or both; paired profiles share
+one service-owned scheduling control. Only the encrypted archive includes mandatory
+service state. Mirror is a protected Vault tree with a distinct read-only resource
+reader. See [Backup](backup-restore.md) and [Compatibility](compatibility.md).
 
-## Context-indexing
-
-The [local retrieval engine](context-indexing.md) belongs to Core and uses the
-private Worker for pinned E5 embeddings and optional CPU Curator inference.
-Its generic evidence retrieval is independent of Crusher placement eligibility.
-Crusher writes a frozen-template note in `root/crusher`, linking to a verified
-branch or the pool. Source understanding/generation use a scoped Wyvern UDS
-Adapter; no retrieved Vault evidence is sent to that external provider.
+The default host dependency set is Updater, Neptune, Gryphon and Wyvern. Enabling a
+particular integration is separate from ensuring its local agent. Core mounts only
+its scoped client sockets and credentials. Gryphon owns bot tokens and paired
+Telegram identities; Wyvern owns model Adapter transport/provider credentials.
+Host installation and release operations belong to the Updater TUI.
 
 ## Weaver graph work engine
 

@@ -1,88 +1,9 @@
-# Crusher: processing contract and local readiness
+# Crusher
 
-Current placement is [context-indexing](context-indexing.md). The current
-qualification is recorded in [its ledger](CONTEXT_INDEXING_IMPLEMENTATION.md).
-The earlier checkpoint below describes the legacy image and direct credential
-binding; the new candidate uses scoped Wyvern → Kernel/Volt.
-
-## Historical live Google checkpoint, before context-indexing, 2026-09-19
-
-That local checkpoint used the real Google API with `gemini-3.8-flash` for text
-and media. Core starts with `mastermind.api:create_app`; the controlled provider
-override is absent. The owner-supplied key is stored as a secret in Volt and
-resolved through Kernel's `services.mastermind.secrets.ai_provider_key` binding.
-It is not a Compose value, browser value, repository file or report field.
-
-Four bounded scenarios completed all ten states through the actual browser,
-Core, Worker, native Vault coordinator and Google:
-
-| Source/check | Result | Placement |
-| --- | --- | --- |
-| Text file, actual browser picker | PASS, 23 s; source facts and real Markdown line breaks retained | `LOW_CONFIDENCE`, 0.85, safe Inbox |
-| Public `example.com` URL, actual source-link form | PASS, 16 s; fetched/extracted public page becomes a note | `MODEL_UNCERTAIN`, 0.30, safe Inbox |
-| Synthetic speech WAV, actual drag/drop, approximately 848 KiB | PASS, 33 s; Cedar/three branches/ten key notes/root facts retained | `LOW_CONFIDENCE`, 0.85, safe Inbox |
-| Unambiguous knowledge architecture source | PASS, 21 s; root → main → key, verified branch link and canonical digest | `Integration/Integration key.md`, 0.95 |
-
-Only the pre-existing synthetic integration hierarchy was used for context;
-the probe checks its exact bytes before submitting. Created test notes were
-verified and removed individually using their current digest. Copies of their
-synthetic outputs and structured evidence remain in
-`artifacts/live-ai-20260919/`. The entire Vault was not transmitted.
-
-Google's GET for the already-deleted test media identity returned 403. Deletion
-was therefore verified against a successful complete Files listing (200 and
-the test identity absent), rather than inferred from that GET status.
-Core returned to `HEALTHY`, semantic indexing to `READY`, and Neptune remained
-linked. A scan of repository/artifact files and six relevant containers' logs
-and environment found no copy of the supplied credential. On the owner's
-follow-up cleanup request, the original plaintext input file was deleted;
-349 repository/artifact files were checked without finding another copy.
-The operational secret remains in Volt so the live pipeline stays connected.
-
-Live testing exposed a compatibility defect: Google adds `thoughtSignature`
-alongside final text, while the old direct adapter discarded such text parts.
-The deployed adapter now accepts that metadata without persisting it or treating
-it as prose. Google describes this response metadata in its
-[thought signatures documentation](https://ai.google.dev/gemini-api/docs/generate-content/thought-signatures).
-Four offline regression tests cover signed/plain parts, thought
-exclusion, schema/finish/budget failures and a retryable quota response. One early
-generation also double-encoded line breaks; the prompt now explicitly requests
-actual newlines, and the live probe checks the generated Markdown.
-
-This qualifies the **currently deployed direct Google adapter**, not the
-in-progress Wyvern source migration. Its local image is
-`mastermind-core:live-google-tested`; the parser repair is reproduced by
-`scripts/integration/patch_legacy_google.py` against the exact legacy image's
-`gemini.py`. Do not replace the current source with that legacy file. Wyvern's
-Google driver already consumes signed text; its service-to-service deployment
-still needs a separate live qualification. The Markdown prompt clarification is
-also present in the current Mastermind source.
-
-The tests establish the listed small-source paths, not production-scale quality,
-every media format, account billing totals or live retry/recovery behavior.
-Quota and malformed-response regressions use isolated synthetic responses.
-
-## Earlier controlled-provider verification (historical)
-
-The local service at `http://localhost:18390` is healthy. A fresh bounded text
-submission completed every stage and committed one real note through the native
-Vault coordinator. The probe verified its job marker and digest, then deleted
-only that disposable note. Evidence:
-`artifacts/shared-ui-20260919/crusher-readiness.json`.
-
-The public UI follow-up additionally verified a real browser file selection,
-incremental digest, upload/acceptance and all ten pipeline states through the
-redesigned link/drop interface. Its one generated test note was checked and
-removed. Evidence: `artifacts/public-editing-20260919/crusher-readiness.json`.
-
-Before the live qualification above, Google's live API was not connected. Core started with
-`core_fixture:create_app` from the explicit
-`scripts/integration/crusher-fixture.compose.yml` override. It installs an
-`httpx.MockTransport` for Google requests. The current identifiers are
-`integration-text-model` and `integration-video-model`; the credential is
-synthetic. Real Core, Worker, Obsidian and storage run around the fixture.
-The fixture generates a predefined note, so a successful local job does not
-demonstrate useful AI output, Google quota, real model availability or quality.
+Crusher owns source intake, understanding and generation through Wyvern.
+[Weaver](WEAVER.md) retrieves placement evidence and executes authorized commits.
+[Verification status](IMPLEMENTATION.md) separates current qualification from the
+[legacy direct-provider record](history/crusher-2026-09-19.md).
 
 ## Acceptance and permissions
 
@@ -143,7 +64,7 @@ The Worker browser is the separately pinned official stable Chrome for Testing *
 | NORMALIZING | 15% | Persist an acquisition-verification checkpoint. This is currently a marker; it is not a separate transformation or model call. Worker extraction performs the actual normalization. |
 | EXTRACTING | 20% | Isolated Worker extracts bounded text or prepares media. A browser renderer is used when the extractor requests it. Network acquisition rejects private network targets and unsafe redirects/helpers. |
 | UNDERSTANDING | 40% | Gemini returns structured title, summary, topics, entities and suggested links. Text is token-counted and bounded before submission; media uses the separate media-model adapter. No full Vault context is included here. |
-| PLACING | 55% | Run local context-indexing, then apply Crusher-only structural eligibility and calibrated fallback. |
+| PLACING | 55% | Run Weaver retrieval, then apply Crusher-only structural eligibility and calibrated fallback. |
 | GENERATING | 65% | The selected Wyvern Adapter returns typed title, summary and body for the frozen template. It does not choose arbitrary filesystem paths or execute tools. |
 | VALIDATING | 85% | Check the result schema, output size, secret patterns and forbidden HTML, embeds, links and reference syntax. Invalid output fails; it is not saved as a note. |
 | COMMITTING | 95% | Revalidate hierarchy, allocate a unique basename and commit through the canonical coordinator/journal. Add the verified branch reference and provenance footer. |
@@ -160,7 +81,7 @@ The hierarchy starts at the configured root (default `root.md`). Its links to
 `#key` notes define deeper branches. Merely placing a tag on an unrelated note
 does not connect it to this hierarchy.
 
-Context-indexing searches ordinary notes as well as structural branches, combines
+Weaver searches ordinary notes as well as structural branches, combines
 local retrieval channels, reranks expanded evidence and checks consistency.
 Crusher alone restricts allowed anchors to the unique root/main/key structure.
 Insufficient or contradictory evidence uses the configured pool.
@@ -169,7 +90,7 @@ Every resulting file is stored in `root/crusher`, independently of graph placeme
 The new note links to its selected anchor or `root/pool.md`; it does not rewrite
 that parent. The configured static template (default
 `root/templates/example crusher.md`) is snapshotted at acceptance. The combined
-Settings → Obsidian & search card controls pool, template and local Curator.
+Settings → Obsidian & Weaver card controls pool, template and Bibliotekar.
 
 No retrieved note excerpts or branch profiles are transmitted externally for
 placement. Source understanding and generation still use a selected external
@@ -194,29 +115,7 @@ commit. An uncertain provider response can require a repeated billable call
 after switching to a live API; commit idempotency does not guarantee exactly
 one remote inference. Temporary media/provider files have cleanup paths.
 
-## Operating the local live profile
-
-Restart/recreate only the existing tested Core image with the local override:
-
-```powershell
-docker compose -f compose.development.yml -f .local/integration/core-override.yml -f .local/integration/live-google.compose.yml up -d --no-build --no-deps core
-docker compose -f .local/integration/compose.yml up -d --no-build --no-deps --force-recreate neptune
-```
-
-Do not add `crusher-fixture.compose.yml` to that command. The live override
-contains no credentials. Rebuilding the workspace would select the in-progress
-Wyvern implementation and is not equivalent to restarting this qualified image.
-
-`node scripts/probe_crusher_live.cjs --live --file` spends real provider quota;
-`--web`, `--audio` and `--placement` select the other bounded scenarios. The audio
-scenario expects the local synthetic `artifacts/live-ai-20260919/source.wav`.
-The probe refuses a fixture entrypoint or any unexpected hierarchy content,
-never loads a provider key, checks final readiness after asynchronous indexing,
-and deletes only its own committed note. Ordinary CI must not invoke this probe
-with live credentials. The existing `probe_crusher_readiness.cjs` remains
-restricted to the controlled provider.
-
-## Provisioning another direct-provider stand
+## Configuring a Wyvern-backed provider
 
 1. In `sudo updater tui`, connect Wyvern to Kernel and create a Google Adapter
    with its API key, actual model profiles and required capabilities. The
@@ -231,5 +130,5 @@ restricted to the controlled provider.
    verify provider responses, schema compatibility, factual quality, placement,
    billing/quota and cleanup. Only then claim live-provider readiness.
 
-These steps now have bounded live evidence for the local direct-provider image
-described above. They do not configure the separate Wyvern gateway migration.
+Qualify this actual source/provider combination before claiming live readiness.
+The archived direct-provider image tests do not qualify a new Wyvern deployment.

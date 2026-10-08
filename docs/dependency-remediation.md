@@ -1,6 +1,6 @@
 # Dependency remediation for the local 0.1.0 candidate
 
-Status: **REVIEW_REQUIRED**. Functional qualification passes do not close the
+Status: **REVIEW_REQUIRED**. Findings below belong to the dated image scans, not a fresh scan of the current source. Functional qualification passes do not close the
 release security gate. No finding has been suppressed or accepted as risk.
 This is a remediation record, not an allow-list or a VEX approval.
 
