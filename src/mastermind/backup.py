@@ -125,12 +125,38 @@ class Backup:
         wyvern_snapshot_intent = Wyvern(self.config.wyvern_link_file, intent_state=self.state).export_intent()
         intent = self.policy.export_intent() if hasattr(self, "policy") else None
         self.vault.index(force=True)
+        self.copy_vault(folder)
+        database = folder / "snapshot.sqlite3"
+        with self.state.lock, closing(sqlite3.connect(database)) as copy:
+            self.state.db.backup(copy, pages=256, progress=lambda *_: check())
+            # Capture external own-client intent in the logical snapshot only.
+            copy.execute("INSERT INTO metadata(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                         (wyvern_intent.KEY, json.dumps(wyvern_snapshot_intent, sort_keys=True)))
+            copy.execute("DELETE FROM settings WHERE key IN ('_backup_policy_restore','_backup_policy_intent')")
+            if intent is not None:
+                copy.execute("INSERT INTO settings VALUES(?,?)", ("_backup_policy_intent", json.dumps(intent)))
+            copy.commit()
+        os.chmod(database, 0o600)
+        generation = self.state.one("SELECT value FROM metadata WHERE key='generation'")["value"]
+        check()
+        return {"boundary": datetime.now(UTC).isoformat(), "generation": int(generation)}
+
+    def copy_vault(self, folder):
+        """Copy every Vault entry; caller holds the coordinated writer boundary."""
         tree = folder / "vault"
         tree.mkdir(mode=0o700)
+        count, total = 0, 0
         for relative, _ in directory_inventory(self.config.vault):
+            count += 1
+            if count > self.config.max_archive_entries:
+                raise DomainError("SIZE_LIMIT", "The Vault exceeds the archive entry limit.", 413)
             destination = resolve(tree, relative, internal=True)
             destination.mkdir(mode=0o700, parents=True, exist_ok=True)
         for relative, source in file_inventory(self.config.vault):
+            count += 1
+            total += source.stat().st_size
+            if count > self.config.max_archive_entries or total > self.config.max_expanded_bytes:
+                raise DomainError("SIZE_LIMIT", "The Vault exceeds the archive limits.", 413)
             destination = resolve(tree, relative, internal=True)
             with open_under(self.config.vault, relative, internal=True) as src, private_open(destination) as dst:
                 size, digest = copy_bounded(src, dst, self.config.max_backup_bytes)
@@ -146,20 +172,7 @@ class Backup:
                 {rel: sha_file(p) for rel, p in file_inventory(tree)} != \
                 {rel: sha_file(p) for rel, p in file_inventory(self.config.vault)}:
             raise DomainError("VAULT_BUSY", "Vault inventory changed during snapshot.", 423)
-        database = folder / "snapshot.sqlite3"
-        with self.state.lock, closing(sqlite3.connect(database)) as copy:
-            self.state.db.backup(copy, pages=256, progress=lambda *_: check())
-            # Capture external own-client intent in the logical snapshot only.
-            copy.execute("INSERT INTO metadata(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                         (wyvern_intent.KEY, json.dumps(wyvern_snapshot_intent, sort_keys=True)))
-            copy.execute("DELETE FROM settings WHERE key IN ('_backup_policy_restore','_backup_policy_intent')")
-            if intent is not None:
-                copy.execute("INSERT INTO settings VALUES(?,?)", ("_backup_policy_intent", json.dumps(intent)))
-            copy.commit()
-        os.chmod(database, 0o600)
-        generation = self.state.one("SELECT value FROM metadata WHERE key='generation'")["value"]
-        check()
-        return {"boundary": datetime.now(UTC).isoformat(), "generation": int(generation)}
+        return tree
 
     def export_state(self, database, directory):
         directory.mkdir(mode=0o700)

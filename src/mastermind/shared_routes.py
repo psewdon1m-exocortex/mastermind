@@ -36,16 +36,27 @@ def install_shared(app, service, owner, bounded_json):
         return service.shared.copy_link(identifier)
 
     @app.get("/s/{token}")
-    def page(token: str):
-        service.shared.describe(token)
+    def page(token: str, request: Request):
+        unavailable = False
+        try:
+            service.shared.describe(token)
+        except DomainError as error:
+            if error.status != 404:
+                raise
+            unavailable = True
         nonce = secrets.token_urlsafe(24)
         # Assets are fixed and nonce-authorized. The capability remains only in
         # the current URL; no local/session storage, resolver, or owner API calls.
         from .shared_ui import page_html
-        return HTMLResponse(page_html(nonce, service.operator.preferences()["accent"], token), headers={"Content-Security-Policy":
+        # Rejected tokens never enter HTML or asset CSP sources.
+        safe_token = "" if unavailable else token
+        asset = service.config.public_url.rstrip("/") + "/s/" + safe_token
+        return HTMLResponse(page_html(nonce, service.operator.preferences()["accent"], safe_token,
+                                     legacy=request.query_params.get("legacy") == "1", unavailable=unavailable),
+            status_code=404 if unavailable else 200, headers={"Content-Security-Policy":
             "default-src 'none'; script-src 'nonce-" + nonce + "'; style-src 'nonce-" + nonce + "'; "
-            "font-src " + service.config.public_url.rstrip("/") + "/s/" + token + "/font.woff2; "
-            "connect-src " + service.config.public_url.rstrip("/") + "/s/" + token + "/api/; "
+            + ("" if unavailable else "font-src " + asset + "/font.woff2 " + asset + "/font-regular.woff2; "
+               "img-src " + asset + "/brand.png; connect-src " + asset + "/api/; ") +
             "frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'none'",
             "X-Frame-Options": "DENY"})
 
@@ -53,6 +64,16 @@ def install_shared(app, service, owner, bounded_json):
     def font(token: str):
         service.shared.describe(token)
         return FileResponse(Path(__file__).parent / "web/fonts/SpaceGrotesk-Bold.woff2", media_type="font/woff2")
+
+    @app.get("/s/{token}/font-regular.woff2")
+    def regular_font(token: str):
+        service.shared.describe(token)
+        return FileResponse(Path(__file__).parent / "web/fonts/SpaceGrotesk-Regular.woff2", media_type="font/woff2")
+
+    @app.get("/s/{token}/brand.png")
+    def brand(token: str):
+        service.shared.describe(token)
+        return FileResponse(Path(__file__).parent / "web/brand-mark.png", media_type="image/png")
 
     @app.get("/s/{token}/api/policy")
     def describe(token: str):

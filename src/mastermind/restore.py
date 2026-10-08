@@ -26,8 +26,9 @@ from .fs import (
     sync_dir,
 )
 from .runtime_client import RuntimeClient
-from .state import MANDATORY_TABLES, State
+from .state import DERIVED_TABLES, EPHEMERAL_TABLES, MANDATORY_TABLES, State
 from .vault import Vault
+from .vault_archive import VaultArchive
 
 
 def tree_digest(directory):
@@ -65,6 +66,7 @@ class Restore:
         self.operation_lock = threading.Lock()
         self.on_begin = lambda: None
         self.last_warning = None
+        self.vault_archive = VaultArchive(backup)
 
     def locations(self, operation_id):
         if not re.fullmatch("[a-f0-9]{32}", operation_id):
@@ -73,7 +75,7 @@ class Restore:
         return folder, self.config.vault.parent / (".old-"+operation_id), \
             self.config.vault.parent / (".new-"+operation_id)
 
-    def prepare(self, tree, folder):
+    def prepare(self, tree, folder, *, vault_only=False):
         staged_config = replace(self.config, home=folder / "generation", runtime_mode="offline", test_mode=True)
         staged_config.vault.parent.mkdir(mode=0o700, parents=True)
         shutil.move(tree / "vault", staged_config.vault)
@@ -85,11 +87,19 @@ class Restore:
         staged = State(database)
         try:
             with staged.transaction() as db:
-                intent = staged.setting("_backup_policy_intent")
-                pending = restored_record(intent)
-                db.execute("DELETE FROM settings WHERE key IN ('_backup_policy_restore','_backup_policy_intent')")
-                if pending:
-                    db.execute("INSERT INTO settings VALUES(?,?)", ("_backup_policy_restore", json.dumps(pending)))
+                if vault_only:
+                    # Keep the target Shell's settings/credentials/history, but no
+                    # old cache, access capability or in-flight writer may bind to
+                    # a different imported Vault merely because a path matches.
+                    for table in (*DERIVED_TABLES, *EPHEMERAL_TABLES, "edit_sessions"):
+                        db.execute(f'DELETE FROM "{table}"')
+                    db.execute("UPDATE shares SET revoked_at=?,policy_version=policy_version+1 WHERE revoked_at IS NULL", (time.time(),))
+                else:
+                    intent = staged.setting("_backup_policy_intent")
+                    pending = restored_record(intent)
+                    db.execute("DELETE FROM settings WHERE key IN ('_backup_policy_restore','_backup_policy_intent')")
+                    if pending:
+                        db.execute("INSERT INTO settings VALUES(?,?)", ("_backup_policy_restore", json.dumps(pending)))
                 db.execute("UPDATE metadata SET value=? WHERE key='activity_epoch'", (secrets.token_hex(16),))
                 # Restored tokens remain path-bound. Known later revocations are monotonic.
                 for share in self.state.rows("SELECT token_hmac,revoked_at FROM shares WHERE revoked_at IS NOT NULL"):
@@ -119,13 +129,13 @@ class Restore:
         finally:
             staged.close()
 
-    def apply(self, source, *, create_safety_backup=True):
+    def apply(self, source, *, create_safety_backup=True, vault_only=False):
         if not self.operation_lock.acquire(blocking=False):
             raise DomainError("VAULT_BUSY", "A restore is already running.", 423)
         self.active = True
         try:
             self.on_begin()
-            return self._apply(source, create_safety_backup=create_safety_backup)
+            return self._apply(source, create_safety_backup=create_safety_backup, vault_only=vault_only)
         finally:
             self.active = False
             try:
@@ -137,9 +147,9 @@ class Restore:
             finally:
                 self.operation_lock.release()
 
-    def _apply(self, source, *, create_safety_backup=True):
+    def _apply(self, source, *, create_safety_backup=True, vault_only=False):
         self.last_warning = None
-        manifest = self.backup.verify_wrapper(source)
+        manifest = self.vault_archive.describe(source) if vault_only else self.backup.verify_wrapper(source)
         operation_id = secrets.token_hex(16)
         folder, old_vault, new_vault = self.locations(operation_id)
         folder.mkdir(mode=0o700)
@@ -161,12 +171,17 @@ class Restore:
         verification_vault = self.config.vault.parent / (".verify-" + operation_id)
         # A restore retains its write barrier through safety snapshot and generation switch.
         with preserve_committed_outcome(), self.coordinator.boundary(operation_id), self.state.lock:
-            if create_safety_backup:
+            if create_safety_backup and not vault_only:
                 self.backup.create(safety, inside_boundary=True)
             required = manifest["expanded_bytes"]*4 + source.stat().st_size*2 + self.backup.estimate()*2
             with self.backup.spool.operation(required) as work:
-                tree, _ = self.backup.unpack(source, work)
-                prepared, note_count = self.prepare(tree, work)
+                if vault_only:
+                    tree, _ = self.vault_archive.unpack(source, work)
+                    with closing(sqlite3.connect(tree / "restored.sqlite3")) as copy:
+                        self.state.db.backup(copy, pages=256)
+                else:
+                    tree, _ = self.backup.unpack(source, work)
+                prepared, note_count = self.prepare(tree, work, vault_only=vault_only)
                 # Copy to the destination volumes before the journal can reach PREPARED.
                 shutil.copytree(prepared.vault, new_vault)
                 if self.config.runtime_mode != "offline":
@@ -183,7 +198,7 @@ class Restore:
                 journal = {"id": operation_id, "phase": "PREPARED", "created_at": time.time(),
                            "old_vault": tree_digest(self.config.vault), "new_vault": tree_digest(new_vault),
                            "old_db": database_digest(folder / "old.sqlite3"), "new_db": database_digest(new_db),
-                           "notes": note_count}
+                           "notes": note_count, "scope": "vault" if vault_only else "service"}
                 atomic_json(folder / "journal.json", journal)
                 try:
                     self.fault("prepared")
@@ -232,7 +247,8 @@ class Restore:
             warnings.append("RESTORE_CLEANUP_REQUIRED")
         try:
             self.backup.audit.emit("restore.apply", actor="owner", target=operation_id,
-                                   context={"notes": note_count, "backup_boundary": manifest["boundary"]})
+                                   context={"notes": note_count, "scope": "vault" if vault_only else "service",
+                                            "backup_boundary": manifest.get("boundary")})
         except Exception:  # noqa: BLE001 — diagnostics cannot undo an already verified committed generation
             warnings.append("AUDIT_UNAVAILABLE")
         self.last_warning = warnings[0] if warnings else None

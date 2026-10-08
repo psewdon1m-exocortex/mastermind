@@ -14,6 +14,7 @@ from .fs import atomic_write_under, open_under, remove_private_tree, sha_file
 from .spool import copy_bounded, private_open
 
 TERMINAL = {"COMPLETED", "FAILED", "INTERRUPTED"}
+RESTORES = {"restore", "vault_restore"}
 
 
 class OwnerOperations:
@@ -31,7 +32,7 @@ class OwnerOperations:
             record = self.read(folder.name, include_expired=True)
             if record["state"] in {"RUNNING", "RECEIVING"}:
                 self.save(record, state="INTERRUPTED", stage="INTERRUPTED", error="OPERATION_INTERRUPTED")
-            if record["kind"] != "restore":
+            if record["kind"] not in RESTORES:
                 (folder / "download.zip").unlink(missing_ok=True)
                 self.save(record, stage="TRANSFER_ENDED", download_consumed=True)
         self.cleanup()
@@ -40,7 +41,7 @@ class OwnerOperations:
         if not isinstance(identifier, str) or not re.fullmatch(r"[a-f0-9]{32}", identifier):
             raise DomainError("NOT_FOUND", "Operation not found.", 404)
         try:
-            with open_under(self.directory, identifier + "/operation.json") as source:
+            with self.lock, open_under(self.directory, identifier + "/operation.json") as source:
                 content = source.read(64*1024+1)
         except FileNotFoundError:
             raise DomainError("NOT_FOUND", "Operation not found.", 404) from None
@@ -54,12 +55,15 @@ class OwnerOperations:
         return record
 
     def save(self, record, **values):
-        if values.get("state") == "COMPLETED" and record.get("state") != "COMPLETED":
-            values["expires_at"] = time.time() + 15*60
-        record.update(values, updated_at=time.time())
-        atomic_write_under(self.directory, record["id"] + "/operation.json",
-                           json.dumps(record, ensure_ascii=False, separators=(",", ":")).encode())
-        return self.public(record)
+        # Serialize reads and replacement on Windows as well as POSIX. An open
+        # status handle must not race the worker's atomic operation.json rename.
+        with self.lock:
+            if values.get("state") == "COMPLETED" and record.get("state") != "COMPLETED":
+                values["expires_at"] = time.time() + 15*60
+            record.update(values, updated_at=time.time())
+            atomic_write_under(self.directory, record["id"] + "/operation.json",
+                               json.dumps(record, ensure_ascii=False, separators=(",", ":")).encode())
+            return self.public(record)
 
     @staticmethod
     def public(record):
@@ -85,9 +89,9 @@ class OwnerOperations:
 
     def create(self, kind, size=None):
         self.service.data_ready()
-        if kind not in ("backup", "portable", "logs", "restore"):
+        if kind not in ("backup", "portable", "vault", "logs", *RESTORES):
             raise DomainError("INVALID_OPERATION", "Choose a supported maintenance operation.", 422)
-        if kind == "restore" and (type(size) is not int or not 0 < size <= self.service.config.max_backup_bytes):
+        if kind in RESTORES and (type(size) is not int or not 0 < size <= self.service.config.max_backup_bytes):
             raise DomainError("SIZE_LIMIT", "Choose a recovery ZIP of at most 8 GiB.", 413)
         with self.lock:
             self.cleanup()
@@ -96,15 +100,15 @@ class OwnerOperations:
             with self.service.backup.spool.lock.acquire(timeout=0):
                 reserved = sum(self.read(p.name).get("size", 0) for p in self.directory.iterdir()
                                if self.read(p.name)["state"] in {"WAITING_UPLOAD", "RECEIVING"})
-                self.service.backup.spool.reserve(reserved + (size if kind == "restore" else 1024**2))
+                self.service.backup.spool.reserve(reserved + (size if kind in RESTORES else 1024**2))
                 identifier, now = secrets.token_hex(16), time.time()
                 folder = self.directory / identifier
                 folder.mkdir(mode=0o700)
-                record = {"id": identifier, "kind": kind, "state": "WAITING_UPLOAD" if kind == "restore" else "RUNNING",
-                          "stage": "UPLOAD" if kind == "restore" else "PREPARING", "created_at": now,
-                          "expires_at": now+15*60, "progress": 0, **({"size": size} if kind == "restore" else {})}
+                record = {"id": identifier, "kind": kind, "state": "WAITING_UPLOAD" if kind in RESTORES else "RUNNING",
+                          "stage": "UPLOAD" if kind in RESTORES else "PREPARING", "created_at": now,
+                          "expires_at": now+15*60, "progress": 0, **({"size": size} if kind in RESTORES else {})}
                 self.save(record)
-            if kind != "restore":
+            if kind not in RESTORES:
                 self.launch(record)
             return self.public(record)
 
@@ -136,24 +140,29 @@ class OwnerOperations:
                 filename = "mastermind-" + ("backup-" if record["kind"] == "backup" else "vault-") + record["id"][:8]+".zip"
                 self.save(record, state="COMPLETED", stage="READY_TO_DOWNLOAD", size=size, sha256=digest,
                           filename=filename, progress=100)
+            elif record["kind"] == "vault":
+                artifact = self.service.restore.vault_archive.create(folder / "download.zip")
+                self.save(record, state="COMPLETED", stage="READY_TO_DOWNLOAD", progress=100, **artifact,
+                          filename="vault.zip")
             elif record["kind"] == "logs":
                 self.service.audit.export(folder / "download.zip")
                 self.save(record, state="COMPLETED", stage="READY_TO_DOWNLOAD", progress=100,
                           size=(folder / "download.zip").stat().st_size, sha256=sha_file(folder / "download.zip"),
                           filename="mastermind-logs-"+time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())+".zip")
             elif action == "INSPECTING":
-                inspection = self.service.backup.inspect(folder / "upload.zip")
+                inspector = self.service.restore.vault_archive if record["kind"] == "vault_restore" else self.service.backup
+                inspection = inspector.inspect(folder / "upload.zip")
                 self.save(record, state="AWAITING_CONFIRMATION", stage="INSPECTED", inspection=inspection, progress=50)
             elif action == "RESTORING":
                 if sha_file(folder / "upload.zip") != record["sha256"]:
                     raise DomainError("RESTORE_INTEGRITY", "The inspected archive changed.", 409)
-                result = self.service.restore.apply(folder / "upload.zip")
+                result = self.service.restore.apply(folder / "upload.zip", vault_only=record["kind"] == "vault_restore")
                 self.save(record, state="COMPLETED", stage="RESTORED", result=result, progress=100)
         except Exception as error:  # noqa: BLE001 - persist a sanitized terminal result from the job boundary
             code = error.code if isinstance(error, DomainError) else "OPERATION_FAILED"
             self.save(record, state="FAILED", stage="FAILED", error=code)
         finally:
-            if record["state"] in {"FAILED", "INTERRUPTED"} or record["kind"] == "restore" and record["state"] == "COMPLETED":
+            if record["state"] in {"FAILED", "INTERRUPTED"} or record["kind"] in RESTORES and record["state"] == "COMPLETED":
                 for name in ("download.zip", "upload.zip"):
                     (folder / name).unlink(missing_ok=True)
             try:
@@ -168,7 +177,7 @@ class OwnerOperations:
     async def receive(self, identifier, stream):
         with self.lock:
             record = self.read(identifier)
-            if record["kind"] != "restore" or record["state"] != "WAITING_UPLOAD" or self.receiving:
+            if record["kind"] not in RESTORES or record["state"] != "WAITING_UPLOAD" or self.receiving:
                 raise DomainError("UPLOAD_BUSY", "This recovery upload is not available.", 409)
             self.receiving.add(identifier)
             self.save(record, state="RECEIVING")
@@ -237,7 +246,7 @@ class OwnerOperations:
     def download(self, identifier):
         with self.lock:
             record = self.read(identifier)
-            if record["state"] != "COMPLETED" or record["kind"] == "restore" or record.get("download_consumed"):
+            if record["state"] != "COMPLETED" or record["kind"] in RESTORES or record.get("download_consumed"):
                 raise DomainError("DOWNLOAD_UNAVAILABLE", "This operation has no completed download.", 409)
             if sum(self.leases.values()) >= 4:
                 raise DomainError("DOWNLOAD_BUSY", "Download capacity is busy.", 429)

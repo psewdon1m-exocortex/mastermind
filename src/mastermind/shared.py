@@ -234,7 +234,7 @@ class Shared:
                 db.execute("INSERT INTO projections VALUES(?,?,?,?,?)",
                            (identifier, row["id"], sha, min(now+SESSION_TTL, session["expires_at"]), encoded))
             return {"projection_id": identifier, "sha256": sha, "permission": row["permission"],
-                    "title": PurePosixPath(row["path"]).stem,
+                    "title": PurePosixPath(row["path"]).stem, "expires_at": row["expires_at"],
                     **share_projection.public(record)}
 
     def save(self, token, session_token, projection_id, values, expected):

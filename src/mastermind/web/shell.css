@@ -262,7 +262,11 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
 }
 /* Backup reference: manual export, two pipeline rows, then restore. */
 #content.settings-page [data-card="backup"] > .card-body > .group + .group { margin-top:54px; }
-#content.settings-page [data-card="backup"] :is(.backup-manual-group,.backup-restore-group) > .action { width:min(742px,100%); }
+#content.settings-page [data-card="backup"] .backup-action-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; max-width:1000px; }
+#content.settings-page [data-card="backup"] .backup-action-grid > .action { width:100%; min-width:0; height:auto; min-height:40px; white-space:normal; }
+@media(max-width:700px) {
+  #content.settings-page [data-card="backup"] .backup-action-grid { grid-template-columns:minmax(0,1fr); }
+}
 #content.settings-page [data-card="backup"] .backup-neptune-group [data-agents] { margin-top:20px; }
 #content.settings-page [data-card="backup"] .backup-neptune-group [data-backup-policy] { margin-top:10px; }
 #content.settings-page [data-card="backup"] .backup-neptune-group .settings-actions { margin-top:20px; }

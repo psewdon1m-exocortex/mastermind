@@ -1,4 +1,5 @@
 import json
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -34,9 +35,10 @@ def unlock(visitor, path):
     return result
 
 
-def test_public_scope_and_strict_csp(shared_api):
+@pytest.mark.parametrize("query", ["", "?legacy=1"])
+def test_public_scope_and_strict_csp(shared_api, query):
     owner, visitor, service, path, _ = shared_api
-    page = visitor.get(path)
+    page = visitor.get(path + query)
     assert page.status_code == 200 and "default-src 'none'" in page.headers["content-security-policy"]
     assert "unsafe-inline" not in page.headers["content-security-policy"]
     assert page.headers["x-frame-options"] == "DENY" and page.headers["cache-control"] == "no-store"
@@ -56,6 +58,46 @@ def test_public_scope_and_strict_csp(shared_api):
     unlock(owner, path)
     assert "PRIVATE" not in owner.get(path + "/api/note").text
     assert path not in json.dumps(service.audit.page())
+
+
+@pytest.mark.parametrize("query,mode", [("", "public"), ("?legacy=1", "legacy"),
+                                        ("?source=test&legacy=1", "legacy"), ("?legacy=0", "public")])
+def test_presentation_and_fixed_assets_are_capability_scoped(shared_api, query, mode):
+    owner, visitor, _, path, identifier = shared_api
+    assert owner.patch("/api/v1/shares/" + identifier, json={"password": "1"}).status_code == 200
+    page = visitor.get(path + query)
+    assert f'data-view="{mode}"' in page.text
+    assert "PRIVATE" not in page.text and "Share.md" not in page.text
+    assert visitor.get(path + "/api/note" + query).status_code == 401
+    for asset, media in (("font.woff2", "font/woff2"), ("font-regular.woff2", "font/woff2"), ("brand.png", "image/png")):
+        response = visitor.get(path + "/" + asset)
+        assert response.status_code == 200 and media in response.headers["content-type"]
+        assert path + "/" + asset in page.headers["content-security-policy"]
+    assert visitor.get(path + "/private.png").status_code == 404
+    assert visitor.post(path + "/api/session" + query, json={"password": "1"}).status_code == 200
+    assert visitor.get(path + "/api/note" + query).status_code == 200
+    owner.patch("/api/v1/shares/" + identifier, json={"revoke": True})
+    unavailable = visitor.get(path + query)
+    assert unavailable.status_code == 404 and "text/html" in unavailable.headers["content-type"]
+    assert "Link unavailable" in unavailable.text and "PRIVATE" not in unavailable.text
+    assert path not in unavailable.text and "connect-src" not in unavailable.headers["content-security-policy"]
+    for asset in ("font.woff2", "font-regular.woff2", "brand.png"):
+        assert visitor.get(path + "/" + asset).status_code == 404
+
+
+def test_expiry_is_only_in_authorized_projection(shared_api):
+    owner, visitor, service, path, identifier = shared_api
+    expiry = int(time.time()) + 600
+    owner.patch("/api/v1/shares/" + identifier, json={"password": "1", "expires_at": expiry})
+    assert "expires_at" not in visitor.get(path + "/api/policy").json()
+    assert visitor.get(path + "/api/note").status_code == 401
+    assert visitor.post(path + "/api/session", json={"password": "1"}).status_code == 200
+    assert visitor.get(path + "/api/note").json()["expires_at"] == expiry
+    with service.state.transaction() as db:
+        db.execute("UPDATE shares SET expires_at=? WHERE id=?", (time.time()-1, identifier))
+    for query in ("", "?legacy=1"):
+        assert visitor.get(path + query).status_code == 404
+        assert visitor.get(path + "/api/note" + query).status_code == 404
 
 
 def test_public_http_etag_csrf_injection_and_conflict(shared_api):

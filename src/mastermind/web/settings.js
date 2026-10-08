@@ -8,11 +8,14 @@ import {openGroupUpdates} from './group-updates.js';
 import {contextIndexingCard} from './context-indexing.js';
 import {gryphonCard} from './gryphon.js';
 
+const operationLabel=kind=>({backup:'Service snapshot',restore:'Service restore',vault:'Vault ZIP',vault_restore:'Vault restore',portable:'Vault copy',logs:'Archived logs'})[kind]||kind;
+
 export async function startOperation(kind,file=null,resume=null){
   let identifier=resume,stop=()=>{},finished=false;
+  const restoring=()=>kind==='restore'||kind==='vault_restore';
   const controller=new AbortController(),viewSignal=state.viewController?.signal;
   const abort=()=>controller.abort();viewSignal?.addEventListener('abort',abort,{once:true});
-  const modal=dialog(kind==='restore'?'Restore snapshot':kind==='portable'?'Download Vault copy':kind==='logs'?'Download archived logs':'Create and download snapshot',
+  const modal=dialog(kind==='vault_restore'?'Restore Vault ZIP':kind==='restore'?'Restore snapshot':kind==='vault'?'Download Vault ZIP':kind==='portable'?'Download Vault copy':kind==='logs'?'Download archived logs':'Create and download snapshot',
     '<p data-stage>Preparing…</p><div class="progress" role="progressbar" aria-label="Maintenance progress" aria-valuemin="0" aria-valuemax="100"><span></span></div><div data-details></div>',
     {dirtyGuard:false,onClose:()=>{stop();abort();viewSignal?.removeEventListener('abort',abort);}});
   const request=(route,options={})=>api(route,{...options,signal:controller.signal});
@@ -29,24 +32,27 @@ export async function startOperation(kind,file=null,resume=null){
         $('[data-inspect]',modal.element).onclick=e=>pending(e.target,()=>inspect(record));
       }else if(record.state==='AWAITING_CONFIRMATION'){
         stop();const data=record.inspection;
-        details.innerHTML=`<p>Verified snapshot: ${escape(stamp(Date.parse(data.manifest.boundary)/1000))}</p><p>${data.notes} notes · ${escape(humanBytes(data.manifest.expanded_bytes))} expanded · schema ${data.manifest.schema}</p><p class="danger">Restore replaces the current Vault and mandatory service state, creates a safety backup, and ends active sessions.</p><button data-restore class="danger">Restore this snapshot</button>`;
-        $('[data-restore]',modal.element).onclick=()=>confirmation('Replace current state','Restore this verified snapshot and end active sessions?',async()=>{
+        const vault=kind==='vault_restore';
+        details.innerHTML=vault
+          ?`<p>Verified Obsidian Vault ZIP</p><p>${data.notes} notes · ${data.files} files · ${data.directories} folders · ${escape(humanBytes(data.expanded_bytes))} expanded</p><p>Vault root: ${escape(data.root_prefix||'archive root')}</p>${data.files===0?'<p class="danger">This archive contains no files. Restoring it removes all current Vault files.</p>':''}<p class="danger">Replaces all Vault files, including Obsidian settings and plugins. Current Mastermind settings and connections stay in place. Active sessions, Shared links and Crusher access codes end. The previous generation is retained until verification, then removed.</p><button data-restore class="danger">Restore this Vault</button>`
+          :`<p>Verified snapshot: ${escape(stamp(Date.parse(data.manifest.boundary)/1000))}</p><p>${data.notes} notes · ${escape(humanBytes(data.manifest.expanded_bytes))} expanded · schema ${data.manifest.schema}</p><p class="danger">Restore replaces the current Vault and mandatory service state, creates a safety backup, and ends active sessions.</p><button data-restore class="danger">Restore this snapshot</button>`;
+        $('[data-restore]',modal.element).onclick=()=>confirmation(vault?'Replace current Vault':'Replace current state',vault?'Replace the complete Vault with this verified archive? Keep a downloaded copy of the current Vault if you want to return to it after completion.':'Restore this verified snapshot and end active sessions?',async()=>{
           await api(route()+'/confirm',{method:'POST',body:{action:'restore',sha256:record.sha256}});
-          await startOperation('restore',null,identifier);
-        },'Restore snapshot');
+          await startOperation(kind,null,identifier);
+        },vault?'Restore Vault':'Restore snapshot');
       }else if(record.state==='COMPLETED'&&!finished){
         finished=true;stop();
-        if(kind!=='restore'){
+        if(!restoring()){
           if (!record.download_consumed) download(route()+'/download');details.innerHTML=`<p>The archive is ready. Your browser is downloading ${escape(humanBytes(record.size))}.</p><p>The server copy is removed when this transfer ends. If interrupted, create a fresh archive.</p><p class="muted">SHA-256: ${escape(record.sha256)}</p>`;
         }else details.textContent='Restore completed. Sign in again.';
-        notice(kind==='restore'?'Restore completed.':'Archive ready for download.');
+        notice(restoring()?'Restore completed.':'Archive ready for download.');
       }else if(['FAILED','INTERRUPTED'].includes(record.state)){stop();modal.error.textContent=record.error||record.state;}
       else if(record.state==='WAITING_UPLOAD'){stop();details.textContent='Upload did not finish. Remove this operation and select the file again.';}
     }catch(error){if(error.status===401){stop();modal.error.textContent='Session ended. Sign in again and check the operation in Settings.';}else if(error.name!=='AbortError')throw error;}
   }
   try{
     const record=resume?await request(route()):await request('/api/owner/operations',{method:'POST',body:{kind,...(file?{size:file.size}:{})}});
-    identifier=record.id;render(record);
+    identifier=record.id;kind=record.kind;render(record);
     if(file){
       modal.setBusy(true);
       const expected=await hashFile(file,p=>stage('Checking archive integrity · '+Math.round(p*100)+'%'),controller.signal);
@@ -63,6 +69,18 @@ export async function startOperation(kind,file=null,resume=null){
   return identifier;
 }
 
+function chooseRestore(kind){
+  const vault=kind==='vault_restore';
+  const modal=dialog(vault?'Restore Vault ZIP':'Restore ZIP snapshot',`<p>${vault?'Select a trusted ZIP of a complete Obsidian Vault. Its root contains the notes, attachments and .obsidian folder. Plugins in this archive will run inside Obsidian after restore. Mastermind settings and connections are preserved.':'Select an encrypted Mastermind recovery snapshot. It restores the Vault and mandatory service state.'}</p><p>The archive is inspected before any replacement. Maximum ZIP size: 8 GiB.</p><label class="sr-only" for="restore-file">${vault?'Vault ZIP':'Recovery ZIP'}</label><input id="restore-file" type="file" accept=".zip,application/zip" hidden><button data-browse-archive>Choose ZIP file</button>`);
+  const input=$('#restore-file',modal.element);
+  $('[data-browse-archive]',modal.element).onclick=()=>input.click();
+  input.onchange=async()=>{
+    const file=input.files[0];if(!file)return;
+    if(!file.size||file.size>8*1024**3){modal.error.textContent='Choose a non-empty ZIP of at most 8 GiB.';input.value='';return;}
+    await startOperation(kind,file);
+  };
+}
+
 function rotateAccessKey(){const modal=dialog('Security',`<form class="security-access-form"><label>Current Access Key<textarea class="secret" name="current" autocomplete="current-password" spellcheck="false"></textarea></label><label>New Access Key<textarea class="secret" name="next" autocomplete="new-password" spellcheck="false"></textarea></label><label>Repeat New Access Key<textarea class="secret" name="confirmation" autocomplete="new-password" spellcheck="false"></textarea></label><p>Applying a new key revokes every other operator session.</p><button type="submit">Change Access Key</button></form>`);
   modal.element.classList.add('security-access-overlay');
   const current=opaqueInput($('[name=current]',modal.element)),next=opaqueInput($('[name=next]',modal.element)),confirmation=opaqueInput($('[name=confirmation]',modal.element));
@@ -75,9 +93,9 @@ export async function settings(root){
   root.classList.add('settings-page');
   root.innerHTML=`<div class="grid settings-grid">${card('appearance','Appearance',`<div class="group"><h3>Color correction</h3><p>Changes preview immediately and apply to both authenticated views and sign-in.</p><div class="row settings-color-row"><input type="color" aria-label="Accent preview" data-color value="${state.prefs.accent}"><label class="sr-only" for="accent-hex">Accent hex</label><input id="accent-hex" data-hex value="${state.prefs.accent}" spellcheck="false"><button data-reset-color>Reset color</button><button data-apply-color>Apply color</button></div><p data-accent-error class="error-message" role="alert"></p></div><div class="group"><h3>Left menu position</h3><p>Reveal the Sidebar from the edge or keep it fixed on wide screens.</p><label class="inline"><input type="checkbox" data-sidebar ${state.prefs.sidebar==='auto'?'checked':''}>Auto open and hide sidebar on mouse hover</label></div>`,{wide:true})}
   ${card('security','Security',`<div class="group"><h3>Changing Access Key</h3><p>Changing the Access Key ends all other active browser sessions.</p><button class="action" data-rotate>Change Access Key</button></div><div class="group"><h3>Connection with Kernel</h3><div data-connection>Loading connection…</div><button class="security-token-action" data-kernel-token>Change secure Kernel access token</button></div>`,{wide:true})}
-  ${card('backup','Backup',`<div class="group backup-manual-group"><h3>Manual snapshot</h3><p>Encrypted full Vault and mandatory service state. Includes Obsidian plugins and their original data. Recovery keys are stored separately.</p><button class="action" data-backup>Create and download snapshot</button></div>
+  ${card('backup','Backup',`<div class="group backup-manual-group"><h3>Manual snapshot</h3><p>The encrypted snapshot includes the full Vault, Mastermind settings and mandatory service state. Recovery keys are stored separately. Vault ZIP contains only the complete Obsidian folder, including attachments, plugins and their data, without archive encryption.</p><div class="backup-action-grid"><button class="action" data-backup>Create and download snapshot</button><button class="action" data-vault-backup>Download Vault ZIP</button></div></div>
     <div class="group backup-neptune-group"><h3>Automatic backup to Saturn</h3><p>Neptune delivers the recovery archive and dedicated Vault mirror on their shared schedule.</p><div data-agents>Checking local agent…</div><div data-backup-policy></div><div class="row settings-actions"><button data-agent-init>Link Neptune agent</button><button class="backup-unlink-action" data-agent-unlink hidden>Unlink Neptune agent</button></div><details class="backup-agent-details"><summary>Agent details</summary><p data-agent-meta></p><button data-agent-refresh>Refresh status</button></details></div>
-    <div class="group backup-restore-group"><h3>Restore snapshot</h3><p>Upload a recovery ZIP, inspect its contents and explicitly confirm replacement.</p><label class="sr-only" for="restore-file">Recovery ZIP</label><input id="restore-file" type="file" accept=".zip" hidden><button class="action" data-restore-file>Browse local snapshot archive</button></div>
+    <div class="group backup-restore-group"><h3>Restore local backup</h3><p>Choose an encrypted service snapshot or an Obsidian Vault ZIP. The selected archive is verified before replacement.</p><div class="backup-action-grid"><button class="action" data-restore-file>Restore ZIP snapshot</button><button class="action" data-vault-restore-file>Restore Vault ZIP</button></div></div>
     <div class="group backup-maintenance-group"><h3>Recent maintenance operations</h3><div data-operations class="list"></div></div>`,{wide:true})}
   ${card('updates','Updates',`<div class="group"><h3>Update pipeline</h3><p>Core, Runtime and Worker update together through the local Updater.</p><p>Installed version: <strong class="accent" data-version>Loading…</strong></p><div class="status-line"><span>Local update helper</span><span data-updater>Not verified</span></div><div class="status-line"><span>Approved release registry</span><span data-registry>Not checked</span></div><button class="action" data-update-check>Check for updates</button><p data-update-state></p></div>`,{wide:true})}
   ${card('logs','Logs','<div data-service-logs></div>',{wide:true})}
@@ -101,7 +119,11 @@ export async function settings(root){
   $('[data-timezone]',root).onchange=async e=>{e.target.disabled=true;try{await preferences({timezone:e.target.value});notice('Timezone saved.');}catch(error){e.target.value=state.prefs.timezone;notice(error.message,true);}finally{e.target.disabled=false;}};
   async function refreshConnection(){connection=await api('/api/owner/connection');if(root.isConnected)$('[data-connection]',root).innerHTML=`<label class="sr-only" for="mastermind-kernel-url">Kernel URL</label><input id="mastermind-kernel-url" type="url" data-kernel-url value="${escape(connection.url||'')}" placeholder="https://kernel.example.com"><div class="status-line"><span>Kernel Core</span><span class="${connection.state==='VERIFIED'?'success':'danger'}">${escape(connection.state)}<i aria-hidden="true" class="security-status-square"></i></span></div>`;}
   bind(root,'click','[data-rotate]',rotateAccessKey);bind(root,'change','[data-kernel-url]',async(e,b)=>{const url=b.value.trim();if(url===connection.url)return;try{await api('/api/owner/connection',{method:'POST',body:{url}});await refreshConnection();notice('Kernel URL verified and saved.');}catch(error){b.value=connection.url||'';notice(error.message,true);}});bind(root,'click','[data-kernel-token]',()=>connectionForm('token',connection,refreshConnection));
-  bind(root,'click','[data-backup]',(e,b)=>pending(b,()=>startOperation('backup')));bind(root,'click','[data-restore-file]',()=>$('[type=file]',root).click());$('[type=file]',root).onchange=async e=>{const file=e.target.files[0];if(file)await startOperation('restore',file);e.target.value='';};bind(root,'click','[data-logs-download]',(e,b)=>pending(b,()=>startOperation('logs')));
+  bind(root,'click','[data-backup]',(e,b)=>pending(b,()=>startOperation('backup')));
+  bind(root,'click','[data-vault-backup]',(e,b)=>pending(b,()=>startOperation('vault')));
+  bind(root,'click','[data-restore-file]',()=>chooseRestore('restore'));
+  bind(root,'click','[data-vault-restore-file]',()=>chooseRestore('vault_restore'));
+  bind(root,'click','[data-logs-download]',(e,b)=>pending(b,()=>startOperation('logs')));
   async function agents(){
     const result=await api('/api/owner/agents');if(!root.isConnected)return;
     initialization=result.neptune_initialization;
@@ -148,12 +170,12 @@ export async function settings(root){
   bind(root,'click','[data-agent-unlink]',()=>unlinkNeptune());
   bind(root,'click','[data-agent-refresh]',(e,b)=>pending(b,agents));bind(root,'click','[data-agent-init]',()=>agentDialog());bind(root,'click','[data-agent-review]',()=>agentDialog());
   bind(root,'click','[data-update-check]',()=>openGroupUpdates());
-  bind(root,'click','[data-op-review]',(e,b)=>startOperation('restore',null,b.dataset.opReview));
+  bind(root,'click','[data-op-review]',(e,b)=>startOperation(b.dataset.opKind,null,b.dataset.opReview));
   const rollbackButton=document.createElement('button');rollbackButton.className='action settings-secondary-action';rollbackButton.textContent='Return to previous version';rollbackButton.dataset.versionRollback='';$('[data-update-check]',root).after(rollbackButton);
   rollbackButton.onclick=()=>openGroupUpdates({rollback:true});
   bind(root,'click','[data-op-delete]',(e,b)=>{const id=b.dataset.opDelete;confirmation('Remove staged operation','Remove this completed or abandoned operation and its staged archive?',async()=>{await api('/api/owner/operations/'+id,{method:'DELETE'});await refresh();},'Remove staged files');});
   async function refresh(){const [ops,updates]=await Promise.all([api('/api/owner/operations'),api('/api/owner/updates')]);if(!root.isConnected)return;
-    $('[data-operations]',root).innerHTML=ops.length?ops.map(op=>`<div class="list-row"><div>${escape(op.kind)} · ${escape(op.stage)}<br><small>${escape(stamp(op.created_at))}${op.error?' · '+escape(op.error):''}</small></div><span>${op.size?escape(humanBytes(op.size)):''}</span><div class="row-actions">${op.kind==='restore'?`<button data-op-review="${op.id}">Review</button>`:''}${op.state==='COMPLETED'&&op.kind!=='restore'&&!op.download_consumed?`<a download href="/api/owner/operations/${op.id}/download">Download</a>`:''}<button data-op-delete="${op.id}" ${['RUNNING','RECEIVING'].includes(op.state)?'disabled':''}>Remove</button></div></div>`).join(''):'<p class="empty">No staged maintenance operations.</p>';
+    $('[data-operations]',root).innerHTML=ops.length?ops.map(op=>{const restoring=['restore','vault_restore'].includes(op.kind);return `<div class="list-row"><div>${escape(operationLabel(op.kind))} · ${escape(op.stage.replaceAll('_',' '))}<br><small>${escape(stamp(op.created_at))}${op.error?' · '+escape(op.error):''}</small></div><span>${op.size?escape(humanBytes(op.size)):''}</span><div class="row-actions">${restoring?`<button data-op-review="${op.id}" data-op-kind="${escape(op.kind)}">Review</button>`:''}${op.state==='COMPLETED'&&!restoring&&!op.download_consumed?`<a download href="/api/owner/operations/${op.id}/download">Download</a>`:''}<button data-op-delete="${op.id}" ${['RUNNING','RECEIVING'].includes(op.state)?'disabled':''}>Remove</button></div></div>`;}).join(''):'<p class="empty">No staged maintenance operations.</p>';
     $('[data-update-state]',root).textContent='Update state: '+(updates.phase||updates.state)+(updates.error?' · '+updates.error:'');if(Date.now()-agentTick>15000){agentTick=Date.now();await agents();}}
   await refreshConnection();const stop=poll(refresh,3000);return()=>{stop();stopWyvern();stopGryphon();stopPolicy();stopLogs();document.documentElement.style.setProperty('--accent',state.prefs.accent);};
 }
