@@ -2,13 +2,15 @@
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
+import urllib.request
 from pathlib import Path
 
 CATALOG = "PART_12_KNOWN_DEPLOYMENT_AND_OPERATIONS_PROBLEMS.md"
 CATALOG_REPOSITORY = "https://github.com/psewdon1m-exocortex/general"
-CATALOG_PATH = ".docs/" + CATALOG
+CATALOG_PATH = CATALOG
 ROW = re.compile(r"^\|\s*\*\*([A-Z]+-[0-9]{2})\*\*\s*\|(.+)\|(.+)\|\s*$")
 SHA = re.compile(r"[a-f0-9]{40}")
 DIGEST = re.compile(r"[a-f0-9]{64}")
@@ -29,6 +31,34 @@ def read_json(path, limit=2 * 1024 * 1024):
             result[key] = value
         return result
     return json.loads(path.read_bytes(), object_pairs_hook=unique)
+
+
+def policy_catalog(root, central=None):
+    """Read the locked central commit without retaining a second policy tree."""
+    lock = read_json(root / "docs/policy-lock.json")
+    revision = lock.get("authority_revision", "")
+    require(lock.get("schema") == "mastermind.policy-reference.v1" and
+            lock.get("repository") == CATALOG_REPOSITORY and SHA.fullmatch(revision) and
+            set(lock.get("files", {})) == {CATALOG} and
+            DIGEST.fullmatch(lock["files"][CATALOG]) and
+            type(lock.get("publication_ready")) is bool, "Invalid central policy reference")
+    configured = os.environ.get("MASTERMIND_POLICY_CHECKOUT")
+    checkout = central or (Path(configured) if configured else None)
+    if checkout is None and (root.parent / ".docs" / ".git").exists():
+        checkout = root.parent / ".docs"
+    limit = 2 * 1024 * 1024
+    if checkout is not None:
+        command = ["git", "-C", str(checkout)]
+        size = int(subprocess.check_output([*command, "cat-file", "-s", revision + ":" + CATALOG], timeout=20))
+        require(0 < size <= limit, "Oversized central catalog")
+        body = subprocess.check_output([*command, "show", revision + ":" + CATALOG], timeout=20)
+    else:
+        url = f"https://raw.githubusercontent.com/psewdon1m-exocortex/general/{revision}/{CATALOG}"
+        with urllib.request.urlopen(url, timeout=20) as response:
+            body = response.read(limit + 1)
+    require(len(body) <= limit and hashlib.sha256(body).hexdigest() == lock["files"][CATALOG],
+            "Central catalog does not match the pinned digest")
+    return lock, body
 
 
 def catalog_ids(body):
@@ -69,6 +99,8 @@ def verify(report, catalog, lock, *, revision, tag, phase, evidence_root, manife
     identifiers = catalog_ids(catalog)
     require(not lock.get("includes_preexisting_worktree_changes"),
             "Publication needs an immutable central revision containing the effective catalog")
+    require(lock.get("publication_ready", True) is True,
+            "Central policy adoption is pending; publication remains blocked")
     require(SHA.fullmatch(lock.get("authority_revision", "")) is not None, "Unpinned central revision")
     require(lock.get("files", {}).get(CATALOG) == catalog_hash, "Catalog does not match the pinned policy bytes")
     expected = {"schema_version": 1, "service": "mastermind", "revision": revision, "release_tag": tag,
@@ -124,13 +156,12 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
-        lock = read_json(args.root / "docs/policy-lock.json")
-        catalog = (args.root / "docs/policy" / CATALOG).read_bytes()
+        lock, catalog = policy_catalog(args.root, args.central_checkout)
         identifiers = catalog_ids(catalog)
         require(hashlib.sha256(catalog).hexdigest() == lock["files"][CATALOG], "Catalog content changed")
         if args.command == "catalog":
             result = {"schema": "mastermind.catalog-check.v1", "status": "PASS", "active_ids": identifiers,
-                      "publication_policy_ready": not lock.get("includes_preexisting_worktree_changes")}
+                      "publication_policy_ready": lock["publication_ready"]}
         else:
             require(all((args.report, args.evidence_root, args.revision, args.tag, args.manifest, args.phase, args.central_checkout)), "Incomplete qualification arguments")
             central = subprocess.check_output(["git", "-C", str(args.central_checkout), "show", lock["authority_revision"] + ":" + CATALOG])

@@ -18,7 +18,7 @@ import urllib.request
 from pathlib import Path
 
 from build_release import bootstrap, sign
-from known_problems_gate import CATALOG, FINAL_ONLY, read_json, require
+from known_problems_gate import FINAL_ONLY, policy_catalog, read_json, require
 from known_problems_gate import verify as known_verify
 from release_candidate import ASSETS, ROOT, digest, verify_registry_images
 
@@ -222,8 +222,8 @@ def anonymous_verify(folder, revision, tag, repository):
             row.clear()
             row.update(id=identifier, status="PASS",
                        evidence=[{"path": evidence.name, "sha256": digest(evidence)}])
-    lock = read_json(ROOT / "docs/policy-lock.json")
-    known_verify(final, (ROOT / "docs/policy" / CATALOG).read_bytes(), lock, revision=revision, tag=tag,
+    lock, catalog = policy_catalog(ROOT)
+    known_verify(final, catalog, lock, revision=revision, tag=tag,
                  phase="final", evidence_root=folder / "evidence", manifest_sha256=summary["manifest_sha256"])
     (folder / "known-problems-report.json").write_text(json.dumps(final, indent=2) + "\n", newline="\n")
     return proof

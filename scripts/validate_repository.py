@@ -1,4 +1,4 @@
-"""Offline structural checks on the complete standalone service checkout."""
+"""Structural checks, with central policy evidence read at an immutable revision."""
 import argparse
 import ast
 import hashlib
@@ -9,7 +9,7 @@ import tomllib
 from pathlib import Path
 from urllib.parse import unquote
 
-from known_problems_gate import catalog_ids, require
+from known_problems_gate import catalog_ids, policy_catalog, require
 
 ROOT = Path(__file__).resolve().parents[1]
 LINK = re.compile(r"\[[^\]]*\]\((?:<([^>]+)>|([^\s)]+)(?:\s+\"[^\"]*\")?)\)")
@@ -33,11 +33,12 @@ def versions(root):
 
 
 def links(root):
-    paths = [root / "README.md", root / "mastermind_service_requirements_final.md", *sorted((root / "docs").rglob("*.md"))]
+    require({p.name for p in root.glob("*.md")} == {"README.md"}, "Only README.md belongs at the repository root")
+    paths = [root / "README.md", root / "bridge/README.md", *sorted((root / "docs").rglob("*.md"))]
     failures = []
     for path in paths:
         text = path.read_text("utf-8")
-        text = re.sub(r"^```[^\n]*\n.*?^```\s*$", "", text, flags=re.M | re.S)
+        text = re.sub(r"^```[^\n]*\n.*?^```\s*$", "", text, flags=re.MULTILINE | re.DOTALL)
         for match in LINK.finditer(text):
             target = match[1] or match[2]
             if target.startswith(("https://", "http://", "mailto:", "#")):
@@ -50,17 +51,9 @@ def links(root):
     return len(paths)
 
 
-def policy(root):
-    lock = json.loads((root / "docs/policy-lock.json").read_text("utf-8"))
-    actual = {path.name for path in (root / "docs/policy").glob("PART_*.md")}
-    require(actual == set(lock["files"]), "Policy snapshot inventory changed")
-    for name, digest in lock["files"].items():
-        require(hashlib.sha256((root / "docs/policy" / name).read_bytes()).hexdigest() == digest, "Policy content lock mismatch: " + name)
-    for name, digest in lock.get("assets", {}).items():
-        path = (root / "docs/policy" / name).resolve()
-        require(path.is_relative_to((root / "docs/policy").resolve()) and path.is_file() and
-                hashlib.sha256(path.read_bytes()).hexdigest() == digest, "Policy asset lock mismatch: " + name)
-    identifiers = catalog_ids((root / "docs/policy/PART_12_KNOWN_DEPLOYMENT_AND_OPERATIONS_PROBLEMS.md").read_bytes())
+def policy(root, central=None):
+    _, catalog = policy_catalog(root, central)
+    identifiers = catalog_ids(catalog)
     compatibility = json.loads((root / "docs/compatibility.json").read_text("utf-8"))
     for service, candidate in compatibility["services"].items():
         path = (root / candidate["patch"]).resolve()
@@ -97,12 +90,13 @@ def inputs(root):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=ROOT)
+    parser.add_argument("--central-checkout", type=Path)
     parser.add_argument("--output", type=Path, default=ROOT / "artifacts/repository-check.json")
     args = parser.parse_args()
     try:
         version = versions(args.root)
         documents = links(args.root)
-        identifiers = policy(args.root)
+        identifiers = policy(args.root, args.central_checkout)
         inputs(args.root)
         subprocess.run(["git", "-C", str(args.root), "diff", "--check"], check=True, capture_output=True)
         result = {"status": "PASS", "version": version, "documents": documents, "active_problem_ids": identifiers}

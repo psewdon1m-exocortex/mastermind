@@ -1,7 +1,9 @@
 import copy
 import hashlib
 import importlib.util
+import io
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -91,3 +93,74 @@ def test_catalog_and_evidence_reject_duplicate_keys_and_ids(tmp_path):
     path.write_text('{"status":"FAIL","status":"PASS"}')
     with pytest.raises(ValueError, match="Duplicate JSON"):
         gate.read_json(path)
+
+
+def test_pending_policy_adoption_cannot_open_publication(qualification):
+    _, lock, _, verify = qualification
+    lock['publication_ready'] = False
+    with pytest.raises(ValueError, match='adoption is pending'):
+        verify()
+
+
+@pytest.fixture
+def policy_reference(tmp_path, monkeypatch):
+    monkeypatch.delenv('MASTERMIND_POLICY_CHECKOUT', raising=False)
+    root = tmp_path/'service'
+    (root/'docs').mkdir(parents=True)
+    body = b'| **REL-01** | Concrete catalog problem | A verified prevention rule |\n'
+    lock = {'schema': 'mastermind.policy-reference.v1', 'repository': gate.CATALOG_REPOSITORY,
+            'authority_revision': 'a'*40, 'files': {gate.CATALOG: hashlib.sha256(body).hexdigest()},
+            'publication_ready': False}
+    (root/'docs/policy-lock.json').write_text(json.dumps(lock))
+    return root, lock, body
+
+
+def test_external_catalog_is_bounded_and_digest_verified(policy_reference, monkeypatch):
+    root, lock, body = policy_reference
+    urls = []
+    def response(url, timeout):
+        urls.append(url)
+        assert timeout == 20
+        return io.BytesIO(body)
+    monkeypatch.setattr(gate.urllib.request, 'urlopen', response)
+    observed, catalog = gate.policy_catalog(root)
+    assert observed == lock and catalog == body
+    assert urls == ['https://raw.githubusercontent.com/psewdon1m-exocortex/general/'
+                    + lock['authority_revision'] + '/' + gate.CATALOG]
+    for invalid in (body+b'changed', b'x'*(2*1024*1024+1)):
+        monkeypatch.setattr(gate.urllib.request, 'urlopen', lambda *a, data=invalid, **kw: io.BytesIO(data))
+        with pytest.raises(ValueError, match='pinned digest'):
+            gate.policy_catalog(root)
+
+
+def test_checkout_uses_locked_commit_and_never_falls_back(policy_reference, tmp_path, monkeypatch):
+    root, lock, body = policy_reference
+    central = tmp_path/'central'
+    central.mkdir()
+    def git(*args):
+        return subprocess.check_output(['git', '-C', str(central), *args], stderr=subprocess.PIPE)
+    git('init', '-q')
+    (central/gate.CATALOG).write_bytes(body)
+    git('add', gate.CATALOG)
+    git('-c', 'user.name=Policy fixture', '-c', 'user.email=fixture@example.invalid',
+        '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Synthetic catalog fixture')
+    lock['authority_revision'] = git('rev-parse', 'HEAD').decode().strip()
+    (root/'docs/policy-lock.json').write_text(json.dumps(lock))
+    (central/gate.CATALOG).write_text('Uncommitted changes must not enter pinned evidence.')
+    def forbidden(*args, **kwargs):
+        pytest.fail('An explicit checkout failure must not fall back to the network')
+    monkeypatch.setattr(gate.urllib.request, 'urlopen', forbidden)
+    assert gate.policy_catalog(root, central)[1] == body
+    lock['authority_revision'] = 'b'*40
+    (root/'docs/policy-lock.json').write_text(json.dumps(lock))
+    with pytest.raises(subprocess.CalledProcessError):
+        gate.policy_catalog(root, central)
+
+
+def test_foreign_policy_source_is_rejected_before_io(policy_reference, monkeypatch):
+    root, lock, _ = policy_reference
+    lock['repository'] = 'https://example.invalid/foreign'
+    (root/'docs/policy-lock.json').write_text(json.dumps(lock))
+    monkeypatch.setattr(gate.urllib.request, 'urlopen', lambda *a, **kw: pytest.fail('Unexpected fetch'))
+    with pytest.raises(ValueError, match='Invalid central policy'):
+        gate.policy_catalog(root)

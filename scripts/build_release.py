@@ -74,8 +74,6 @@ def build(args):
                 files[path.relative_to(ROOT).as_posix()] = path.read_bytes()
     if (ROOT/"README.md").exists():
         files["README.md"] = (ROOT/"README.md").read_bytes()
-    requirement = (ROOT/"mastermind_service_requirements_final.md").read_text("utf-8")
-    files["requirements.md"] = requirement.replace("../.docs/", "docs/policy/").encode()
     for path in args.updater_bundle.rglob("*"):
         if path.is_symlink():
             raise ValueError("Updater bundle must contain ordinary files")

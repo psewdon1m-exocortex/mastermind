@@ -13,7 +13,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from known_problems_gate import CATALOG, evidence_file, read_json, require
+from known_problems_gate import evidence_file, policy_catalog, read_json, require
 from known_problems_gate import verify as known_verify
 from pre_push import verify as push_verify
 from validate_repository import versions
@@ -153,10 +153,7 @@ def prepare(candidate, output, central, revision, tag, repository):
     producers = read_json(ROOT / "docs/compatibility.json")
     require(producers.get("published") is True and all(item.get("status") == "PUBLISHED_QUALIFIED"
             for item in producers["services"].values()), "Required producer patches are not yet published and qualified")
-    lock = read_json(ROOT / "docs/policy-lock.json")
-    catalog = (ROOT / "docs/policy" / CATALOG).read_bytes()
-    central_catalog = subprocess.check_output(["git", "-C", str(central), "show", lock["authority_revision"] + ":" + CATALOG])
-    require(central_catalog == catalog, "Effective policy is absent from the immutable central commit")
+    lock, catalog = policy_catalog(ROOT, central)
     known, _ = referenced(candidate, record.get("known_problems"))
     known_result = known_verify(known, catalog, lock, revision=revision, tag=tag, phase="pre-signing",
                                 evidence_root=candidate, manifest_sha256=manifest_digest)

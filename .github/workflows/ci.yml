@@ -35,11 +35,20 @@ jobs:
         run: |
           docker pull ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
           python scripts/ci.py --images --secrets
+      - name: Verify manual Vault backup and restore in Chromium
+        run: |
+          npx --no-install playwright install --with-deps chromium
+          python scripts/qualify_vault_archive.py
+      - name: Verify both public Shared presentations in Chromium
+        run: python scripts/qualify_public_shared.py
       - name: Retain verification evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: verification-${{ github.sha }}
-          path: artifacts/ci/
+          path: |
+            artifacts/ci/
+            artifacts/vault-archive/
+            artifacts/public-shared/
           if-no-files-found: error
           retention-days: 90
