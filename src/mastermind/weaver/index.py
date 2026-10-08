@@ -153,9 +153,20 @@ class Index:
                              for v in result.get("results", [])[:100]]
         value.update(settings_revision=result.get("settings_revision"), calibration=result.get("calibration"),
                      index_model=self.state.setting("semantic_model_sha"), profile_version=VERSION)
+        if result.get('diagnostics'):
+            detail = result['diagnostics']
+            # Never serialize query directions, fragments or model-proposed words.
+            value['diagnostics'] = {k: detail[k] for k in ('schema', 'counts', 'channels', 'coverage_limited')}
+            value['diagnostics']['candidates'] = [{k: row.get(k) for k in
+                ('id', 'path', 'sha256', 'discovery', 'candidate_rank', 'final_rank', 'verification', 'stage', 'reason', 'rank_score', 'signals')}
+                for row in detail['candidates'][:100]]
         encoded = json.dumps(value, ensure_ascii=False)
-        if len(encoded.encode()) > 64*1024:
-            value["evidence"] = value["evidence"][:20]
+        while len(encoded.encode()) > 64*1024:
+            value['trace_truncated'] = True
+            value["evidence"] = value["evidence"][:len(value['evidence'])//2]
+            if value.get('diagnostics'):
+                rows = value['diagnostics']['candidates']
+                value['diagnostics']['candidates'] = rows[:len(rows)//2]
             encoded = json.dumps(value, ensure_ascii=False)
         with self.state.transaction() as db:
             db.execute("INSERT OR REPLACE INTO context_traces VALUES(?,?,?,?)",

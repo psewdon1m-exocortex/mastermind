@@ -40,9 +40,12 @@ def main():
     source.add_argument('--corpus', type=Path)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--check-demo50', action='store_true', help='Assert the labeled demo50 regressions and directory invariance')
+    parser.add_argument('--local-root', type=Path, help='Use verified models from this native checkout instead of Worker image paths.')
     args = parser.parse_args()
-    worker = OfflineWorker(Path('/opt/mastermind/model'), Path('/app/embedding-model.lock.json'),
-                           '/opt/mastermind/curator', '/app/curator-model.lock.json')
+    worker = (OfflineWorker(args.local_root/'.local/models/multilingual-e5-small', args.local_root/'embedding-model.lock.json',
+                            args.local_root/'.local/models/curator', args.local_root/'curator-model.lock.json') if args.local_root else
+              OfflineWorker(Path('/opt/mastermind/model'), Path('/app/embedding-model.lock.json'),
+                            '/opt/mastermind/curator', '/app/curator-model.lock.json'))
     with tempfile.TemporaryDirectory(prefix='related-quality-') as directory:
         config = Config(home=Path(directory), runtime_mode='offline', test_mode=True)
         state = State(config.state/'mastermind.sqlite3')

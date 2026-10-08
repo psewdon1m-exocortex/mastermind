@@ -5,6 +5,7 @@ from pathlib import PurePosixPath
 
 from ..errors import DomainError
 from ..fs import safe_relative
+from .evidence import packet, selected_diagnostics
 from .graph import Scope
 from .pipeline import source_features, words
 
@@ -37,6 +38,8 @@ class RelatedNotes:
         self.service.vault.read(path)
         result = {"path": path, "items": [], "degraded": False, "sampled": data.get("sampled", False)}
         if not words(data["text"]):
+            result.update(outcome='no_match', evidence_packet=packet({'task': 'note_similarity'}, None, []),
+                          diagnostics=selected_diagnostics({}, []))
             return result
         if not self.slot.acquire(blocking=False):
             raise DomainError("CONTEXT_BUSY", "Related-note search is busy. Try again shortly.", 429)
@@ -50,8 +53,10 @@ class RelatedNotes:
                                        "summary": data.get("focus") or data["text"][:1600]}, data["text"])
             subject.update(source_title=PurePosixPath(path).stem, source_body=data["text"],
                            source_focus=data.get("focus", ""))
-            found, _ = self.pipeline.run(subject, scope=Scope(scope.principal, paths), query_type="note_similarity",
-                configuration={"curator_enabled": False}, deadline=time.monotonic()+15)
+            deadline = time.monotonic()+15
+            found, graph = self.pipeline.run(subject, scope=Scope(scope.principal, paths), query_type="note_similarity",
+                configuration={"curator_enabled": False}, deadline=deadline)
+            selected = []
             for item in found["results"]:
                 features = item["features"]
                 # Graph adjacency and the common E5 floor alone are not topic evidence.
@@ -60,10 +65,20 @@ class RelatedNotes:
                 result["items"].append({"path": item["path"], "title": item["title"],
                                         "excerpt": " ".join(item["excerpt"].split())[:320],
                                         "relation": item["relation"], "reason": item["reason"]})
+                selected.append(item)
                 if len(result["items"]) == 8:
                     break
             self.service.data_ready()
             result["degraded"] = bool(found["degraded"] or found["truncated"])
+            result['evidence_packet'] = packet(found, graph, selected, query=data.get('focus') or data['text'],
+                                        context='none', budget=8192, deadline=deadline)
+            if graph is not None:
+                fresh = {s['path'] for s in result['evidence_packet']['sources']}
+                result['items'] = [i for i in result['items'] if i['path'] in fresh]
+                selected = [i for i in selected if i['path'] in fresh]
+            result['diagnostics'] = selected_diagnostics(found, selected, result['evidence_packet'])
+            result['degraded'] |= result['evidence_packet']['completeness']['state'] == 'partial'
+            result['outcome'] = 'matches' if result['items'] else 'incomplete' if result['degraded'] else 'no_match'
             return result
         finally:
             self.slot.release()

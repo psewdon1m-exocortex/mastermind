@@ -8,6 +8,7 @@ from markdown_it import MarkdownIt
 from ..errors import DomainError
 from ..fs import resolve, sha_bytes
 from ..references import WIKI, masked
+from .evidence import packet
 from .graph import Graph
 
 
@@ -54,10 +55,11 @@ def walk(vault, request):
         raise DomainError('NOT_FOUND', 'The starting note is outside the available graph.', 404)
     nodes, links, queue, visited = [], [], deque([(request.path, 0)]), {request.path}
     truncated = False
+    chains = {request.path: [request.path]}
     while queue:
         path, depth = queue.popleft()
         note = graph.notes[path]
-        nodes.append({'id': path, 'kind': 'note', 'title': note['name'], 'sha256': note['sha']})
+        nodes.append({'id': path, 'path': path, 'kind': 'note', 'title': note['name'], 'sha256': note['sha']})
         if depth >= request.depth:
             continue
         outgoing = graph.outgoing[path] if request.direction != 'incoming' else set()
@@ -68,11 +70,13 @@ def walk(vault, request):
                     truncated = True
                     continue
                 visited.add(target)
+                chains[target] = [*chains[path], target]
                 queue.append((target, depth+1))
-            edge = {'source': path if target in outgoing else target,
-                    'target': target if target in outgoing else path, 'kind': 'internal'}
-            if edge not in links:
-                links.append(edge)
+            for source, destination in ((path, target), (target, path)):
+                if (source == path and target in outgoing) or (source == target and target in incoming):
+                    edge = {'source': source, 'target': destination, 'kind': 'internal'}
+                    if edge not in links:
+                        links.append(edge)
         if request.direction == 'incoming':
             continue
         # Source revision is rechecked after traversal. Metadata only; binary
@@ -99,5 +103,12 @@ def walk(vault, request):
     for node in nodes:
         if node['kind'] == 'note' and sha_bytes(vault.read(node['id']).encode()) != node['sha256']:
             raise DomainError('GRAPH_CHANGED', 'The graph changed during traversal; retry the work order.', 409)
-    return {'schema': 'weaver.walk.v1', 'snapshot_id': graph.sha, 'nodes': nodes, 'edges': links,
-            'truncated': truncated}
+    value = {'schema': 'weaver.walk.v1', 'task': 'walk', 'snapshot_id': graph.sha, 'nodes': nodes, 'edges': links,
+             'truncated': truncated}
+    items = [{**n, 'strategies': {'graph': 1}, 'graph_paths': [chains[n['path']]], 'reason': 'Explicit graph connection'}
+             for n in nodes if n['kind'] == 'note']
+    value['evidence_packet'] = packet(value, graph, items, budget=0)
+    value['evidence_packet']['objects'] = [{**n, 'evidence_kind': 'reference_only'} for n in nodes if n['kind'] != 'note']
+    if value['evidence_packet']['stale_paths']:
+        raise DomainError('GRAPH_CHANGED', 'The graph changed during traversal; retry the work order.', 409)
+    return value

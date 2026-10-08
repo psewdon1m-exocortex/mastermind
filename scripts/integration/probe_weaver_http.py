@@ -106,10 +106,20 @@ def main():
                     break
             assert engine.semantic.status()['status'] == 'READY'
             assert vault.read('Secret.md') == notes['Secret.md']
+            # Exercise the configured local assistant through the actual Worker
+            # transport. Its terms cannot become independent relevance evidence.
+            engine.service.state.set_setting('context_indexing', {**engine.settings.get(), 'curator_enabled': True})
+            assisted = engine.run(Lookup('Sumerian cuneiform contracts on clay tablets',
+                scope=Scope('owner', frozenset({'Diode.md'})), context='none'))
+            assert assisted['bibliotekar']['invoked'] and assisted['bibliotekar']['passes'] == 1, assisted['bibliotekar']
+            assert assisted['search_passes'] <= 2 and not assisted['results']
+            assert assisted['evidence_packet']['schema'] == 'weaver.evidence.v1'
             report = {'status': 'PASS', 'transport': 'loopback HTTP with scoped Worker identity',
                 'embedding_model': engine.semantic.model, 'bibliotekar': engine.bibliotekar.status(),
+                'bibliotekar_assist': assisted['bibliotekar'],
                 'checks': ['unauthorized denied', 'real bilingual retrieval', 'related notes', 'scoped retrieval',
-                           'graph traversal', 'edit invalidation and incremental rebuild'],
+                           'graph traversal', 'edit invalidation and incremental rebuild',
+                           'one bounded real Bibliotekar call, original-topic verification and unchanged scope'],
                 'limitations': ['No Runtime, Linux sandbox or external generation provider in this native probe.']}
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(json.dumps(report, indent=2)+'\n', encoding='utf-8')

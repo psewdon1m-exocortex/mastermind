@@ -26,6 +26,7 @@ from mastermind.runtime_client import RuntimeClient
 from mastermind.semantic import Semantic
 from mastermind.state import State
 from mastermind.vault import Vault
+from mastermind.weaver import Lookup, Weaver
 
 TOPICS = [
     ('Aurora', 'Charged particles from the solar wind collide with atmospheric gases near magnetic poles, producing polar lights.',
@@ -116,6 +117,7 @@ def main():
     parser.add_argument('--mode', choices=['query', 'passage'], default='passage')
     parser.add_argument('--overlap', type=int, choices=[0, 32, 64], default=0)
     parser.add_argument('--backend', choices=['python', 'faiss'], default='faiss')
+    parser.add_argument('--facade', action='store_true', help='Measure typed Lookup including evidence/context and diagnostics.')
     args = parser.parse_args()
     worker = LocalWorker(args.root)
     notes, cases = dataset()
@@ -151,11 +153,16 @@ def main():
                     return value
             pipeline = MeasuredPipeline(service, Index(service), semantic=semantic)
             related = RelatedNotes(service, pipeline, Settings(service))
+            engine = Weaver(service, semantic=semantic)
+            engine.pipeline = pipeline
             for case in cases:
                 start = time.perf_counter()
                 if case['task'] == 'lookup':
-                    found, _ = pipeline.run({'text': case['query']}, scope=Scope('owner'),
-                                            query_type='knowledge_lookup', configuration={'curator_enabled': False})
+                    if args.facade:
+                        found = engine.run(Lookup(case['query'], refine=False))
+                    else:
+                        found, _ = pipeline.run({'text': case['query']}, scope=Scope('owner'),
+                                                query_type='knowledge_lookup', configuration={'curator_enabled': False})
                     items = [i for i in found['results'] if i['features'].get('supported')]
                 else:
                     found = related.recommend({'path': case['path'], 'text': case['query']})
@@ -167,6 +174,9 @@ def main():
                     'hit_at_3': bool(hits), 'precision_at_3': hits/max(1, len(paths[:3])),
                     'recall_at_5': len(positive & set(paths[:5]))/len(positive),
                     'false_matches_at_3': len(set(paths[:3])-positive), 'degraded': found['degraded'],
+                    'diagnostics': found.get('diagnostics', pipeline.last.get('diagnostics')),
+                    'lost': {p: next((d['stage'] for d in found.get('diagnostics', pipeline.last.get('diagnostics', {})).get('candidates', [])
+                                     if d['path'] == p), 'candidate_generation') for p in positive if p not in paths[:5]},
                     'judged_evidence': [{'path': i['path'], 'score': i['score'], 'features': i['features']}
                                         for i in pipeline.last['results'] if i['path'] in positive]})
             # Update visibility includes both canonical mutation and incremental inference.

@@ -9,8 +9,10 @@ from datetime import date
 
 from ..errors import DomainError
 from ..fs import sha_bytes
+from .evidence import diagnostics
 from .graph import Graph, Scope
 from .knowledge import Knowledge
+from .planning import union, valid_refinement
 
 VERSION = "context-indexing.retrieval.v1"
 STOP = {"the", "a", "an", "of", "on", "in", "and", "or", "to", "for", "from", "with", "this", "that", "is", "are", "by", "as", "at", "it", "be", "into", "и", "в", "во", "на", "для", "из", "по", "с", "со", "о", "об", "как", "что", "это", "или", "к", "от", "до", "не", "а", "но", "при", "source", "facts", "about", "note", "summary", "material", "заметка", "материал", "источник", "сведения"}
@@ -58,13 +60,17 @@ class Pipeline:
         self.slots = threading.BoundedSemaphore(2)
 
     def run(self, subject, *, scope=None, query_type="knowledge_lookup", filters=None, configuration=None,
-            assessment=None, checkpoint=None, query_id=None, deadline=None):
+            assessment=None, checkpoint=None, query_id=None, deadline=None, directions=(), policy_version=None):
         scope = scope or Scope("owner")
         if query_type not in {"knowledge_lookup", "note_similarity", "placement_analysis"}:
             raise DomainError("QUERY_TYPE", "Unsupported context-indexing query type.", 422)
         if not isinstance(subject, dict) or not isinstance(subject.get("text"), str) \
                 or not subject["text"].strip() or len(subject["text"].encode()) > 16*1024:
             raise DomainError("INVALID_QUERY", "Provide a nonempty query up to 16 KiB.", 422)
+        if directions and (query_type != 'knowledge_lookup' or not isinstance(directions, (list, tuple)) or
+                           len(directions) > 3 or any(not isinstance(v, str) or not v.strip() or
+                           len(v.encode()) > 1000 for v in directions)):
+            raise DomainError('LOOKUP_PLAN', 'Use at most three bounded Lookup directions.', 422)
         if not self.slots.acquire(blocking=False):
             raise DomainError("CONTEXT_BUSY", "Context-indexing is at its bounded concurrency limit.", 429)
         try:
@@ -73,30 +79,61 @@ class Pipeline:
             graph = Graph(self.vault, scope)
             metadata = self.index.sync(graph, deadline=min(started+5, deadline))
             plan = {"schema": VERSION, "query_id": query_id or secrets.token_hex(16), "query_type": query_type,
-                    "snapshot_id": graph.sha, "policy_version": "crusher.placement.v1" if assessment else None,
+                    "snapshot_id": graph.sha, "policy_version": policy_version or
+                    ("crusher.placement.v1" if query_type == 'placement_analysis' else None),
                     "filters": filters or {}, "configuration": configuration or {}, "scope": scope,
                     "deadline": deadline}
             if query_type == "placement_analysis" and "profiles" not in self.disabled:
                 plan["profiles"] = self.index.profiles(graph, graph.structure(), plan["configuration"],
                                                        deadline=min(started+7, deadline))
             allowed = self.allowed(graph, metadata, plan["filters"])
+            plan['excluded_paths'] = {p for p in allowed if explicitly_negated(graph.notes[p]['name'], subject['text'])}
             if query_type in {"knowledge_lookup", "note_similarity"}:
-                plan["knowledge"] = Knowledge(self.state, graph, allowed, task=query_type)
+                plan["knowledge"] = Knowledge(self.state, graph, allowed, task=query_type, metadata=metadata)
                 subject = plan["knowledge"].prepare(subject)
             first = self.retrieve(subject, graph, metadata, plan, allowed)
+            first['coverage'] = [{'id': 'original', 'query': subject['text'],
+                                  'paths': [i['path'] for i in first['results'] if i['features'].get('supported')]}]
+            original_subject = subject
+            for ordinal, query in enumerate(directions):
+                if time.monotonic() >= deadline:
+                    first['missing_strategies'].append('planning_deadline')
+                    first['degraded'] = True
+                    first['coverage'] += [{'id': 'part-'+str(n+1), 'query': q, 'paths': [], 'executed': False}
+                                          for n, q in enumerate(directions) if n >= ordinal]
+                    break
+                directional_subject = plan['knowledge'].prepare({'text': query})
+                second = self.retrieve(directional_subject, graph, metadata, plan, allowed)
+                first = union(first, second)
+                first['coverage'].append({'id': 'part-'+str(ordinal+1), 'query': query,
+                    'paths': [i['path'] for i in second['results'] if i['features'].get('supported')], 'executed': True})
+            if directions:
+                subject = plan['knowledge'].prepare(original_subject)
             # A sparse/technical anchor name need not equal its subject. Preserve
             # explicit exclusions independently of the names found by retrieval.
             # Consumers decide whether they can safely resolve that counterevidence.
             first["topic_exclusions"] = bool(subject.get("topic_exclusions")) or positive_query(subject["text"]) != subject["text"]
-            status = assessment(first, graph) if assessment else self.assess(first)
+            status = assessment(first, graph) if assessment else self.assess_knowledge(first)
             curator = {"requested": bool(plan["configuration"].get("curator_enabled")), "effective": False,
                        "invoked": False, "outcome": "disabled", "passes": 0}
             if curator["requested"]:
                 curator["outcome"] = "not_needed"
                 if status["status"] in {"ambiguous", "insufficient_evidence"} and status.get("refinement_may_help", True) and self.curator:
                     refined, curator = self.curator.refine(subject, first, status, checkpoint=checkpoint,
-                                                           deadline=plan["deadline"])
-                    if refined:
+                        deadline=min(plan['deadline'], time.monotonic()+8) if query_type == 'knowledge_lookup' else plan['deadline'])
+                    if refined and query_type == 'knowledge_lookup':
+                        if valid_refinement(subject, refined):
+                            # Additional terms discover candidates. Original request
+                            # remains the verifier, with the same graph and filters.
+                            second = self.retrieve(refined, graph, metadata, plan, allowed)
+                            first = union(first, second)
+                            first['curator_pass'] = True
+                            first['coverage'][0]['paths'] = list(dict.fromkeys(first['coverage'][0]['paths'] +
+                                [i['path'] for i in second['results'] if i['features'].get('supported')]))
+                            status = self.assess_knowledge(first)
+                        else:
+                            curator['outcome'] = 'invalid_proposal'
+                    elif refined:
                         if "knowledge" in plan:
                             refined = plan["knowledge"].prepare(refined)
                         second = self.retrieve(refined, graph, metadata, plan, allowed)
@@ -104,26 +141,40 @@ class Pipeline:
                         if "knowledge" in plan:
                             first["results"] = plan["knowledge"].rank(first["results"])
                         first["curator_pass"] = True
-                        status = assessment(first, graph) if assessment else self.assess(first)
+                        status = assessment(first, graph) if assessment else self.assess_knowledge(first)
             result = {**first, **status, "query_id": plan["query_id"], "schema": VERSION,
                       "snapshot_id": graph.sha, "policy_version": plan["policy_version"], "curator": curator,
                       'bibliotekar': curator, 'task': query_type,
+                      'search_passes': 1+sum(p.get('executed', False) for p in first.get('coverage', []))+int(first.get('curator_pass', False)),
                       "timings": {"total_ms": round((time.monotonic()-started)*1000)},
                       "settings_revision": plan["configuration"].get("revision", 0)}
             # Validate the actual bytes of the bounded returned evidence, not just an old index row.
-            fresh = []
+            fresh, stale = [], []
             for item in result["results"]:
                 try:
+                    graph_sources = {p for chain in item.get('graph_paths', []) for p in chain}
                     if sha_bytes(self.vault.read(item["path"]).encode()) == item["sha256"] and all(
                             sha_bytes(self.vault.read(v["path"]).encode()) == v["sha256"]
-                            for v in item.get("context_sources", [])):
+                            for v in item.get("context_sources", [])) and all(
+                            p in graph.notes and sha_bytes(self.vault.read(p).encode()) == graph.notes[p]['sha']
+                            for p in graph_sources):
                         fresh.append(item)
+                    else:
+                        stale.append(item['path'])
                 except DomainError:
-                    pass
+                    stale.append(item['path'])
+            result['diagnostic_candidates'] = result['results']
             if len(fresh) != len(result["results"]):
                 result.update(results=fresh, status="insufficient_evidence", degraded=True, stale_evidence=True)
                 result.pop("placement", None)
+            result['stale_paths'] = stale
+            valid = {i['path'] for i in fresh if i['features'].get('supported', True)}
+            for part in result.get('coverage', []):
+                part['paths'] = [p for p in part['paths'] if p in valid]
+                part['covered'] = bool(part['paths'])
+            result['diagnostics'] = diagnostics(result)
             self.index.trace(result)
+            result.pop('diagnostic_candidates', None)
             return result, graph
         finally:
             self.slots.release()
@@ -163,7 +214,8 @@ class Pipeline:
     def retrieve(self, subject, graph, metadata, plan, allowed):
         deadline = min(plan["deadline"], time.monotonic()+15)
         query = subject["text"]
-        negated_paths = sorted(path for path in allowed if explicitly_negated(graph.notes[path]["name"], query))
+        negated_paths = sorted(plan.get('excluded_paths', set()) |
+                               {path for path in allowed if explicitly_negated(graph.notes[path]["name"], query)})
         if negated_paths:
             query = positive_query(query)
             subject = {**subject, "text": query}
@@ -176,13 +228,17 @@ class Pipeline:
         query_terms = sorted(words(query+"\n"+"\n".join(raw)), key=lambda v: (-len(v), v))[:40]
         fts_query = " OR ".join('"'+term.replace('"', '""')+'"' for term in query_terms)
         rows, missing, channels, truncated = {}, [], {}, bool(subject.get("truncated"))
+        index_status = {'state': 'unavailable', 'reason': 'VECTOR_DISABLED'}
         query_vector = None
         segments = []
         paragraphs = [bounded(part, 1600) for part in query.splitlines() if len(words(part)) >= 5]
         evidence_queries = paragraphs[:7] if len(paragraphs) > 1 else []
 
         def add(path, channel, rank, *, vector=None, excerpt=None, graph_path=None):
+            nonlocal truncated
             if path not in allowed or len(rows) >= 300 and path not in rows:
+                if path in allowed:
+                    truncated = True
                 return
             note = graph.notes[path]
             item = rows.setdefault(path, {"path": path, "sha256": note["sha"], "title": note["name"],
@@ -216,7 +272,12 @@ class Pipeline:
                 channels["vector"] = len(found["results"])
                 if found["index"]["status"] != "READY":
                     missing.append("vector_partial")
-            except DomainError:
+                status = found['index']
+                index_status = {'state': {'READY': 'ready', 'INDEXING': 'rebuilding'}.get(status['status'], 'unavailable'),
+                                'reason': status.get('error'), 'model_sha256': status.get('model_sha256')}
+            except DomainError as error:
+                index_status = {'state': 'rebuilding' if error.code in {'SIMILARITY_INDEXING', 'REINDEX_REQUIRED'} else 'unavailable',
+                                'reason': error.code}
                 missing.append("vector")
         else:
             missing.append("vector")
@@ -311,7 +372,13 @@ class Pipeline:
         verifier = self.semantic if "vector" not in self.disabled else None
         if "knowledge" in plan and not plan["knowledge"].verify(list(rows.values()), verifier, deadline):
             missing.append("semantic_verification")
-        return {"results": ranking(list(rows.values()))[:200], "channels": channels,
+        final = ranking(list(rows.values()))
+        for item in final:
+            if item['path'] in negated_paths:
+                item['features'].update(supported=False, acceptance='rejected', acceptance_reason='EXCLUDED_TOPIC')
+        limited_channels = [k for k, count in channels.items() if k != 'profiles' and count >= 50]
+        return {"results": final[:300], "channels": channels, 'vector_index': index_status,
+                'limited_channels': limited_channels,
                 "negated_entities": negated_paths, "segment_evidence": segments,
                 "missing_strategies": sorted(set(missing)), "degraded": bool(missing), "truncated": truncated}
 
@@ -348,6 +415,16 @@ class Pipeline:
                              for key in first["channels"].keys() | second["channels"].keys()},
                 "missing_strategies": sorted(set(first["missing_strategies"]) | set(second["missing_strategies"])),
                 "degraded": first["degraded"] or second["degraded"], "truncated": first["truncated"] or second["truncated"]}
+
+    @staticmethod
+    def assess_knowledge(result):
+        accepted = [i for i in result['results'] if i['features'].get('supported')]
+        if not accepted:
+            return {'status': 'insufficient_evidence'}
+        incomplete = any(not part['paths'] for part in result.get('coverage', []) if part['id'] != 'original')
+        if incomplete or all(i['features'].get('acceptance') == 'tentative' for i in accepted):
+            return {'status': 'ambiguous'}
+        return {'status': 'sufficient'}
 
     @staticmethod
     def assess(result):

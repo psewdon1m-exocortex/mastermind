@@ -6,12 +6,15 @@ import statistics
 from ..errors import DomainError
 from ..references import parse
 from ..search_content import Corpus, content, sentences, terms
+from .relevance import VERSION as RELEVANCE_VERSION
+from .relevance import judge
 
 
 class Knowledge:
-    def __init__(self, state, graph, allowed, *, task='knowledge_lookup'):
+    def __init__(self, state, graph, allowed, *, task='knowledge_lookup', metadata=None):
         self.state, self.graph, self.allowed = state, graph, allowed
         self.task = task
+        self.metadata = metadata or {}
         # Content-addressed sampling is independent of folder/name order. It is
         # scope-local; identical private notes cannot alter these statistics.
         sample = sorted(allowed, key=lambda p: (graph.notes[p]['sha'], graph.notes[p]['name_key']))[:256]
@@ -95,6 +98,7 @@ class Knowledge:
         # The lower half estimates unrelated background even in a small Vault
         # where several equally relevant peers occupy the upper half.
         background = statistics.median(sorted(vectors)[:max(1, len(vectors)//2)]) if vectors else 0
+        best = max(vectors, default=0)
         for item in items:
             document = self.document(item['path'])
             passages = item.get('passages', [])
@@ -107,23 +111,33 @@ class Knowledge:
             # authorize similarity by themselves. No title/role blacklist.
             distinctive_title = any(self.corpus.frequency[t] <= max(2, self.corpus.count*.30) for t in title_terms)
             exact_title = self.query.strip().casefold() == item['title'].strip().casefold()
+            alias = any(v.strip() and re.search(r'(?<!\w)'+re.escape(v.casefold())+r'(?!\w)', self.query.casefold())
+                        for v in self.metadata.get(item['path'], {}).get('aliases', []))
+            if alias:
+                title, distinctive_title = 1, True
             if title_terms and not distinctive_title and not exact_title:
                 title *= .2
             semantic = max(0, min(1, (item['features'].get('vector', 0)-.7)/.3))
             # Word rarity and independent title evidence matter more than boilerplate cosine.
-            item['score'] = round(.45*lexical + .25*title + .30*semantic, 6)
+            weights = (.30, .15, .55) if self.task == 'knowledge_lookup' else (.25, .20, .55)
+            item['score'] = round(weights[0]*lexical + weights[1]*title + weights[2]*semantic, 6)
             item['features'].update(lexical=lexical, title_match=title, topical_terms=common[:8])
             # Cosine is not a probability. Semantic-only matches need contrast with
             # the scoped background, while explicit topical words can work offline.
-            topical = lexical >= .14 and len(common) >= 2 or title >= .75 and bool(title_terms) and (distinctive_title or exact_title)
             descriptive = self.descriptive and self.has_description(self.raw.get(item['path'], ''))
-            semantic_only = descriptive and item['features'].get('vector', 0) >= .80 \
-                and item['features'].get('vector', 0)-background >= .055
-            corroborated = lexical >= .05 and len(common) >= 2 and item['features'].get('vector', 0) >= .82 \
-                and item['features'].get('vector', 0)-background >= .025
-            item['features']['supported'] = bool(topical or semantic_only or corroborated)
+            vector = item['features'].get('vector', 0)
+            acceptance, reason = judge(self.task, lexical=lexical, common=len(common), title=title,
+                named=alias or bool(title_terms) and (distinctive_title or exact_title), descriptive=descriptive,
+                vector=vector, contrast=vector-background,
+                verified=item['features'].get('verification') == 'verified', best=best, background_available=len(vectors) >= 3)
+            item['features'].update(supported=acceptance != 'rejected', acceptance=acceptance,
+                acceptance_reason='EXPLICIT_ALIAS' if alias else reason, relevance_policy=RELEVANCE_VERSION,
+                semantic_background=round(background, 6) if len(vectors) >= 3 else None,
+                semantic_contrast=round(vector-background, 6) if len(vectors) >= 3 else None)
             item['relation'] = 'linked' if item['path'] in self.links else 'similar'
-            item['reason'] = ('Linked from this note' if item['relation'] == 'linked' else
+            item['reason'] = ('Matches a declared alias' if alias else
+                              'Possible semantic match; limited confirmation' if acceptance == 'tentative' else
+                              'Linked from this note' if item['relation'] == 'linked' else
                               'Shared topics: ' + ', '.join(common[:4]) if common else
                               'Similar to linked note context' if self.context else 'Similar subject matter')
             navigation = set()
@@ -144,6 +158,9 @@ class Knowledge:
         # their unverified retrieval cosine cannot authorize a suggestion.
         ordered = self.rank(items)
         selected = ordered if len(ordered) <= 64 else ordered[:48]+ordered[-16:]
+        for rank, item in enumerate(ordered, 1):
+            item['rank_before_verification'] = rank
+            item['features']['verification'] = 'budget_skipped' if item not in selected else 'unavailable'
         for item in items:
             if 'vector' in item['features']:
                 item['features']['retrieval_vector'] = item['features'].pop('vector')
@@ -189,6 +206,7 @@ class Knowledge:
         except DomainError:
             return False
         for (item, passage), score in zip(evidence, scores, strict=True):
+            item['features']['verification'] = 'verified'
             if score > item['features'].get('vector', -1):
                 item['features']['vector'] = round(score, 6)
                 item['verified_excerpt'] = passage

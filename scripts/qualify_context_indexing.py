@@ -124,11 +124,14 @@ def main():
     parser.add_argument("--phase", choices=("calibration", "test"), required=True)
     parser.add_argument("--calibration", type=Path, required=True)
     parser.add_argument("--ablations", action="store_true")
+    parser.add_argument('--local-root', type=Path, help='Use verified local models instead of Worker image paths.')
     args = parser.parse_args()
     corpus = fixture(args.corpus)
     corpus_sha = digest(corpus)
-    worker = OfflineWorker(Path("/opt/mastermind/model"), Path("/app/embedding-model.lock.json"),
-                           "/opt/mastermind/curator", "/app/curator-model.lock.json")
+    worker = (OfflineWorker(args.local_root/'.local/models/multilingual-e5-small', args.local_root/'embedding-model.lock.json',
+                            args.local_root/'.local/models/curator', args.local_root/'curator-model.lock.json') if args.local_root else
+              OfflineWorker(Path('/opt/mastermind/model'), Path('/app/embedding-model.lock.json'),
+                            '/opt/mastermind/curator', '/app/curator-model.lock.json'))
     if args.phase == "test":
         calibration = json.loads(args.calibration.read_text("utf-8"))
         assert calibration["corpus_sha256"] == corpus_sha

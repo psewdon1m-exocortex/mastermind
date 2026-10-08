@@ -4,19 +4,22 @@ import time
 from ..errors import DomainError
 from ..semantic import Semantic
 from .bibliotekar import Bibliotekar
+from .evidence import packet, selected_diagnostics
 from .execution import PlacementExecutor
 from .graph import Graph, Scope
 from .index import Index
 from .objects import walk
 from .pipeline import Pipeline, source_features
+from .planning import directions
 from .policy import PlacementPolicy
+from .profiles import ConsumerProfile, Profiles
 from .related import RelatedNotes
 from .requests import ExecutePlacement, Lookup, Placement, Similar, Walk
 from .settings import Settings
 
 
 class Weaver:
-    def __init__(self, service, *, worker=None, semantic=None, calibration=None):
+    def __init__(self, service, *, worker=None, semantic=None, calibration=None, profiles=()):
         self.service = service
         self.settings = Settings(service)
         self.index = Index(service)
@@ -26,6 +29,7 @@ class Weaver:
         self.related = RelatedNotes(service, self.pipeline, self.settings)
         self.policy = PlacementPolicy(self.settings, calibration=calibration)
         self.executor = PlacementExecutor(self)
+        self.profiles = Profiles(self, profiles)
         self.curator = self.bibliotekar  # Legacy in-process clients.
         self.next_batch = 0
         self.completed_batch = None
@@ -38,19 +42,48 @@ class Weaver:
             if not isinstance(request.query, str) or not request.query.strip() or len(request.query.encode()) > 4096 \
                     or type(request.limit) is not int or not 1 <= request.limit <= 50:
                 raise DomainError('INVALID_QUERY', 'Use a query up to 4 KiB and 1–50 results.', 422)
-            result, _ = self.pipeline.run({'text': request.query}, scope=request.scope,
-                query_type='knowledge_lookup', filters=request.filters, deadline=request.deadline,
-                configuration={'curator_enabled': False})
+            if type(request.refine) is not bool or request.context not in {'none', 'adjacent', 'section'} \
+                    or type(request.context_bytes) is not int or not 0 <= request.context_bytes <= 65536:
+                raise DomainError('CONTEXT_BUDGET', 'Use a boolean refinement flag and a bounded context budget.', 422)
+            deadline = min(time.monotonic()+30, request.deadline or time.monotonic()+30)
+            if deadline <= time.monotonic():
+                raise DomainError('CONTEXT_DEADLINE', 'The Lookup deadline has expired.', 408)
+            parts = directions(request.query, request.planning)
+            result, graph = self.pipeline.run({'text': request.query}, scope=request.scope,
+                query_type='knowledge_lookup', filters=request.filters, deadline=deadline,
+                configuration={'curator_enabled': request.refine and self.settings.get()['curator_enabled']},
+                directions=parts)
             supported = [item for item in result['results'] if item['features'].get('supported')]
-            return {**result, 'schema': 'weaver.lookup.v1', 'results': supported[:request.limit],
-                    'status': 'supported' if supported else 'insufficient_evidence'}
+            selected = []
+            # Explicit composite questions reserve room for each direction.
+            for part in result.get('coverage', [])[1:]:
+                candidate = next((i for i in supported if i['path'] in part['paths'] and i not in selected), None)
+                if candidate and len(selected) < request.limit:
+                    selected.append(candidate)
+            selected += [i for i in supported if i not in selected][:request.limit-len(selected)]
+            evidence = packet(result, graph, selected, query=request.query, context=request.context,
+                              budget=request.context_bytes, deadline=deadline)
+            if graph is not None:
+                selected = [i for i in selected if i['path'] in {s['path'] for s in evidence['sources']}]
+            for part in result.get('coverage', []):
+                part['returned_paths'] = [p for p in part['paths'] if p in {i['path'] for i in selected}]
+            value = {**result, 'schema': 'weaver.lookup.v1', 'results': selected, 'evidence_packet': evidence,
+                     'degraded': bool(result.get('degraded') or evidence['completeness']['state'] == 'partial'),
+                     'diagnostics': selected_diagnostics(result, selected, evidence),
+                     'outcome': 'matches' if selected else 'incomplete' if evidence['completeness']['state'] == 'partial' else 'no_match',
+                     'status': 'supported' if selected else 'insufficient_evidence'}
+            if graph is not None:
+                self.index.trace(value)
+            return value
         if isinstance(request, Similar):
             return self.related.recommend({'path': request.path, 'text': request.text, 'focus': request.focus},
                                           scope=request.scope)
         if isinstance(request, Walk):
             return walk(self.service.vault, request)
         if isinstance(request, (Placement, ExecutePlacement)) and request.profile != 'crusher':
-            raise DomainError('PLACEMENT_PROFILE', 'This placement profile is not registered.', 422)
+            return self.profiles.prepare(request) if isinstance(request, Placement) else self.profiles.execute(request)
+        if isinstance(request, (Placement, ExecutePlacement)) and request.operation != 'create_and_link':
+            raise DomainError('PLACEMENT_OPERATION', 'Crusher creates and links notes; it does not move existing files.', 422)
         if isinstance(request, Placement):
             return self.place(request.understanding, request.text, request.snapshot,
                               query_id=request.operation_id, deadline=request.deadline)
@@ -60,14 +93,35 @@ class Weaver:
 
     def place(self, understanding, raw, snapshot, *, checkpoint=None, query_id=None, deadline=None):
         if deadline is not None and deadline <= time.time():
-            return self.policy.pool(snapshot, Graph(self.service.vault, Scope("crusher")),
-                                    "PLACEMENT_DEADLINE", query_id=query_id)
+            graph = Graph(self.service.vault, Scope('crusher'))
+            decision = self.policy.pool(snapshot, graph, 'PLACEMENT_DEADLINE', query_id=query_id)
+            result = {'results': [], 'task': 'placement_analysis', 'snapshot_id': graph.sha,
+                      'degraded': True, 'missing_strategies': ['PLACEMENT_DEADLINE'], 'diagnostics': {}}
+            return self.placement_evidence(decision, result, graph, raw)
         result, graph = self.pipeline.run(source_features(understanding, raw), scope=Scope("crusher"),
             query_type="placement_analysis", configuration=snapshot["configuration"],
             assessment=lambda value, graph: self.policy.assess(value, graph, snapshot["configuration"]),
             checkpoint=checkpoint, query_id=query_id,
             deadline=time.monotonic()+max(0, deadline-time.time()) if deadline else None)
-        return self.policy.decide(result, graph, snapshot)
+        decision = self.policy.decide(result, graph, snapshot)
+        return self.placement_evidence(decision, result, graph, raw)
+
+    @staticmethod
+    def placement_evidence(decision, result, graph, raw):
+        chosen = {decision['anchor'], *decision.get('evidence', {})}
+        items = [i for i in result['results'] if i['path'] in chosen]
+        for path, sha in decision.get('evidence', {}).items():
+            if path in graph.notes and path not in {i['path'] for i in items}:
+                items.append({'path': path, 'sha256': sha, 'title': graph.notes[path]['name'],
+                              'strategies': {'profile_member': 1}, 'reason': 'Supporting branch-profile evidence'})
+        if decision['anchor'] not in {i['path'] for i in items}:
+            items.append({'path': decision['anchor'], 'sha256': decision['anchor_sha'],
+                          'title': decision['anchor_name'], 'strategies': {'placement_policy': 1},
+                          'reason': decision.get('diagnostic') or 'Permitted placement anchor',
+                          'graph_paths': [decision['chain']] if decision['chain'] else []})
+        decision.update(profile='crusher', operation='create_and_link',
+            evidence_packet=packet(result, graph, items, query=raw, budget=8192), diagnostics=result['diagnostics'])
+        return decision
 
     def execute_placement(self, job, validated, placement):
         """Execute an accepted Crusher job; replay uses the existing durable journal."""
@@ -115,4 +169,4 @@ class Weaver:
 
 
 ContextIndexing = Weaver  # Legacy Python callers.
-__all__ = ["ExecutePlacement", "Lookup", "Placement", "Scope", "Similar", "Walk", "Weaver"]
+__all__ = ["ConsumerProfile", "ExecutePlacement", "Lookup", "Placement", "Scope", "Similar", "Walk", "Weaver"]
