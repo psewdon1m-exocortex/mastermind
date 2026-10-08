@@ -277,6 +277,7 @@ def test_final_signed_checks_preserve_both_catalog_ids(signed_candidate, promoti
     summary["image_ids"] = {}
     monkeypatch.setattr(promoter, "verify_local", lambda *args: summary)
     monkeypatch.setattr(promoter, "verify_registry_images", lambda *args: None)
+    monkeypatch.setattr(promoter, "policy_catalog", lambda *args: ({}, b"offline catalog fixture"))
     monkeypatch.setattr(promoter, "anonymous_download", lambda url, target, *a: shutil.copyfile(folder / target.name, target))
     report = {"checks": [{"id": identifier, "status": "DEFERRED"} for identifier in ("REL-06", "REL-09")]}
     (folder / "known-problems-pre-signing.json").write_text(json.dumps(report))
