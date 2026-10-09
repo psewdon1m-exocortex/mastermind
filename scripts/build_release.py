@@ -150,7 +150,7 @@ def build(args):
             "components": components, "bridge_version": version, "obsidian_version": "1.13.7",
             "model_sha256": model["files"]["model.onnx"]["sha256"], "minimum_source_schema": 1, "maximum_source_schema": 2, "saved_copy_protocol": 2,
             "curator_model_sha256": json.loads((ROOT/"curator-model.lock.json").read_text())["model"]["sha256"],
-            "dependencies": {"kernel": "0.3.0", "volt": "0.2.0", "saturn": "0.1.15", "chronos": "0.1.1", "neptune": (ROOT/".release/neptune.version").read_text().strip(), "gryphon": (ROOT/".release/gryphon.version").read_text().strip(), "updater": updater_version, "wyvern": wyvern["version"]},
+            "dependencies": {"kernel": "0.3.10", "volt": "0.2.11", "saturn": "0.2.7", "chronos": "0.2.7", "neptune": (ROOT/".release/neptune.version").read_text().strip(), "gryphon": (ROOT/".release/gryphon.version").read_text().strip(), "updater": updater_version, "wyvern": wyvern["version"]},
             "health_profile": "mastermind.functional.v1"},
         "files": {name: digest(body) for name, body in sorted(files.items())},
         "qualification": {"published": False, "producer_patch_lock": "docs/compatibility.json"}}

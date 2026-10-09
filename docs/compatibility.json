@@ -5,6 +5,9 @@
     "updater": {
       "baseline_version": "0.4.7",
       "baseline_source_sha": "6a9046434c2a60f9c3528afd55f70b6b0227cbf7",
+      "published_version": "0.6.13",
+      "published_tag": "updater-v0.6.13",
+      "published_source_sha": "576eaedcc826b9fa9d571c53dd80a36a59019ebc",
       "patch": "integrations/patches/updater-0.4.7-mastermind.patch",
       "patch_sha256": "eeaeb19c8b7c075164644732f8d3d0a512d39228c9748f900241a52c638e76f2",
       "modified_files": [
@@ -40,11 +43,14 @@
         "internal/state/spool_other.go",
         "internal/state/spool_test.go"
       ],
-      "status": "LOCAL_QUALIFICATION_CANDIDATE"
+      "status": "PUBLISHED_PENDING_CONSUMER_QUALIFICATION"
     },
     "neptune": {
       "baseline_version": "0.1.7",
       "baseline_source_sha": "34222db49ca9e3b18ba9ee99100e9b035010570e",
+      "published_version": "0.1.13",
+      "published_tag": "neptune-v0.1.13",
+      "published_source_sha": "4f710bac83add41c3289aba71563402874afe184",
       "patch": "integrations/patches/neptune-0.1.7-mastermind.patch",
       "patch_sha256": "53b5e2e02995fe75ae24bbb3cd78599a55dbdcc0ace8ade5c5f01ba95af6e821",
       "modified_files": [
@@ -71,11 +77,14 @@
         "tests/Neptune.Core.Tests/MastermindMigrationTests.cs",
         "tests/Neptune.Core.Tests/ResourceReaderContractTests.cs"
       ],
-      "status": "LOCAL_QUALIFICATION_CANDIDATE"
+      "status": "PUBLISHED_PENDING_CONSUMER_QUALIFICATION"
     },
     "saturn": {
       "baseline_version": "0.1.15",
       "baseline_source_sha": "3fa28fef80e6578bb24a2f3f4dac066e24d08014",
+      "published_version": "0.2.7",
+      "published_tag": "saturn-v0.2.7",
+      "published_source_sha": "d9f059c76d2daf0063bf41501f19c7062a13793a",
       "patch": "integrations/patches/saturn-0.1.15-mastermind.patch",
       "patch_sha256": "d57bcb5bb85114955acceebfe44bf572e8679d6bf88e0f23a495e49d71a5809c",
       "modified_files": [
@@ -103,11 +112,14 @@
         "packages/sync/src/resource-reader.test.ts",
         "packages/sync/src/resource-reader.ts"
       ],
-      "status": "LOCAL_QUALIFICATION_CANDIDATE"
+      "status": "PUBLISHED_PENDING_CONSUMER_QUALIFICATION"
     },
     "chronos": {
       "baseline_version": "0.1.1",
       "baseline_source_sha": "0fb6b21d59cfa26a8ae94ca7b0b1f266e3717f82",
+      "published_version": "0.2.7",
+      "published_tag": "chronos-v0.2.7",
+      "published_source_sha": "b4518d6554541eafa3b6dce0cc1648a0821a2bde",
       "patch": "integrations/patches/chronos-0.1.1-mastermind.patch",
       "patch_sha256": "0e01ff5e42651f1a172c0e8765cd05bd20b43ec17f88ede2d5695380f3300639",
       "modified_files": [
@@ -117,7 +129,7 @@
         "app/mastermind_reader.py",
         "tests/test_mastermind_reader.py"
       ],
-      "status": "LOCAL_QUALIFICATION_CANDIDATE"
+      "status": "PUBLISHED_PENDING_CONSUMER_QUALIFICATION"
     }
   }
 }
