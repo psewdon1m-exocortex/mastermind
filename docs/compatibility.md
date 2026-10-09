@@ -62,7 +62,7 @@ secrets are never included in that intent.
 
 [compatibility.json](compatibility.json) preserves the exact September producer
 baselines and exported patch hashes, and now also records the immutable published
-Updater 0.6.13, Neptune 0.1.13, Saturn 0.2.7 and Chronos 0.2.7 source tags selected
+Updater 0.6.13, Neptune 0.1.13, Saturn 0.2.8 and Chronos 0.2.7 source tags selected
 for qualification. Its `published: false` value remains a release blocker until
 the consumer host/native suite passes on that exact tuple. Do not reapply the
 historical patches over the published trees or interpret source publication alone

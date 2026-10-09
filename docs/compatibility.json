@@ -82,9 +82,9 @@
     "saturn": {
       "baseline_version": "0.1.15",
       "baseline_source_sha": "3fa28fef80e6578bb24a2f3f4dac066e24d08014",
-      "published_version": "0.2.7",
-      "published_tag": "saturn-v0.2.7",
-      "published_source_sha": "d9f059c76d2daf0063bf41501f19c7062a13793a",
+      "published_version": "0.2.8",
+      "published_tag": "saturn-v0.2.8",
+      "published_source_sha": "4474b7abd518d9b1f698fbb4672355367bf0a225",
       "patch": "integrations/patches/saturn-0.1.15-mastermind.patch",
       "patch_sha256": "d57bcb5bb85114955acceebfe44bf572e8679d6bf88e0f23a495e49d71a5809c",
       "modified_files": [

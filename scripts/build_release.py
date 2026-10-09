@@ -94,8 +94,9 @@ def build(args):
     if host_capabilities.get("schema") != "exocortex.updater.host-dependencies.v1" or host_capabilities.get("api_version") != 1:
         raise ValueError("Qualified Updater must implement host dependencies v1")
     updater_version = subprocess.check_output([str(args.updater_bundle/"updater-linux-amd64"), "version"], text=True).strip()
-    if not re.fullmatch(r"\d+\.\d+\.\d+", updater_version):
-        raise ValueError("Qualified Updater must have a stable release version")
+    pinned_updater_version = (ROOT/".release/updater.version").read_text().strip()
+    if not re.fullmatch(r"\d+\.\d+\.\d+", updater_version) or updater_version != pinned_updater_version:
+        raise ValueError("Qualified Updater must match the pinned stable release version")
     import sys
     sys.path.insert(0, str(ROOT/"packaging"))
     from release_verify import verify
@@ -150,7 +151,7 @@ def build(args):
             "components": components, "bridge_version": version, "obsidian_version": "1.13.7",
             "model_sha256": model["files"]["model.onnx"]["sha256"], "minimum_source_schema": 1, "maximum_source_schema": 2, "saved_copy_protocol": 2,
             "curator_model_sha256": json.loads((ROOT/"curator-model.lock.json").read_text())["model"]["sha256"],
-            "dependencies": {"kernel": "0.3.10", "volt": "0.2.11", "saturn": "0.2.7", "chronos": "0.2.7", "neptune": (ROOT/".release/neptune.version").read_text().strip(), "gryphon": (ROOT/".release/gryphon.version").read_text().strip(), "updater": updater_version, "wyvern": wyvern["version"]},
+            "dependencies": {"kernel": (ROOT/".release/kernel.version").read_text().strip(), "volt": (ROOT/".release/volt.version").read_text().strip(), "saturn": (ROOT/".release/saturn.version").read_text().strip(), "chronos": "0.2.7", "neptune": (ROOT/".release/neptune.version").read_text().strip(), "gryphon": (ROOT/".release/gryphon.version").read_text().strip(), "updater": updater_version, "wyvern": wyvern["version"]},
             "health_profile": "mastermind.functional.v1"},
         "files": {name: digest(body) for name, body in sorted(files.items())},
         "qualification": {"published": False, "producer_patch_lock": "docs/compatibility.json"}}
